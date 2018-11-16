@@ -1,0 +1,2 @@
+source activate ee_py3
+source deactivate

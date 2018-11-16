@@ -1,7 +1,6 @@
-
 library(raster)
 
-r<-raster("imageToCOGeoTiffExample.tif.crdownload")
+r<-raster("tmp/exampleExport01deg.B2.tif")
 plot(r[[1]])
 
 r
