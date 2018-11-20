@@ -1,0 +1,51 @@
+# deepbiosphere
+
+
+# Datasets
+
+0020452-181003121212138.zip
+
+all plants fo the world with coordinates
+
+Download Information:
+    DOI: https://doi.org/10.15468/dl.gt06xc (may take some hours before being active)
+    Creation Date: Thursday, 8 November 2018 10:13:26 o'clock GMT
+    Records included: 189054829 records from 4124 published datasets
+    Data size: 15.6 GB
+    Download format: SIMPLE_CSV
+    Filter used: BasisOfRecord: Living Specimen or Fossil or Specimen or Literature Occurrence or Material sample or Human Observation or Machine Observation or Observation
+HasCoordinate: true
+TaxonKey: Plantae
+HasGeospatialIssue: false
+
+
+0000095-181108115102211.zip
+
+all plants of US with coordinates
+
+Download Information:
+    DOI: https://doi.org/10.15468/dl.2ym5qc (may take some hours before being active)
+    Creation Date: Thursday, 8 November 2018 14:31:17 o'clock GMT
+    Records included: 5574415 records from 311 published datasets
+    Data size: 627.3 MB
+    Download format: SIMPLE_CSV
+    Filter used: BasisOfRecord: Living Specimen or Specimen or Literature Occurrence or Material sample or Human Observation or Machine Observation or Observation
+Country: United States of America
+HasCoordinate: true
+TaxonKey: Plantae
+HasGeospatialIssue: false
+
+
+all plants of US with coordinates and >1900
+Download Information:
+    DOI: https://doi.org/10.15468/dl.nypctk (may take some hours before being active)
+    Creation Date: Monday, 12 November 2018 19:45:40 o'clock GMT
+    Records included: 5125048 records from 282 published datasets
+    Data size: 573.8 MB
+    Download format: SIMPLE_CSV
+    Filter used: BasisOfRecord: Living Specimen or Specimen or Literature Occurrence or Material sample or Human Observation or Machine Observation or Observation 
+Country: United States of America 
+Year: 1901-2018 
+HasCoordinate: true 
+TaxonKey: Plantae 
+HasGeospatialIssue: false

@@ -1,1 +1,5 @@
 *tmp*
+*/*.zip
+*.zip
+sat/*tif
+sat/*tfw
