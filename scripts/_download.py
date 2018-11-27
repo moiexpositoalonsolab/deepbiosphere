@@ -11,42 +11,38 @@ import io
 import os
 import subprocess
 
-###############################################################################
-## define names
-
-#lon=-122
-#lat=36.6
-#imgname='users/moisesexpositoalonso/exampleExport'
-#imgname='users/moisesexpositoalonso/exampleExport01deg'
-foldergee='users/moisesexpositoalonso/'
-imgname='1deg_36dot6_-122'
-path=os.path.join(foldergee,imgname)
-print('Requesting path for user image: %s ...'%(path))
-
-outpath='../satellite'
+from DEEPBIO_EE import *
 #################################################################################
-# download
-
-image=ee.Image(path)
-#path = image.getDownloadUrl({
-#    'scale': 10,
-#    'crs': 'EPSG:4326',
-# #  'region': '[[-122, 36.6], [-122, 35], [-119, 36.6], [-119, 35]]',
-#    'maxPixels': '1e6'
-#})
-url=image.getDownloadUrl({})
-
-#################################################################################
+## Query server for asset names
 
 
-# Get a download URL for an image.
-print('Downloading zip image from: %s'%(url))
-r = requests.get(url)
-z = zipfile.ZipFile(io.BytesIO(r.content))
+foldergee='users/moisesexpositoalonso'
+p = subprocess.Popen(["earthengine", "ls",foldergee], stdout=subprocess.PIPE)
+out, err = p.communicate()
+assets=out.decode("utf-8").split("\n")
 
-print("Extracting zip to: %s" %(outpath))
-z.extractall(path=outpath) # extract to folder
+#imgnames= list(filter(lambda x:'122' in x, assets)) # for test with 1 image
+imgnames= list(filter(lambda x:'36' in x, assets)) # a latitudinal band
+basenames=[os.path.basename(i) for i in imgnames]
 
 
-
-
+for path,base in zip(imgnames,basenames):
+    outpath=os.path.join('../satellite',base)
+    #################################################################################
+    # download
+    print('Requesting url for user image: %s ...'%(path))
+    image=ee.Image(path)
+    url=image.getDownloadUrl({})
+    #################################################################################
+    # Get a download URL for an image.
+    print('Downloading zip image from: %s'%(url))
+    r = requests.get(url)
+    z = zipfile.ZipFile(io.BytesIO(r.content))
+    print("Extracting zip to: %s" %(outpath))
+    z.extractall(path=outpath) # extract to folder
+    #################################################################################
+    # read images
+    ima=readsatelliteimages(outpath)
+    #fil=open(os.path.join(outpath,"".join([base,".B10.tfw"]))).read() 
+    np.save(os.path.join(outpath,"".join([base,".npy"])), ima)
+    
