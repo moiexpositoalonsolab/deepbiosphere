@@ -20,13 +20,13 @@ np.random.seed(seed)
 torch.manual_seed(seed)
 
 # Analysis design
-lat=36.6
-lon=-122
+lon=36.6
+lat=-122
 step=1
 pixside=50
 imagesize=500
 breaks=int(500/pixside)
-channels=28
+
 
 
 ################################################################################
@@ -47,32 +47,24 @@ from GBIF import *
 d=readgbif(path="../gbif/pgbif.csv")
 
 # make species map
-biogrid=tensoronetaxon(step, breaks, lat,lon, d, 'Lauraceae')
-# biogrid=tensorgbif(step, breaks, lat,lon, d) ## for many classes
-print(biogrid)
+biogrid=tensoronetaxon(step, breaks, lon,lat, d, "Lauraceae")
+
 
 ################################################################################
 ## setup Net and optimizers
 ################################################################################
-from DEEPUTILS import *
-from FCBIO import *
-
-par=Params(learningrate=0.001,
-       numchannels=ima.shape[0],
-       pixside=pixside)
-
-net=Net(par)
-loss, optimizer = createLossAndOptimizer(net, par.learning_rate)
-
-print(net)
+from DEEPBIO import *
+import DEEPBIO
 
 ################################################################################
 ## training
 ################################################################################
 
+totimages=100
 batch_size=10
-n_epochs=5
-n_reps=5
+counter=0
+running_loss = 0.0
+n_epochs=10
 
 wind=[[pixside*i,(pixside)+pixside*i] for i in range(int(breaks))]
 
@@ -82,16 +74,9 @@ xtrain=np.random.choice(range(0, breaks-1), int(round(breaks * 0.7,1)) ,replace=
 ytest=[i for i in range(0, breaks-1) if i not in ytrain ]
 xtest=[i for i in range(0, breaks-1) if i not in xtrain ]
 
-biogrid[ytrain,:]
-biogrid[:,xtrain]
-biogrid[ytest,:]
-biogrid[:,xtest]
-
-
-counter=0
-running_loss = 0.0
 for epoch in range(n_epochs):
-    for i in range(n_reps):
+    running_loss = 0.0
+    for i in range(int(totimages/batch_size)):
         # get random inputs
         ys=np.random.choice(ytrain, batch_size)
         xs=np.random.choice(xtrain, batch_size)
@@ -101,7 +86,6 @@ for epoch in range(n_epochs):
         inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
         inputs=np.array(inputs, dtype='f')
         inputs=torch.from_numpy(inputs)
-        inputs=inputs.view(-1, channels*pixside*pixside) # this is for fully connected
         ###############################################
         # real labels
         labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
@@ -118,37 +102,54 @@ for epoch in range(n_epochs):
         loss_rec.backward()
         optimizer.step()
         # print progress
-        running_loss += loss_rec.item()
+        running_loss += loss_rec.data[0]
         acc=accuracy(outputs,labels)
         print('Train count: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
         counter += 1
 
-## test
-tcounter=0
-tacc=[]
-for bootstrap in range(10):
-    ys=np.random.choice(ytest, batch_size)
-    xs=np.random.choice(xtest, batch_size)
-    ###############################################
-    # load inputs
-    #    all channels  , window pos in lat   ,   window pos in lon
-    inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
-    inputs=np.array(inputs, dtype='f')
-    inputs=torch.from_numpy(inputs)
-    inputs=inputs.view(-1, channels*pixside*pixside) # this is for fully connected
-    ###############################################
-    # real labels
-    labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
-    labels=np.array(labels,dtype='f')
-    labels.shape=(10,1)
-    labels=torch.from_numpy(labels)
-    ###############################################
-    # zero the parameter gradients
-    # forward + backward + optimize
-    outputs = net(inputs)
-    acc=accuracy(outputs,labels)
-    tacc.append(acc)
-    print('Test bootstrap: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
-    tcounter += 1
 
-print('Average bootstrap accuracy: {}'.format(acc.mean()))
+
+## Compare with sklearn and SVMs
+################################################################################
+#Import the support vector machine module from the sklearn framework
+from sklearn import svm
+from sklearn.ensemble import RandomForestRegressor
+
+# testing
+ys=np.random.choice(ytrain, batch_size)
+xs=np.random.choice(xtrain, batch_size)
+ys=ytrain
+xs=xtrain
+
+#Label x and y variables from our dataset
+inputs=inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # 
+inputs=np.array(inputs, dtype='f')
+inputs_mid=pd.DataFrame( inputs[:,:,25,25]  )
+inputs_df=pd.DataFrame(inputs_mid)
+
+labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
+labels_df=pd.DataFrame(labels)
+rf = RandomForestRegressor(n_estimators = 1000, random_state = 42)
+rf.fit(inputs_df, labels);
+
+acc = np.corrcoef( rf.predict(inputs_mid) , labels)[1,0]
+print("Accuracy\t{}" .format(acc)  )
+
+
+#test
+ys=np.random.choice(ytest, batch_size)
+xs=np.random.choice(xtest, batch_size)
+
+inputs=inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] #
+inputs=np.array(inputs, dtype='f')
+inputs_mid=pd.DataFrame( inputs[:,:,25,25]  )
+
+labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
+
+
+acc = np.corrcoef( rf.predict(inputs_mid) , labels)[1,0]
+print("Accuracy\t{}" .format(acc)  )
+
+
+
+

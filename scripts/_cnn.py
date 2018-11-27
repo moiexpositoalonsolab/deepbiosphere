@@ -26,7 +26,7 @@ step=1
 pixside=50
 imagesize=500
 breaks=int(500/pixside)
-channels=28
+
 
 
 ################################################################################
@@ -49,13 +49,13 @@ d=readgbif(path="../gbif/pgbif.csv")
 # make species map
 biogrid=tensoronetaxon(step, breaks, lat,lon, d, 'Lauraceae')
 # biogrid=tensorgbif(step, breaks, lat,lon, d) ## for many classes
-print(biogrid)
+#print(biogrid)
 
 ################################################################################
 ## setup Net and optimizers
 ################################################################################
 from DEEPUTILS import *
-from FCBIO import *
+from CNNBIO import *
 
 par=Params(learningrate=0.001,
        numchannels=ima.shape[0],
@@ -64,7 +64,7 @@ par=Params(learningrate=0.001,
 net=Net(par)
 loss, optimizer = createLossAndOptimizer(net, par.learning_rate)
 
-print(net)
+#print(net)
 
 ################################################################################
 ## training
@@ -90,6 +90,7 @@ biogrid[:,xtest]
 
 counter=0
 running_loss = 0.0
+print('run\tnumber\tloss\taccuracy')
 for epoch in range(n_epochs):
     for i in range(n_reps):
         # get random inputs
@@ -101,7 +102,6 @@ for epoch in range(n_epochs):
         inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
         inputs=np.array(inputs, dtype='f')
         inputs=torch.from_numpy(inputs)
-        inputs=inputs.view(-1, channels*pixside*pixside) # this is for fully connected
         ###############################################
         # real labels
         labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
@@ -120,7 +120,8 @@ for epoch in range(n_epochs):
         # print progress
         running_loss += loss_rec.item()
         acc=accuracy(outputs,labels)
-        print('Train count: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
+        #print('Train count: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
+        print('run\ttrain\t%i\t%f\t%f' %(counter,running_loss,acc))
         counter += 1
 
 ## test
@@ -135,7 +136,6 @@ for bootstrap in range(10):
     inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
     inputs=np.array(inputs, dtype='f')
     inputs=torch.from_numpy(inputs)
-    inputs=inputs.view(-1, channels*pixside*pixside) # this is for fully connected
     ###############################################
     # real labels
     labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
@@ -148,7 +148,15 @@ for bootstrap in range(10):
     outputs = net(inputs)
     acc=accuracy(outputs,labels)
     tacc.append(acc)
-    print('Test bootstrap: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
+    print('run\ttest\t%i\t%f\t%f' %(tcounter,np.nan,acc))
     tcounter += 1
-
 print('Average bootstrap accuracy: {}'.format(acc.mean()))
+
+
+################################################################################
+### To save model
+# https://cs230-stanford.github.io/pytorch-getting-started.html
+
+# Painless Debugging
+# With its clean and minimal design, PyTorch makes debugging a breeze. You can place breakpoints using
+#pdb.set_trace() at any line in your code. You can then execute further computations, examine the PyTorch Tensors/Variables and pinpoint the root cause of the error.
