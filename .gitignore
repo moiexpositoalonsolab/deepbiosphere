@@ -3,3 +3,4 @@
 *.zip
 sat/*tif
 sat/*tfw
+*__pycache__

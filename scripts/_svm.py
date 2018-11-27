@@ -35,7 +35,7 @@ breaks=int(500/pixside)
 from EEBIO import *
 
 # Read all images under sta folder
-ima=readsatelliteimages('../sat')
+ima=readsatelliteimages('../satellite')
 #fi='../sat/1deg_36dot6_-122.B10.tif'
 
 ################################################################################

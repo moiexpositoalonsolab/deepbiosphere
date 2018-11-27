@@ -35,7 +35,7 @@ channels=28
 from EEBIO import *
 
 # Read all images under sta folder
-ima=readsatelliteimages('../sat')
+ima=readsatelliteimages('../satellite')
 #fi='../sat/1deg_36dot6_-122.B10.tif'
 
 ################################################################################
@@ -49,7 +49,7 @@ d=readgbif(path="../gbif/pgbif.csv")
 # make species map
 biogrid=tensoronetaxon(step, breaks, lat,lon, d, 'Lauraceae')
 # biogrid=tensorgbif(step, breaks, lat,lon, d) ## for many classes
-print(biogrid)
+#print(biogrid)
 
 ################################################################################
 ## setup Net and optimizers
@@ -64,7 +64,7 @@ par=Params(learningrate=0.001,
 net=Net(par)
 loss, optimizer = createLossAndOptimizer(net, par.learning_rate)
 
-print(net)
+#print(net)
 
 ################################################################################
 ## training
@@ -90,6 +90,7 @@ biogrid[:,xtest]
 
 counter=0
 running_loss = 0.0
+print('run\tnumber\tloss\taccuracy')
 for epoch in range(n_epochs):
     for i in range(n_reps):
         # get random inputs
@@ -120,35 +121,23 @@ for epoch in range(n_epochs):
         # print progress
         running_loss += loss_rec.item()
         acc=accuracy(outputs,labels)
-        print('Train count: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
+        print('run\t%i\t%f\t%f' %(counter,running_loss,acc))
         counter += 1
 
-## test
-tcounter=0
-tacc=[]
-for bootstrap in range(10):
-    ys=np.random.choice(ytest, batch_size)
-    xs=np.random.choice(xtest, batch_size)
-    ###############################################
-    # load inputs
-    #    all channels  , window pos in lat   ,   window pos in lon
-    inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
-    inputs=np.array(inputs, dtype='f')
-    inputs=torch.from_numpy(inputs)
-    inputs=inputs.view(-1, channels*pixside*pixside) # this is for fully connected
-    ###############################################
-    # real labels
-    labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
-    labels=np.array(labels,dtype='f')
-    labels.shape=(10,1)
-    labels=torch.from_numpy(labels)
-    ###############################################
-    # zero the parameter gradients
-    # forward + backward + optimize
-    outputs = net(inputs)
-    acc=accuracy(outputs,labels)
-    tacc.append(acc)
-    print('Test bootstrap: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
-    tcounter += 1
 
-print('Average bootstrap accuracy: {}'.format(acc.mean()))
+
+################################################################################
+### To save model
+# https://cs230-stanford.github.io/pytorch-getting-started.html
+
+PATH="../nets/fc.tar"
+torch.save({
+            'epoch': epoch,
+            'model_state_dict': net.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss_rec,
+            }, PATH)
+
+modstored=torch.load(PATH)
+model=modstored["model_state_dic"]
+

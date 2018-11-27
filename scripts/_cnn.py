@@ -35,8 +35,8 @@ breaks=int(500/pixside)
 from EEBIO import *
 
 # Read all images under sta folder
-ima=readsatelliteimages('../sat')
-#fi='../sat/1deg_36dot6_-122.B10.tif'
+ima=readsatelliteimages('../satellite')
+#fi='../satellite/1deg_36dot6_-122.B10.tif'
 
 ################################################################################
 ### Read gbif dataset and make the label tensor
@@ -121,41 +121,50 @@ for epoch in range(n_epochs):
         running_loss += loss_rec.item()
         acc=accuracy(outputs,labels)
         #print('Train count: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
-        print('run\ttrain\t%i\t%f\t%f' %(counter,running_loss,acc))
+        print('run\t%i\ttrain%i\t%f\t%f' %(batch_size*(i+1)*(epoch+1),counter,running_loss,acc))
+        ###############################################
+        ###############################################
+        # test
+        ys=np.random.choice(ytest, batch_size)
+        xs=np.random.choice(xtest, batch_size)
+        ###############################################
+        # load inputs
+        #    all channels  , window pos in lat   ,   window pos in lon
+        inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
+        inputs=np.array(inputs, dtype='f')
+        inputs=torch.from_numpy(inputs)
+        ###############################################
+        # real labels
+        labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
+        labels=np.array(labels,dtype='f')
+        labels.shape=(10,1)
+        labels=torch.from_numpy(labels)
+        # predict
+        outputs = net(inputs)
+        acc=accuracy(outputs,labels)
+        print('run\t%i\ttest%i\t%f\t%f' %(batch_size*(i+1)*(epoch+1),counter,running_loss,acc))
         counter += 1
-
-## test
-tcounter=0
-tacc=[]
-for bootstrap in range(10):
-    ys=np.random.choice(ytest, batch_size)
-    xs=np.random.choice(xtest, batch_size)
-    ###############################################
-    # load inputs
-    #    all channels  , window pos in lat   ,   window pos in lon
-    inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
-    inputs=np.array(inputs, dtype='f')
-    inputs=torch.from_numpy(inputs)
-    ###############################################
-    # real labels
-    labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
-    labels=np.array(labels,dtype='f')
-    labels.shape=(10,1)
-    labels=torch.from_numpy(labels)
-    ###############################################
-    # zero the parameter gradients
-    # forward + backward + optimize
-    outputs = net(inputs)
-    acc=accuracy(outputs,labels)
-    tacc.append(acc)
-    print('run\ttest\t%i\t%f\t%f' %(tcounter,np.nan,acc))
-    tcounter += 1
-print('Average bootstrap accuracy: {}'.format(acc.mean()))
 
 
 ################################################################################
 ### To save model
 # https://cs230-stanford.github.io/pytorch-getting-started.html
+
+PATH="../nets/cnn.tar"
+torch.save({
+            'epoch': epoch,
+            'model_state_dict': net.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': loss_rec,
+            }, PATH)
+
+modstored=torch.load(PATH)
+model=modstored["model_state_dic"]
+
+
+#model.load_state_dict(torch.load(PATH))
+#model.eval()
+#model.train()
 
 # Painless Debugging
 # With its clean and minimal design, PyTorch makes debugging a breeze. You can place breakpoints using
