@@ -13,7 +13,7 @@ from os import listdir
 from os.path import isfile, join
 from PIL import Image
 import numpy as np
-import math
+
 
 ## To work with Earth Engine
 import ee
@@ -43,12 +43,25 @@ def findtiffiles(path, ext='.tif'):
 def readtif2np(fi):
     im=Image.open(fi)
     im=np.array(im)
+    im=np.nan_to_num(im)
     im[im < (-1 * precfloat)] =0
     im[im > (precfloat)] =0 # better brute force it
-    im = (im - im.mean()) / (math.sqrt(im.var()))
+#    im = (im - im.mean()) / (im.var()+0.0001)
     return(im)
 
 def readsatelliteimages(path):
     files=findtiffiles(path)
     r=[readtif2np(fi) for fi in files]
     return(np.array(r))
+
+def subsetimagetensor(ima,y,x,z,linearize='cnn',pixside=50,breaks=10):
+    wind=[[pixside*i,(pixside)+pixside*i] for i in range(int(breaks))]
+    inputs=[ ima[l, : , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for l,i,j in zip(z,y,x)] # the [] important to define dymensions
+    inputs=np.array(inputs, dtype='f')
+    inputs=torch.from_numpy(inputs)
+    if(args.nn=="fc"):
+        inputs=inputs.view(-1, par.numchannels*par.pixside*par.pixside) # this is for fully connected
+    return(inputs)
+
+
+

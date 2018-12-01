@@ -19,8 +19,8 @@ def makegrid(n):
     points=product(a,repeat=2) #only allow repeats for (i,j), (j,i) pairs with i!=j
     return(np.asarray(list(points)) )
 
-def maketensor(x,y,z):
-    a = np.zeros((x, y, z))
+def maketensor(z,y,x):
+    a = np.zeros((z, y, x))
     return(a)
 
 def makespphash(iterable):
@@ -67,7 +67,9 @@ def iffamily(val,fam):
     else:
         return(0)
 
-def tensoronetaxon(step, breaks, lat,lon, d, sppname):
+def tensoronetaxon(step, breaks, lat,lon, d, sppname,vtype="freq"):
+    if vtype not in ["freq","yesno"]:
+        Exception("The type of raster has to be either 'freq' or 'yesno'")
     # Subset to SF
     d_ = subcoor(d,lat,lon)
     cactusnum=int(d_[d_['family'] == sppname].size)
@@ -88,24 +90,66 @@ def tensoronetaxon(step, breaks, lat,lon, d, sppname):
     # total observation per grid
     totobs=tens.sum(axis=0)
     # % of cactaceae
-    cactae=tens[1,:,:]
-    # cactae=tens[1,:,:]/(totobs+0.0001)
-    # cactae=(cactae>0.0001)*1
-    cactae=(cactae>0)*1
+    if vtype=="freq":
+        cactae=tens[1,:,:]/(totobs+0.0001)
+    else:
+        cactae=tens[1,:,:]
+        cactae=(cactae>0)*1
     return(cactae)
 
+def key_for_value(d, value):
+    # this will be useful for final implementation
+    return(list(d.keys())[list(d.values()).index(value)])
+
+def make_sppdic(spp,total):
+    sppdic={}
+    for i in range(0,total):
+        sppdic[i]=spp[i]
+    return(sppdic)
+
+def tensorgbif(lat,lon,step, breaks,d, sppdic,vtype="yesno"):
+    if vtype not in ["freq","yesno"]:
+        Exception("The type of raster has to be either 'freq' or 'yesno'")
+    # Subset to SF
+    d_ = subcoor(d,lat,lon)
+    ## make grid steps
+    sb= step/breaks
+    xwind=[[lon+(sb*i),lon+(sb*(i+1))]  for i in range(int(breaks))]
+    ywind=[[lat+(sb*i),lat+(sb*(i+1))]  for i in range(int(breaks))]
+    ywind.reverse() 
+    # reverse necessary, as 2d numpy array the first dimension is
+    # the vertical but starts oppositely as we measure lat  |  
+    #                                                       v             
+    # the horizontal dimension works intuitively ->
+    ##########################################################
+    # Fill tensor
+    tens=maketensor(len(sppdic),breaks+1,breaks+1)#only for cactaceae
+    for index, r in d_.iterrows():
+        # print(r)
+        da=whichwindow(ywind,r[1])
+        do=whichwindow(xwind,r[2])
+        dspp=key_for_value(sppdic,r[0])
+        tens[dspp,da,do]= tens[dspp,da,do] +1
+    # total observation per grid
+    totobs=tens.sum(axis=0)
+    # % of cactaceae
+    if vtype=="freq":
+        cactae=tens[:,:,:]/(totobs+0.0001)
+    else:
+        cactae=tens[:,:,:]
+        cactae=(cactae>0)*1
+    return(totobs,cactae) 
+
+def vec_tensorgbif(latlon,step,breaks,d,sppdic,vtype):
+    tots=[]
+    spp=[]
+    for lalo in latlon:
+        to,sp = tensorgbif(float(lalo[0]),float(lalo[1]),step, breaks, d, sppdic,vtype)
+        tots.append(to)
+        spp.append(sp)
+    return(tots,spp)
 
 
-
-
-
-
-# def make_sppdic(spp,total):
-#     sppdic={}
-#     for i in range(0,total):
-#         sppdic[i]=spp[i]
-#     return(sppdic)
-#
 # def make_cacdic(spp,total):
 #     sppdic={'Cactaceae':1 , 'NoCactaceae':0}
 #     return(sppdic)
@@ -118,9 +162,6 @@ def tensoronetaxon(step, breaks, lat,lon, d, sppname):
 #         lon=lon+windowstep
 #     return(locdic)
 
-def key_for_value(d, value):
-    # this will be useful for final implementation
-    return(list(d.keys())[list(d.values()).index(value)])
 
 # # generate translators of location
 # londic=make_locdic(lon,breaks+1)

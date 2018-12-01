@@ -18,10 +18,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 ###############################################################################
-## Helpers
-def outputSize(in_size, kernel_size, stride, padding):
-    output = int((in_size - kernel_size + 2*(padding)) / stride) + 1
-    return(output)
+
 
 ## Fully connected NN
 class Net(nn.Module):
@@ -37,11 +34,12 @@ class Net(nn.Module):
         """
         super(Net, self).__init__()
         self.num_channels = par.num_channels
+        self.categories = par.categories
         self.pix_side = par.pix_side
         self.hid = 200
         self.fc1 = nn.Linear(in_features=par.num_channels*self.pix_side*self.pix_side, out_features=self.hid) # image dimensions 50
         self.fc2 = nn.Linear(self.hid, self.hid)
-        self.fc3 = nn.Linear(self.hid, 1) # cactacea % | i can do 2 if cactacea/not | but perhaps output can be a tensor itself of 2*1
+        self.fc3 = nn.Linear(self.hid, self.categories) # cactacea % | i can do 2 if cactacea/not | but perhaps output can be a tensor itself of 2*1
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
