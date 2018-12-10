@@ -23,25 +23,53 @@ def outputSize(in_size, kernel_size, stride, padding):
     output = int((in_size - kernel_size + 2*(padding)) / stride) + 1
     return(output)
 
+# class Net(nn.Module):
+#     def __init__(self,par):
+#         self.pix_side=par.pix_side
+#         self.categories=par.categories
+#         self.num_channels=par.num_channels
+#         #
+#         super(Net, self).__init__()
+#         self.conv1 = nn.Conv2d(self.num_channels, 64, 3,1,1)
+#         self.conv2 = nn.Conv2d(64, 128, 3,1,1)
+#         self.conv3 = nn.Conv2d(128, 256, 3,1,1)
+#         self.pool = nn.MaxPool2d(2, 2)
+#         self.pool2 = nn.MaxPool2d(5, 5)
+#         self.fc1 = nn.Linear(256 * 5 * 5, 120)
+#         self.fc2 = nn.Linear(120, 84)
+#         self.fc3 = nn.Linear(84, self.categories)
+#     def forward(self, x):
+#         x = self.pool(F.relu(self.conv1(x)))
+#         x = self.pool(F.relu(self.conv2(x)))
+#         x = self.pool2(F.relu(self.conv3(x)))
+#         x = x.view(-1, 256 * 5 * 5)
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+#         x = self.fc3(x)
+#         return(torch.sigmoid(x))
+
+
 class Net(nn.Module):
     def __init__(self,par):
         self.pix_side=par.pix_side
         self.categories=par.categories
+        self.num_channels=par.num_channels
+        #
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(30, 64, 3,1,1) 
-        self.pool = nn.MaxPool2d(2, 2)
+        self.conv1 = nn.Conv2d(self.num_channels, 64, 3,1,1)
         self.conv2 = nn.Conv2d(64, 128, 3,1,1)
-        self.fc1 = nn.Linear(128 * 25 * 25, 120) 
+        self.pool = nn.MaxPool2d(5, 5)
+        self.fc1 = nn.Linear(128 * 4 * 4, 120)
         self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, self.categories) 
+        self.fc3 = nn.Linear(84, self.categories)
     def forward(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 128 * 25 * 25)# changed 16 for 50
+        x = x.view(-1, 128 * 4 * 4)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
-        return x
+        return(torch.sigmoid(x))
 
 # Convoluted network
 #class Net(torch.nn.Module):

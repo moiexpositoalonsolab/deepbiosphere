@@ -46,7 +46,6 @@ def readtif2np(fi):
     im=np.nan_to_num(im)
     im[im < (-1 * precfloat)] =0
     im[im > (precfloat)] =0 # better brute force it
-#    im = (im - im.mean()) / (im.var()+0.0001)
     return(im)
 
 def readsatelliteimages(path):

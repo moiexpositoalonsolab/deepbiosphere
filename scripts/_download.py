@@ -1,5 +1,5 @@
 """
-Download user assets from Google Earth Engine 
+Download user assets from Google Earth Engine
 @author: moisesexpositoalonso@gmail.com
 
 """
@@ -17,7 +17,7 @@ ee.Initialize()
 
 from DEEPBIO_EE import *
 
-force=True
+force=False
 #################################################################################
 ## Query server for asset names
 
@@ -43,7 +43,7 @@ raster=[]
 #path,base = list(zip(imgnames,basenames))[0]
 for path,base in zip(imgnames,basenames):
     outpath=os.path.join(satellitepath,base)
-    #################################################################################
+    ################################################################################
     if(os.path.exists(outpath) and not force):
         print("Image folder already found: %s" %(outpath))
     else:
@@ -58,24 +58,28 @@ for path,base in zip(imgnames,basenames):
         z = zipfile.ZipFile(io.BytesIO(r.content))
         print("Extracting zip to: %s" %(outpath))
         z.extractall(path=outpath) # extract to folder
-        #################################################################################
+        ################################################################################
     # read images
     ima=readsatelliteimages(outpath)
     print(ima.shape)
     ima=ima[:,0:500,0:500]
     print("Loaded all images")
-    ####fil=open(os.path.join(outpath,"".join([base,".B10.tfw"]))).read()# this can be used to get image information 
-    #save 
+    ####fil=open(os.path.join(outpath,"".join([base,".B10.tfw"]))).read()# this can be used to get image information
+    #save
     np.save(os.path.join(outpath,"".join([base,".npy"])), ima)
     raster.append(ima)
 
 
 # save
-raster=np.array(raster)
-np.save(os.path.join(satellitepath,"".join(["rasters",".npy"])), raster)
+ima=np.array(raster)
+np.save(os.path.join(satellitepath,"".join(["rastersraw",".npy"])), ima)
+print("Normalizing all images")
+for i in range(ima.shape[1]): # manual normalization per layer
+    ima[:,i,:,:] =  (ima[:,i,:,:] -  ima[:,i,:,:].mean())  / ima[:,i,:,:].var()
+np.save(os.path.join(satellitepath,"".join(["rasters",".npy"])), ima)
 
-f=open(os.path.join(satellitepath,"".join(["rasters",".info"])),"w") 
+f=open(os.path.join(satellitepath,"".join(["rasters",".info"])),"w")
 for path,base in zip(imgnames,basenames):
     f.write("{}\n".format(base))
-
 f.close()
+print("Done")
