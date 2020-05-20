@@ -1,88 +1,208 @@
-"""
-Defines Deep Neural Network implementations with torch for
-Biodiversity Geo-Modeling
-
-@author: moisesexpositoalonso@gmail.com
-"""
-
-
+import pandas as pd
 import os
+from os import listdir
+from os.path import isfile, join
+import argparse
+import time
+from PIL import Image
 import numpy as np
-import operator
-from functools import reduce
-
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-
-###############################################################################
-## Helpers
-def outputSize(in_size, kernel_size, stride, padding):
-    output = int((in_size - kernel_size + 2*(padding)) / stride) + 1
-    return(output)
-
-
-class Net(nn.Module):
-    """
-    Checking - it requires more training time, 1 layer more 
-    """
-    def __init__(self, categories, num_channels):
-#         self.pix_side=par.pix_side
-
-        super(Net, self).__init__()
-        self.categories=categories
-        self.num_channels=num_channels
-#         self.kernel = kernel
-        self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
-        self.conv2 = nn.Conv2d(64, 128, 3,1,1)
-        self.conv3 = nn.Conv2d(128, 256, 3,1,1)
-        self.conv4 = nn.Conv2d(256, 256, 3,1,1)        
-        self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.pool5 = nn.MaxPool2d(5, 5)
-        self.famfc = nn.Linear(256*6*6, 1858) # 1858 comes from # families in us dataset 
-        #TODO: remove magic numbers & make constants
-        self.genfc = nn.Linear(1858, 8668) #TODO: figure out what the heck these constants are.  Think they're from taxonomy of the different plant species?
-        self.specfc = nn.Linear(8668, self.categories) 
+import torch.nn.functional as F
+import random
+import torchvision.transforms as transforms
+import math
+from tqdm import tqdm
+from deepbiosphere.scripts import GEOCELF_CNN as cnn
+from deepbiosphere.scripts import paths
         
-        
-    def forward(self, x): 
-        x = self.pool2(F.relu(self.conv1(x)))
-        x = self.pool2(F.relu(self.conv2(x)))
-        #x = F.relu(self.conv2(x))
-        x = self.pool2(F.relu(self.conv3(x)))
-        x = F.relu(self.conv4(x))
-        x = self.pool5(x)
-        #x = self.pool5(F.relu(self.conv5(x)))
-        x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
-        x = F.relu(self.famfc(x))
-        x = F.relu(self.genfc(x))
-        x = self.specfc(x)
-        return(x)
-#         return(torch.sigmoid(x))
+# https://gist.github.com/weiaicunzai/2a5ae6eac6712c70bde0630f3e76b77b        
+def topk_acc(output, target, topk=(1,), device=None):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    batch_size = target.size(0)
+    _, pred = output.topk(maxk, 1, True, True)
+    targ = target.unsqueeze(1).repeat(1,maxk).to(device)
+    correct = pred.eq(targ)
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    del targ
+    return res
 
-# class Params():
-#     """
-#     Store hyperparameters to define Net
-#     """
-#     def __init__(self,
-#                 num_channels,
-#                 pix_side,
-#                 categories,
-#                 net_type='cnn',
-#                 optimal="ADAM",
-#                 loss_fn="MSE",
-#                 loss_w=None,
-#                 learning_rate=0.001,
-#                 momentum=0.9):
-#         self.learning_rate=learning_rate
-#         self.num_channels=num_channels
-#         self.pix_side=pix_side
-#         self.net_type=net_type
-#         self.categories=categories
-#         self.optimal=optimal
-#         self.momentum=momentum
-#         self.loss_fn=loss_fn
-#         self.loss_w=loss_w   
+def us_image_from_id(id_, pth):
+    abcd = id_ % 10000
+    ab, cd = math.floor(abcd/100), abcd%100
+    cdd = math.ceil((cd+ 1)/5)
+    cdd = f"0{cdd}"  if cdd < 10 else f"{cdd}"
+    ab = f"0{ab}" if id_ / 1000 > 1 and ab < 10 else ab
+    cd = f"0{cd}" if id_ / 1000 > 1 and cd < 10 else cd
+    subpath = f"patches_us_{cdd}/{cd}/{ab}/"
+    alt = f"{pth}{subpath}{id_}_alti.npy"
+    rgbd = f"{pth}{subpath}{id_}.npy"    
+    np_al = np.load(alt)
+    np_img = np.load(rgbd)
+    np_al = np.expand_dims(np_al, 2)
+    np_all = np.concatenate((np_al, np_img), axis=2)
+    return np_all
+
+def tensor_from_ids(ids, img_pth, device):
+    x_tens = [us_image_from_id(id_, img_pth) for id_ in ids]
+    x_tens = torch.from_numpy(np.stack(x_tens)) #should be size 256 x 256 x 6 x batchsize
+    x_tens = x_tens.permute(0,3,1,2)# reshape to shape torch expects: ((N,Cin,H,W))
+    return x_tens
+
+def get_gbif_data(pth, country):
+    ## Grab GBIF observation data
+    train_pth = f"{pth}occurrences/occurrences_{country}_train.csv"
+    test_pth = f"{pth}occurrences/occurrences_{country}_test.csv"
+    train = pd.read_csv(train_pth, sep=';')
+    test = pd.read_csv(test_pth, sep=';')  
+    return train, test
+  
+    
+def split_train_test(full_dat, split_amt):
+    #grab 20% of labeled data for holdout testing
+    idxs = np.random.permutation(len(full_dat))
+    split = int(len(idxs)*split_amt)
+    training_idx, test_idx = idxs[:split], idxs[split:]
+    training, test = full_dat[training_idx,:], full_dat[test_idx,:]  
+    assert not np.array_equal(training[:20], full_dat[:20]), "permutation didn't work!"
+    return training, test
+
+def split_id_specs(obs_data, device):
+    obs_ids, obs_spec_ids = obs_data[:,0], obs_data[:,1]
+    obs_spec_ids = torch.from_numpy(obs_spec_ids)
+    obs_spec_ids = obs_spec_ids
+    return obs_ids, obs_spec_ids
+
+def shuffle_data(obs, labels):
+    indxs = torch.randperm(len(labels))
+    return  obs[indxs], labels[indxs]
+    
+
+def batch_data(obs, labels, batch_size):
+#     assert training_imgs.shape[0] == len(train_ids), "number of training examples and labels don't match!"
+    curr_obs, curr_labels = shuffle_data(obs, labels)
+    label_bat = torch.split(curr_labels, batch_size)
+    obs_bat = torch.split(curr_obs, batch_size)
+    return obs_bat, label_bat
+
+def main():
+    
+    device = torch.device(f"cuda:{ARGS.device}" if ARGS.device is not None else "cpu")
+    print(f'using device: {device}')
+    
+    # load observation data
+    print("loading labels")
+    pth = paths.GEOCELF_DIR
+
+    us_train, _ = get_gbif_data(pth, 'us')
+    spec_2_id = {k:v for k, v in zip(us_train.species_id.unique(), np.arange(len(us_train.species_id.unique())))}
+    us_train['species_id'] = us_train['species_id'].map(spec_2_id)
+    assert us_train['species_id'].max()+1 == len(us_train.species_id.unique()), f"map unsuccessful. {us_train['species_id'].max()} vs {len(us_train.species_id.unique())}"
+    # Grab only obs id, species id because lat /lon not necessary at the moment
+    us_train = us_train[['id', 'species_id']]
+    print("labels loaded")
+
+    #grab 20% of labeled data for holdout testing
+    training, test = split_train_test(us_train.to_numpy(), .8)
+    train_ids, train_spec_ids = split_id_specs(training, device)
+    test_ids, test_spec_ids = split_id_specs(test, device)
+    
+    print("loading images")    
+    tick = time.time()
+    training_imgs = tensor_from_ids(train_ids, f"{paths.GEOCELF_DIR}patches_us/", ARGS.device)
+    test_imgs = tensor_from_ids(test_ids, f"{paths.GEOCELF_DIR}patches_us/", ARGS.device)
+    tock = time.time()
+    diff = tock - tick
+    print(f"images loaded. Took {diff} seconds")
+    
+    # set up net
+    num_channels = training_imgs.shape[1]# num_channels should be idx 1 in the order torch expects
+    num_cats = len(us_train.species_id.unique())
+    net= cnn.Net(categories=num_cats, num_channels=num_channels)
+    loss = torch.nn.CrossEntropyLoss()
+    optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
+    model = net.to(device)
+
+    
+
+
+    batch_size=ARGS.batch_size
+    n_epochs=ARGS.epoch
+    n_minibatches = math.ceil(len(train_ids) / batch_size)
+
+    
+    for epoch in range(n_epochs):
+        net.train()
+        loss_meter = []
+        with tqdm(total=(n_minibatches)) as prog:
+            
+            train_bat, label_bat = batch_data(training_imgs, train_spec_ids, batch_size)
+
+        #             assert len(label_bat) == len(train_bat), f"input: {len(label_bat)}, label: {len(train_bat)} batches aren't sized correctly!"
+#             assert label_bat[-1].shape[0] == train_bat[-1].shape[0], "number of training examples and labels don't match!"
+            for batch, labels in zip(train_bat, label_bat):
+                batch = batch.to(device)
+                labels = labels.to(device)                                     
+                # zero the parameter gradients
+                optimizer.zero_grad()
+                # forward + backward + optimize
+                outputs = net(batch.float()) # convert to float so torch happy
+#                 assert outputs.shape[0] == len(labels); f"your logits {outputs.shape} and label {len(labels)} sizes do not match up!"
+                # compute loss
+                loss_rec = loss(outputs, labels) 
+                loss_rec.backward()
+                optimizer.step()
+                # update tqdm
+                prog.update(1)
+                # update loss tracker
+                loss_meter.append(loss_rec.item())                                     
+                
+        print (f"Average Train Loss: {np.stack(loss_meter).mean(0)}")
+        # test
+
+        #TODO: add batching to eval loop
+        net.eval()
+        curr_test, curr_labels = shuffle_data(test_imgs, test_spec_ids)
+        curr_test = curr_test[:20]
+        test_labels = curr_labels[:20]
+        curr_test = curr_test.to(device)
+        
+        outputs = net(curr_test.float()) 
+        accs = topk_acc(outputs, test_labels, topk=(30,1), device=device) # magic no from CELF2020
+        print(f"average top 30 accuracy: {accs[0]} average top1 accuracy: {accs[1]}")
+        del outputs
+        
+        # save model 
+        print(f"saving model for epoch {epoch}")
+        PATH=f"{paths.NETS_DIR}cnn_{ARGS.exp_id}.tar"
+        torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': net.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'loss': loss_rec,
+                    'accuracy': accs
+                    }, PATH)
+
+
+
+if __name__ == "__main__":
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lr", type=float, help="learning rate of model",required=True)
+    parser.add_argument("--epoch", type=int, help="how many epochs to train the model")
+    parser.add_argument("--device", type=int, help="which gpu to send model to, don't put anything to use cpu")
+    parser.add_argument("--exp_id", type=str, help="experiment id of this run", required=True)
+    parser.add_argument("--seed", type=int, help="random seed to use")
+    parser.add_argument("--batch_size", type=int, help="size of batches to use", default=256)    
+    ARGS, _ = parser.parse_known_args()
+    # Seed
+    if ARGS.seed is not None:
+        np.random.seed(ARGS.seed)
+        torch.manual_seed(ARGS.seed)
+    main()
