@@ -1,8 +1,9 @@
-import pandas as pd
-import os
-from os import listdir
-from os.path import isfile, join
+"""
+Train a Deep Neural Network with Biodiversity labels
+@author: moisesexpositoalonso@gmail.com
+"""
 
+import os
 from PIL import Image
 import numpy as np
 
@@ -11,144 +12,138 @@ import torch.nn as nn
 import torch.nn.functional as F
 import random
 import torchvision.transforms as transforms
-import math
 
+# device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device: {}".format(device))
 
 # Seed
 seed = 1
-np.random.seed(seed)
-torch.manual_seed(seed)
+np.random.seed(seed);
+torch.manual_seed(seed);
 
-# Analysis design
-lon=36.6
-lat=-122
-step=1
-pixside=50
-imagesize=500
-breaks=int(500/pixside)
-
-
-
-################################################################################
-## Import satellite images
-################################################################################
-from EEBIO import *
-
-# Read all images under sta folder
-ima=readsatelliteimages('../satellite')
-#fi='../sat/1deg_36dot6_-122.B10.tif'
+#os.chdir("/ebio/abt6/mexposito/ebio/abt6_projects7/ath_1001G_field/deepbiosphere/scripts")
 
 ################################################################################
 ### Read gbif dataset and make the label tensor
 ################################################################################
-from GBIF import *
+from UTILS import *
 
-# read gbif dataset
-d=readgbif(path="../gbif/pgbif.csv")
+spptensor=np.load("../gbif/gbiftensor.npy")
+obsdensity=np.load("../gbif/gbifdensity.npy")
+sppdic=np.load("../gbif/gbifdic.npy").item()
+sppc=spptensor.sum(axis=0).sum(axis=1).sum(axis=1)
 
-# make species map
-biogrid=tensoronetaxon(step, breaks, lon,lat, d, "Lauraceae")
+allspp=True
+if (allspp):
+    sppt=np.array([spptensor[:,i,:,:] for i in range(len(sppc)) if sppc[i] >10])
+    sppt=sppt.transpose(1,0,2,3)
+    spptensor=sppt
+else:
+    spptensor=np.arraY(spptensor[:,key_for_value(sppdic,"Cactaceae"):key_for_value(sppdic,"Cactaceae")+1,:,:])
+
+spptensor.sum(axis=0).sum(axis=1).sum(axis=1)
+spptensor.shape
+
+spptensor=torch.from_numpy(spptensor)
+spptensor=spptensor.type('torch.FloatTensor')
 
 
+categories=spptensor.shape[1]
+breaks=spptensor.shape[3]-1
+
+###############################################################################
+## Import satellite images
 ################################################################################
-## setup Net and optimizers
-################################################################################
-from DEEPBIO import *
-import DEEPBIO
 
-################################################################################
-## training
-################################################################################
+ima=np.load("../satellite/rasters.npy")
 
-totimages=100
-batch_size=10
-counter=0
-running_loss = 0.0
-n_epochs=10
-
+# breakdown images
+numchannels=int(ima.shape[1]);
+totrasters=int(ima.shape[0])
+pixside=int(ima.shape[2]/breaks)
 wind=[[pixside*i,(pixside)+pixside*i] for i in range(int(breaks))]
+ima=np.array([[ima[:,:,wind[x][0]:wind[x][1],wind[y][0]:wind[y][1]] for y in range(int(breaks))] for x in range(int(breaks))])
+ima=torch.Tensor(ima)
 
-ytrain=np.random.choice(range(0, breaks-1), int(round(breaks * 0.7,1)) ,replace=False)
-xtrain=np.random.choice(range(0, breaks-1), int(round(breaks * 0.7,1)) ,replace=False)
 
-ytest=[i for i in range(0, breaks-1) if i not in ytrain ]
-xtest=[i for i in range(0, breaks-1) if i not in xtrain ]
-
-for epoch in range(n_epochs):
-    running_loss = 0.0
-    for i in range(int(totimages/batch_size)):
-        # get random inputs
-        ys=np.random.choice(ytrain, batch_size)
-        xs=np.random.choice(xtrain, batch_size)
-        ###############################################
-        # load inputs
-        #    all channels  , window pos in lat   ,   window pos in lon
-        inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # the [] important to define dymensions
-        inputs=np.array(inputs, dtype='f')
-        inputs=torch.from_numpy(inputs)
-        ###############################################
-        # real labels
-        labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
-        labels=np.array(labels,dtype='f')
-        labels.shape=(10,1)
-        labels=torch.from_numpy(labels)
-        ###############################################
-        # zero the parameter gradients
-        optimizer.zero_grad()
-        # forward + backward + optimize
-        outputs = net(inputs)
-        # loss_rec = np.square(outputs - labels).sum() ## manual, but does not work because needs gradient
-        loss_rec = loss(outputs, labels) ## done by package?
-        loss_rec.backward()
-        optimizer.step()
-        # print progress
-        running_loss += loss_rec.data[0]
-        acc=accuracy(outputs,labels)
-        print('Train count: %i | Loss: %f | Accuracy: %f' %(counter,running_loss,acc))
-        counter += 1
+# Define sampling of images
+ytrain=np.random.choice(range(0, breaks), int(round(breaks * 0.6,1)) ,replace=False)
+xtrain=np.random.choice(range(0, breaks), int(round(breaks * 0.6,1)) ,replace=False)
+ytest=[i for i in range(0, breaks) if i not in ytrain ]
+xtest=[i for i in range(0, breaks) if i not in xtrain ]
 
 
 
-## Compare with sklearn and SVMs
+# ytrain=range(0, breaks-1)
+# xtrain=range(0, breaks-1) # until debugging
+
+### Check they are aligned
+f1 = [line.rstrip('\n') for line in open("../satellite/rasters.info","r")]
+f2 = [line.rstrip('\n') for line in open("../gbif/gbiftensor.info","r")]
+if f1 != f2:
+   raise Exception("The species and imagery grids do not seem aligned")
+
+
 ################################################################################
+## setup Net and optimizers and train
+################################################################################
+import DEEPBIO_CNN
+import DEEPBIO_UTILS
+from DEEPBIO_UTILS import *
+from DEEPBIO_CNN import *
+
+
+# Example prediction
+batch_size=500
+zs=np.array(range(0,ima.shape[0])).tolist()
+training=np.array([[[[x,y,z] for y in ytrain] for x in xtrain ] for z in zs])
+training.shape=((training.shape[0]*training.shape[1]*training.shape[2] ), 3)
+training=np.transpose(training,(1,0))
+xs=training[0].tolist()
+ys=training[1].tolist()
+zs=training[2].tolist()
+inputs=subsetimagetensor(ima,zs,ys,xs,net_type=par.net_type,channels=par.num_channels,pix_side=par.pix_side)
+# for non-convolutional approaches, inputs need to be reduced. I use mean
+inputs=inputs.mean(dim=[2,3])
+inputs_df=pd.DataFrame(inputs.numpy())
+labels=subsetlabeltensor(spptensor,ys,xs,zs,spptensor.shape[1],batch_size,datatype=tell_dtype_fromloss(par.loss_fn))
+
+# test data
+batch_size=500
+zs=np.array(range(0,ima.shape[0])).tolist()
+testing=np.array([[[[x,y,z] for y in ytest] for x in xtest ] for z in zs])
+testing.shape=((testing.shape[0]*testing.shape[1]*testing.shape[2] ), 3)
+testing=np.transpose(testing,(1,0))
+xs=testing[0].tolist()
+ys=testing[1].tolist()
+zs=testing[2].tolist()
+tinputs=subsetimagetensor(ima,zs,ys,xs,net_type=par.net_type,channels=par.num_channels,pix_side=par.pix_side)
+# for non-convolutional approaches, inputs need to be reduced. I use mean
+tinputs=tinputs.mean(dim=[2,3])
+tinputs_df=pd.DataFrame(tinputs.numpy())
+tlabels=subsetlabeltensor(spptensor,ys,xs,zs,spptensor.shape[1],batch_size,datatype=tell_dtype_fromloss(par.loss_fn))
+
+
+
 #Import the support vector machine module from the sklearn framework
 from sklearn import svm
 from sklearn.ensemble import RandomForestRegressor
 
-# testing
-ys=np.random.choice(ytrain, batch_size)
-xs=np.random.choice(xtrain, batch_size)
-ys=ytrain
-xs=xtrain
-
-#Label x and y variables from our dataset
-inputs=inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] # 
-inputs=np.array(inputs, dtype='f')
-inputs_mid=pd.DataFrame( inputs[:,:,25,25]  )
-inputs_df=pd.DataFrame(inputs_mid)
-
-labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
-labels_df=pd.DataFrame(labels)
 rf = RandomForestRegressor(n_estimators = 1000, random_state = 42)
+rf.fit(inputs_df, labels[:,0]);
 rf.fit(inputs_df, labels);
 
-acc = np.corrcoef( rf.predict(inputs_mid) , labels)[1,0]
-print("Accuracy\t{}" .format(acc)  )
+outputs=rf.predict(tinputs_df)
+
+accuracy(torch.Tensor(outputs),tlabels)
+precision(torch.Tensor(outputs),tlabels)
+recall(torch.Tensor(outputs),tlabels)
 
 
-#test
-ys=np.random.choice(ytest, batch_size)
-xs=np.random.choice(xtest, batch_size)
-
-inputs=inputs=[ ima[: , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for i,j in zip(ys,xs)] #
-inputs=np.array(inputs, dtype='f')
-inputs_mid=pd.DataFrame( inputs[:,:,25,25]  )
-
-labels=[ biogrid[i,j] for i,j in zip(ys,xs)]
-
-
-acc = np.corrcoef( rf.predict(inputs_mid) , labels)[1,0]
-print("Accuracy\t{}" .format(acc)  )
+accuracy(torch.Tensor(outputs),tlabels[:,0])
+precision(torch.Tensor(outputs),tlabels[:,0])
+recall(torch.Tensor(outputs),tlabels[:,0])
 
 
 

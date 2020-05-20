@@ -7,11 +7,15 @@ Parsing and gridding GBIF [taxon, latitude, longitude] .csv file
 import pandas as pd
 import os
 import numpy as np
-
+from UTILS import *
 
 ###########################################################################################
 def subcoor(d,lat,lon):
     d_ = d.loc[d.iloc[:,1]<lat+1].loc[d.iloc[:,1]>lat].loc[d.iloc[:,2]<lon+1].loc[d.iloc[:,2]>lon]
+    return(d_)
+
+def subcoorgrid(d,lat,lat1,lon,lon1):
+    d_ = d.loc[d.iloc[:,1]<lat1].loc[d.iloc[:,1]>lat].loc[d.iloc[:,2]<lon1].loc[d.iloc[:,2]>lon]
     return(d_)
 
 def makegrid(n):
@@ -97,9 +101,6 @@ def tensoronetaxon(step, breaks, lat,lon, d, sppname,vtype="freq"):
         cactae=(cactae>0)*1
     return(cactae)
 
-def key_for_value(d, value):
-    # this will be useful for final implementation
-    return(list(d.keys())[list(d.values()).index(value)])
 
 def make_sppdic(spp,total):
     sppdic={}
@@ -116,10 +117,10 @@ def tensorgbif(lat,lon,step, breaks,d, sppdic,vtype="yesno"):
     sb= step/breaks
     xwind=[[lon+(sb*i),lon+(sb*(i+1))]  for i in range(int(breaks))]
     ywind=[[lat+(sb*i),lat+(sb*(i+1))]  for i in range(int(breaks))]
-    ywind.reverse() 
+    ywind.reverse()
     # reverse necessary, as 2d numpy array the first dimension is
-    # the vertical but starts oppositely as we measure lat  |  
-    #                                                       v             
+    # the vertical but starts oppositely as we measure lat  |
+    #                                                       v
     # the horizontal dimension works intuitively ->
     ##########################################################
     # Fill tensor
@@ -138,7 +139,7 @@ def tensorgbif(lat,lon,step, breaks,d, sppdic,vtype="yesno"):
     else:
         cactae=tens[:,:,:]
         cactae=(cactae>0)*1
-    return(totobs,cactae) 
+    return(totobs,cactae)
 
 def vec_tensorgbif(latlon,step,breaks,d,sppdic,vtype):
     tots=[]
@@ -148,6 +149,7 @@ def vec_tensorgbif(latlon,step,breaks,d,sppdic,vtype):
         tots.append(to)
         spp.append(sp)
     return(tots,spp)
+
 
 
 # def make_cacdic(spp,total):

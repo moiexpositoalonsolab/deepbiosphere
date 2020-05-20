@@ -58,7 +58,7 @@ def subsetimagetensor(ima,y,x,z,linearize='cnn',pixside=50,breaks=10):
     inputs=[ ima[l, : , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for l,i,j in zip(z,y,x)] # the [] important to define dymensions
     inputs=np.array(inputs, dtype='f')
     inputs=torch.from_numpy(inputs)
-    if(args.nn=="fc"):
+    if(linearize=="fc"):
         inputs=inputs.view(-1, par.numchannels*par.pixside*par.pixside) # this is for fully connected
     return(inputs)
 

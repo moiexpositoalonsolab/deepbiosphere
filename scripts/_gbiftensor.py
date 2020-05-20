@@ -37,37 +37,70 @@ cells=[os.path.basename(os.path.join(path, o)) for o in os.listdir(path)
 cells.sort()
 parsed=[i.replace("1deg_","").replace("dot",".").split("_") for i in cells]
 
+lat, lon = np.array(parsed,dtype='f').min(axis=0)
+lat1, lon1 = np.array(parsed,dtype='f').max(axis=0)
+
+
 ################################################################################
 ### Read gbif dataset and make the label tensor
 ################################################################################
 from DEEPBIO_GBIF import *
+from UTILS import *
 print("Loading GBIF data")
 
 pathgbif="../gbif"
-filegbif="pgbif.csv"
+# filegbif="pgbif.csv" # this is family
+filegbif="fgbif.csv" # this is for species
+filegbif="ggbif.csv" # this is for species
+filegbif="sgbif.csv" # this is for species
 
 # read gbif dataset
 d=readgbif(path=os.path.join(pathgbif,filegbif))
+dg=readgbif(path=os.path.join(pathgbif,"ggbif.csv"))
+df=readgbif(path=os.path.join(pathgbif,"fgbif.csv"))
+
+# this is to reduce the number of classes
+d_ = subcoorgrid(d,lat,lat1,lon,lon1)
+abundances=d_['species'].value_counts() # important for species, very slow otherwise
+enough = abundances[abundances>=500]
+keep=d_["species"].isin(list(enough.index))
+d_ =d_[keep]
+d=d_
+
+dg=subcoorgrid(dg,lat,lat1,lon,lon1)[keep]
+df=subcoorgrid(df,lat,lat1,lon,lon1)[keep]
+
+# make spp hash
 spp=makespphash(d.iloc[:,0])
-spptot=len(spp)
-sppdic=make_sppdic(spp,spptot)
+sppdic=make_sppdic(spp,len(spp))
+
+gen=makespphash(dg.iloc[:,0])
+gendic=make_sppdic(gen,len(gen))
+
+fam=makespphash(df.iloc[:,0])
+famdic=make_sppdic(fam,len(fam))
 
 # make species map
 print("Generating biodiversity map")
 sampledensity,spptensor= vec_tensorgbif(parsed,step,breaks,d,sppdic,'yesno')
-# sampledensity,spptensor= vec_tensorgbif(parsed[0:2],step,breaks,d,sppdic,'yesno')
-#sampledensity,biogrid=[tensorgbif(step, breaks, float(latlon[0]),float(latlon[1]), d, sppdic,'yesno') for latlon  in parsed[0:2] ]
-#biogrid= [tensoronetaxon(step, breaks, float(latlon[0]),float(latlon[1]), d, 'Poaceae') for latlon  in parsed ]
-#biogrid= [tensoronetaxon(step, breaks, float(latlon[0]),float(latlon[1]), d, 'Pinaceae') for latlon  in parsed ]
-# biogrid=tensorgbif(step, breaks, lat,lon, d) ## for many classes
-#print(biogrid)
+sampledensity,gtensor= vec_tensorgbif(parsed,step,breaks,dg,gendic,'yesno')
+sampledensity,ftensor= vec_tensorgbif(parsed,step,breaks,df,famdic,'yesno')
 
-# save the grid
-npspptensor=np.array(spptensor)
-np.save(os.path.join(pathgbif,"gbiftensor.npy"), npspptensor)
-npsampledensity=np.array(sampledensity)
-np.save(os.path.join(pathgbif,"gbifdensity.npy"), npsampledensity)
-np.save(os.path.join(pathgbif,'gbifdic.npy'), sppdic)
+
+np.save(os.path.join(pathgbif,"gbiftensorspp.npy"), np.array(spptensor))
+np.save(os.path.join(pathgbif,"gbiftensorg.npy"), np.array(gtensor))
+np.save(os.path.join(pathgbif,"gbiftensorf.npy"), np.array(ftensor) )
+
+np.save(os.path.join(pathgbif,'gbifdicspp.npy'), sppdic)
+np.save(os.path.join(pathgbif,'gbifdicg.npy'), gendic)
+np.save(os.path.join(pathgbif,'gbifdicf.npy'), famdic)
+
+## save the grid
+#npspptensor=np.array(spptensor)
+#np.save(os.path.join(pathgbif,"gbiftensor.npy"), npspptensor)
+#npsampledensity=np.array(sampledensity)
+#np.save(os.path.join(pathgbif,"gbifdensity.npy"), npsampledensity)
+#np.save(os.path.join(pathgbif,'gbifdic.npy'), sppdic)
 
 # output also info of the order of layers
 f=open(os.path.join(pathgbif,"gbiftensor.info"), "w")

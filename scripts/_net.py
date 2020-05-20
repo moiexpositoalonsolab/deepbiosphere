@@ -29,24 +29,24 @@ from DEEPBIO_GBIF import *
 spptensor=np.load("../gbif/gbiftensor.npy")
 obsdensity=np.load("../gbif/gbifdensity.npy")
 sppdic=np.load("../gbif/gbifdic.npy").item()
-spptensor.sum(axis=0).sum(axis=1).sum(axis=1)
+sppc=spptensor.sum(axis=0).sum(axis=1).sum(axis=1)
 
-# spptensor=spptensor[:,1:6,:,:]
-# spptensor=spptensor[:,5:7,:,:]
-# spptensor=spptensor[:,0:50,:,:]
-# spptensor=spptensor[:,10:12,:,:]
-spptensor=spptensor[:,key_for_value(sppdic,"Cactaceae"):key_for_value(sppdic,"Cactaceae")+1,:,:]
+all=False
+if (all):
+    sppt=np.array([spptensor[:,i,:,:] for i in range(len(sppc)) if sppc[i] >10])
+    sppt=sppt.transpose(1,0,2,3)
+    spptensor=sppt
+else:
+    spptensor=spptensor[:,key_for_value(sppdic,"Cactaceae"):key_for_value(sppdic,"Cactaceae")+1,:,:]
 
-# print("Taxon abundances")
 spptensor.sum(axis=0).sum(axis=1).sum(axis=1)
 spptensor.shape
 
-# any manipulation?
-#spptensor=spptensor*100
-#spptensor = 1*(spptensor > 0.005)
-#spptensor = (spptensor / spptensor.mean()) -1
+spptensor=torch.from_numpy(spptensor)
+spptensor=spptensor.type('torch.FloatTensor')
 
-categories=spptensor.shape[1]
+
+categories=spptensor.shape[0]#check is 0 and not 1
 breaks=spptensor.shape[3]-1
 
 ###############################################################################
@@ -55,10 +55,14 @@ breaks=spptensor.shape[3]-1
 
 ima=np.load("../satellite/rasters.npy")
 
-
+# breakdown images
 numchannels=int(ima.shape[1])
 totrasters=int(ima.shape[0])
 pixside=int(ima.shape[2]/breaks)
+wind=[[pixside*i,(pixside)+pixside*i] for i in range(int(breaks))]
+ima=np.array([[ima[:,:,wind[x][0]:wind[x][1],wind[y][0]:wind[y][1]] for y in range(int(breaks))] for x in range(int(breaks))])
+ima=torch.Tensor(ima)
+
 
 # Define sampling of images
 ytrain=np.random.choice(range(0, breaks), int(round(breaks * 0.6,1)) ,replace=False)
@@ -84,19 +88,22 @@ import DEEPBIO_UTILS
 from DEEPBIO_UTILS import *
 from DEEPBIO_CNN import *
 
-globalclassimbalance = spptensor.sum()/prod(spptensor.shape)
-weights=torch.from_numpy(np.array([globalclassimbalance], dtype="f"))
+weights=torch.Tensor(1/np.array(spptensor.sum(dim=[0,2,3]))/prod(spptensor.shape))
+weights=weights.type('torch.FloatTensor')
+
 par=Params(
            num_channels=numchannels,
            pix_side=pixside,
            categories=categories,
            optimal='ADAM',
            loss_fn='BCE',
-           loss_w=1/weights,
+           loss_w=weights,
+           # loss_w=None,
            net_type='cnn',
            learning_rate=0.01)
 
 net=Net(par)
+net.float()
 loss, optimizer = createLossAndOptimizer(net,par)
 
 
@@ -110,12 +117,14 @@ labels=subsetlabeltensor(spptensor,ys,xs,zs,spptensor.shape[1],batch_size,dataty
 outputs = net(inputs)
 outputs
 labels
-loss((outputs),labels)
+loss(outputs,labels)
 accuracy(outputs,labels)
+precision(outputs,labels)
+recall(outputs,labels)
 
 # train net
 trainnet(ima=ima, spptensor=spptensor,ytrain=ytrain,xtrain=xtrain,ytest=ytest,xtest=xtest,
-        net=net,par=par,loss=loss,optimizer=optimizer, epochs=10,batch_size=100)
+        net=net,par=par,loss=loss,optimizer=optimizer, epochs=10,batch_size=50)
 
 
 
