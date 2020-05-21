@@ -1,10 +1,6 @@
 import pandas as pd
-import os
-from os import listdir
-from os.path import isfile, join
 import argparse
 import time
-from PIL import Image
 import numpy as np
 
 import torch
@@ -12,7 +8,6 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import random
-import torchvision.transforms as transforms
 import math
 from tqdm import tqdm
 from deepbiosphere.scripts import GEOCELF_CNN as cnn
@@ -192,7 +187,8 @@ def main():
 
 
 if __name__ == "__main__":
-    
+    #print(f"torch version: {torch.__version__}") 
+    #print(f"numpy version: {np.__version__}")
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, help="learning rate of model",required=True)
     parser.add_argument("--epoch", type=int, help="how many epochs to train the model")
