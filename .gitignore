@@ -32,5 +32,6 @@ figs
 *pdf
 deepbiosphere/GLC
 *swp
+dbs_memex
 scripts/
 test.py

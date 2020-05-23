@@ -29,6 +29,7 @@ def topk_acc(output, target, topk=(1,), device=None):
     return res
 
 def us_image_from_id(id_, pth):
+    id_ = id_.item()
     abcd = id_ % 10000
     ab, cd = math.floor(abcd/100), abcd%100
     cdd = math.ceil((cd+ 1)/5)
@@ -38,6 +39,7 @@ def us_image_from_id(id_, pth):
     subpath = f"patches_us_{cdd}/{cd}/{ab}/"
     alt = f"{pth}{subpath}{id_}_alti.npy"
     rgbd = f"{pth}{subpath}{id_}.npy"    
+    #import pdb; pdb.set_trace()
     np_al = np.load(alt)
     np_img = np.load(rgbd)
     np_al = np.expand_dims(np_al, 2)
@@ -45,7 +47,12 @@ def us_image_from_id(id_, pth):
     return np_all
 
 def tensor_from_ids(ids, img_pth, device):
-    x_tens = [us_image_from_id(id_, img_pth) for id_ in ids]
+    fuck = []
+    for id_ in ids:
+        
+        fuck.append(us_image_from_id(id_, img_pth))
+    #x_tens = [us_image_from_id(id_, img_pth) for id_ in ids]
+    x_tens = fuck
     x_tens = torch.from_numpy(np.stack(x_tens)) #should be size 256 x 256 x 6 x batchsize
     x_tens = x_tens.permute(0,3,1,2)# reshape to shape torch expects: ((N,Cin,H,W))
     return x_tens
@@ -71,7 +78,7 @@ def split_train_test(full_dat, split_amt):
 def split_id_specs(obs_data, device):
     obs_ids, obs_spec_ids = obs_data[:,0], obs_data[:,1]
     obs_spec_ids = torch.from_numpy(obs_spec_ids)
-    obs_spec_ids = obs_spec_ids
+    obs_ids = torch.from_numpy(obs_ids)
     return obs_ids, obs_spec_ids
 
 def shuffle_data(obs, labels):
@@ -90,7 +97,7 @@ def main():
     
     device = torch.device(f"cuda:{ARGS.device}" if ARGS.device is not None else "cpu")
     print(f'using device: {device}')
-    
+    print(f"what devices are available {torch.cuda.is_available()}") 
     # load observation data
     print("loading labels")
     pth = paths.GEOCELF_DIR
@@ -107,44 +114,48 @@ def main():
     training, test = split_train_test(us_train.to_numpy(), .8)
     train_ids, train_spec_ids = split_id_specs(training, device)
     test_ids, test_spec_ids = split_id_specs(test, device)
-
-    print("loading images")    
-    tick = time.time()
-    training_imgs = tensor_from_ids(train_ids, f"{paths.GEOCELF_DIR}patches_us/", ARGS.device)
-    test_imgs = tensor_from_ids(test_ids, f"{paths.GEOCELF_DIR}patches_us/", ARGS.device)
-    tock = time.time()
-    diff = tock - tick
-    print(f"images loaded. Took {diff} seconds")
+    
+    #print("loading images")    
+    #tick = time.time()
+    #training_imgs = tensor_from_ids(train_ids, f"{paths.GEOCELF_DIR}patches_us/", ARGS.device)
+    #test_imgs = tensor_from_ids(test_ids, f"{paths.GEOCELF_DIR}patches_us/", ARGS.device)
+    #tock = time.time()
+    #diff = tock - tick
+    #print(f"images loaded. Took {diff} seconds")
     
     # set up net
-    num_channels = training_imgs.shape[1]# num_channels should be idx 1 in the order torch expects
+    print("setting up net")
+    num_channels = 6 # training_imgs.shape[1]# num_channels should be idx 1 in the order torch expects
     num_cats = len(us_train.species_id.unique())
     net= cnn.Net(categories=num_cats, num_channels=num_channels)
     loss = torch.nn.CrossEntropyLoss()
     optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
     model = net.to(device)
 
-    
-
 
     batch_size=ARGS.batch_size
     n_epochs=ARGS.epoch
     n_minibatches = math.ceil(len(train_ids) / batch_size)
 
-    
+    print("starting training")
     for epoch in range(n_epochs):
         net.train()
         loss_meter = []
         with tqdm(total=(n_minibatches)) as prog:
-            
-            train_bat, label_bat = batch_data(training_imgs, train_spec_ids, batch_size)
+            id_bat, label_bat = batch_data(train_ids, train_spec_ids, batch_size)
 
         #             assert len(label_bat) == len(train_bat), f"input: {len(label_bat)}, label: {len(train_bat)} batches aren't sized correctly!"
 #             assert label_bat[-1].shape[0] == train_bat[-1].shape[0], "number of training examples and labels don't match!"
-            for batch, labels in zip(train_bat, label_bat):
+            for ids, labels in  zip(id_bat, label_bat):
+                tick = time.time()
+                batch =tensor_from_ids(ids,  paths.US_IMGS, None) 
                 batch = batch.to(device)
-                labels = labels.to(device)                                     
+                labels = labels.to(device)
+                tock = time.time()
+                diff = tock - tick
+                print(f"loading data took {diff} seconds")
                 # zero the parameter gradients
+                tick = time.time()
                 optimizer.zero_grad()
                 # forward + backward + optimize
                 outputs = net(batch.float()) # convert to float so torch happy
@@ -153,6 +164,9 @@ def main():
                 loss_rec = loss(outputs, labels) 
                 loss_rec.backward()
                 optimizer.step()
+                tock = time.time()
+                diff = tock - tick
+                print(f"training model took {diff} seconds")
                 # update tqdm
                 prog.update(1)
                 # update loss tracker
@@ -163,9 +177,10 @@ def main():
 
         #TODO: add batching to eval loop
         net.eval()
-        curr_test, curr_labels = shuffle_data(test_imgs, test_spec_ids)
-        curr_test = curr_test[:20]
+        _, curr_labels = shuffle_data(np.zeros(len(test_spec_ids)), test_spec_ids)
+        #curr_test = curr_test[:20]
         test_labels = curr_labels[:20]
+        curr_test = tensor_from_ids(test_labels, paths.US_IMGS, None) 
         curr_test = curr_test.to(device)
         
         outputs = net(curr_test.float()) 

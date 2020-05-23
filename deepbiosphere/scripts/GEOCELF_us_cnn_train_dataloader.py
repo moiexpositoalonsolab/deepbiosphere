@@ -107,6 +107,15 @@ def main():
     training, test = split_train_test(us_train.to_numpy(), .8)
     train_ids, train_spec_ids = split_id_specs(training, device)
     test_ids, test_spec_ids = split_id_specs(test, device)
+    vals = 10 
+    FAKEE = train_ids[:vals] 
+    train_ids = FAKEE 
+    FAKEE2 = test_ids[:vals] 
+    test_ids = FAKEE2 
+    FAKE3 = train_spec_ids[:vals] 
+    train_spec_ids = FAKE3 
+    FAKE4 = test_spec_ids[:vals] 
+    test_spec_ids = FAKE4 
 
     print("loading images")    
     tick = time.time()

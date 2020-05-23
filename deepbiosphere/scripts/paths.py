@@ -1,0 +1,10 @@
+"""
+File system paths
+"""
+DBS_DIR = "/Carnegie/DPB/Data/Shared/Labs/Moi/Everyone/deepbiosphere/"
+MEMEX_LUSTRE = "/lustre/scratch/lgillespie/"
+GEOCELF_DIR = f"{DBS_DIR}GeoCELF2020/"
+#US_IMGS = f"{GEOCELF_DIR}patches_us/"
+US_IMGS = f"{MEMEX_LUSTRE}patches_us/"
+CALI_DIR = f"{DBS_DIR}satellite/"
+NETS_DIR = f"{DBS_DIR}nets/"
