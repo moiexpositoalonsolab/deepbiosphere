@@ -33,7 +33,7 @@ def topk_acc(output, target, topk=(1,), device=None):
     return res
 
 def split_train_test(full_dat, split_amt):
-    #grab 20% of labeled data for holdout testing
+    #grab split_amt% of labeled data for holdout testing
     idxs = np.random.permutation(len(full_dat))
     split = int(len(idxs)*split_amt)
     training_idx, test_idx = idxs[:split], idxs[split:]
@@ -42,7 +42,7 @@ def split_train_test(full_dat, split_amt):
     return train_sampler, valid_sampler
 
 def main():
-    
+    print(f"number of devices visible: {torch.cuda.device_count()}")
     device = torch.device(f"cuda:{ARGS.device}" if ARGS.device is not None else "cpu")
     print(f'using device: {device}')
     if ARGS.device is not None:
@@ -50,6 +50,8 @@ def main():
     print(f"current host: {socket.gethostname()}")
 
     # load observation data
+    print("loading data")
+    datick = time.time()
     train_dataset = Dataset.GEOCELF_Dataset(ARGS.base_dir, 'train',ARGS.country)
     val_split = .9
     train_loader = None
@@ -63,10 +65,20 @@ def main():
         test_dataset = Dataset(ARGS.base_dir, 'test',ARGS.country)
         test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)
     # set up net
+    datock = time.time()
+    dadiff = datock - datick
+    print(f"loading data took {dadiff} seconds")
+    print("setting up network")
     num_channels = train_dataset.channels# num_channels should be idx 1 in the order torch expects
-    num_cats = train_dataset.num_cats
-    net= cnn.Net(categories=num_cats, num_channels=num_channels)
-    loss = torch.nn.CrossEntropyLoss()
+    num_specs = train_dataset.num_specs
+    num_fams = train_dataset.num_fams
+    num_gens = train_dataset.num_gens    
+    net= cnn.Net(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
+#     loss = torch.nn.BCELoss()
+# multi loss from here: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch 
+    spec_loss = torch.nn.CrossEntropyLoss()
+    gen_loss = torch.nn.CrossEntropyLoss()
+    fam_loss = torch.nn.CrossEntropyLoss()    
     optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
     model = net.to(device)
 
@@ -76,42 +88,43 @@ def main():
     batch_size=ARGS.batch_size
     n_epochs=ARGS.epoch
     num_batches = math.ceil(len(train_dataset) / batch_size)
-    print(f"batch size is {batch_size} and size of dataset is {len(train_loader)} total size of dataset is {len(train_dataset)} and num batches is {num_batches}")
-    #n_minibatches = math.ceil(len(train_loader) / batch_size)
+    print(f"batch size is {batch_size} and size of dataset is {len(train_loader)} total size of dataset is {len(train_dataset)} and num batches is {num_batches}\n")
     print("starting training") 
     for epoch in range(n_epochs):
         tick = time.time()
         net.train()
         loss_meter = []
         with tqdm(total=len(train_loader), unit="batch") as prog:
-        #import pdb; pdb.set_trace()
             for i, (labels, batch) in enumerate(train_loader):
-                tickk = time.time()
                 batch = batch.to(device)
                 labels = labels.to(device)                                     
                 # zero the parameter gradients
-                tickkk = time.time()
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                outputs = net(batch.float()) # convert to float so torch happy
-                # compute loss
-                loss_rec = loss(outputs, labels) 
-                loss_rec.backward()
+                (specs, gens, fams) = net(batch.float()) # convert to float so torch happy
+                # size of specs: [N, species] gens: [N, genuses] fam: [N, fams]
+#                  for BCELoss
+#                 spec_labels = F.one_hot(specs, net.species)
+#                 gen_labels = F.one_hot(gens, net.genuses)
+#                 fam_labels = F.one_hot(fams, net.families)
+                
+                # compute loss https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
+                # https://stackoverflow.com/questions/48274929/pytorch-runtimeerror-trying-to-backward-through-the-graph-a-second-time-but
+                loss_spec = spec_loss(specs, labels[:,0]) 
+                loss_spec.backward(retain_graph=True)
+                loss_gen = gen_loss(gens, labels[:,1]) 
+                loss_gen.backward(retain_graph=True)
+                loss_fam = fam_loss(fams, labels[:,2])                 
+                loss_fam.backward()
                 optimizer.step()
-                tockkk = time.time()
                 # update tqdm
                 prog.update(1)
-                curr_loss = loss_rec.item()
-                #prog.set_description(f"loss: {curr_loss}")
+                curr_loss = loss_spec.item() + loss_gen.item() + loss_fam.item()
+                prog.set_description(f"loss: {curr_loss}")
                 # update loss tracker
                 loss_meter.append(curr_loss)                                     
                 #print(f"training took {diff} sec, just train took {diff2} seconds and dataload took {datload} seconds with {ARGS.processes} workers")
-                tockk = time.time()
-                diff = tockk - tickk
-                difff = tockkk - tickkk
-                ddiff = diff - difff
-                print(f"total time: {diff} time training: {difff} time loading {ddiff}")
-                prog.set_description(f"total time: {diff} time training: {difff} time loading {ddiff} with {ARGS.processes} workers")
+#                 prog.set_description(f"total time: {diff} time training: {difff} time loading {ddiff} with {ARGS.processes} workers")
         print (f"Average Train Loss: {np.stack(loss_meter).mean(0)}")
         
         # test
@@ -122,11 +135,14 @@ def main():
 
             labels = labels.to(device)
             batch = batch.to(device)
-        outputs = net(batch.float()) 
-        accs = topk_acc(outputs, labels, topk=(30,1), device=device) # magic no from CELF2020
-        print(f"average top 30 accuracy: {accs[0]} average top1 accuracy: {accs[1]}")
-        del outputs, labels, batch
-        
+            outputs = net(batch.float()) 
+            accs = topk_acc(outputs, labels, topk=(30,1), device=device) # magic no from CELF2020
+            print(f"average top 30 accuracy: {accs[0]} average top1 accuracy: {accs[1]}")
+            del outputs, labels, batch
+        else:
+            # TODO: add validation + csv for GeoCLEF here
+            print("GeoCLEF validation not implemented yet!")        
+            pass
         # save model 
         print(f"saving model for epoch {epoch}")
         PATH=f"{paths.NETS_DIR}cnn_{ARGS.exp_id}.tar"
@@ -140,9 +156,7 @@ def main():
         tock = time.time()
         diff = ( tock-tick)/60
         print (f"one epoch took {diff} minutes")
-    if not ARGS.test:
-        # TODO: add validation + csv for GeoCLEF here
-        print("GeoCLEF validation not implemented yet!")
+
 
 if __name__ == "__main__":
     #print(f"torch version: {torch.__version__}") 
