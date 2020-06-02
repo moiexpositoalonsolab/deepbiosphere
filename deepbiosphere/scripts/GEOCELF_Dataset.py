@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore")
 def get_gbif_data(pth, split, country):
     ## Grab GBIF observation data
     obs_pth = f"{pth}occurrences/occurrences_{country}_{split}.csv"
+#     print(obs_pth)
     return pd.read_csv(obs_pth, sep=';')  
 
 def us_image_from_id(id_, pth, country):
@@ -89,6 +90,7 @@ class GEOCELF_Dataset(Dataset):
         self.base_dir = base_dir
         self.country = country
         self.split = split
+#         print(self.base_dir)
         obs = get_gbif_data(self.base_dir, split, country)
         if self.country == 'us':
             obs = add_us_genus_family_data(self.base_dir, obs)
@@ -99,6 +101,69 @@ class GEOCELF_Dataset(Dataset):
         else:
             exit(1), "improper country id specified!"
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family.unique())
+        self.num_gens = len(obs.genus.unique())
+        self.obs = obs[['id', 'species_id', 'genus', 'family']].to_numpy()
+#         self.obs = self.obs[:1000, :] # TODO REMOVE
+        self.transform = transform
+        self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
+
+    def __len__(self):
+        return len(self.obs)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_, label = self.obs[idx, 0], self.obs[idx, 1]
+        images = us_image_from_id(id_, self.base_dir, self.country) 
+        composite_label = self.obs[idx, 1:] # get genus, family as well
+        if self.transform:
+            images = self.transform(images)
+        return (composite_label, images)
+
+
+    
+    
+class GEOCELF_Test_Dataset(Dataset):
+    def __init__(self, base_dir, split = 'test', country='us', transform=None):
+        
+        self.base_dir = base_dir
+        self.country = country
+        self.split = split
+#         print(self.base_dir)
+        obs = get_gbif_data(self.base_dir, split, country)
+        self.obs = obs[['id']].to_numpy()
+#         self.obs = self.obs[:100, :] # TODO REMOVE
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.obs)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, 0]
+        images = us_image_from_id(id_, self.base_dir, self.country) 
+#         composite_label = self.obs[idx, 1:] # get genus, family as well
+        if self.transform:
+            images = self.transform(images)
+        return images
+
+    
+    
+    
+class GEOCELF_Cali_Dataset(Dataset):
+    def __init__(self, base_dir, country, transform=None):
+        
+
+        obs = pd.read_csv(f"{base_dir}occurrences/occurrences_cali_filtered.csv")
+        obs = prep_US_data(obs)
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.base_dir = base_dir
+        self.country = country
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
@@ -124,3 +189,42 @@ class GEOCELF_Dataset(Dataset):
         return self.num_cats
     def num_channels(self):
         return self.channels
+    
+    
+    
+    
+class GEOCELF_Cali_Dataset_Tiny(Dataset):
+    def __init__(self, base_dir, country, transform=None):
+        
+
+        obs = pd.read_csv(f"{base_dir}occurrences/occurrences_cali_filtered.csv")
+        obs = obs[:1000]
+        obs = prep_US_data(obs)
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.base_dir = base_dir
+        self.country = country
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family.unique())
+        self.num_gens = len(obs.genus.unique())
+        self.obs = obs[['id', 'species_id', 'genus', 'family']].to_numpy()
+        self.transform = transform
+        self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
+
+    def __len__(self):
+        return len(self.obs)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_, label = self.obs[idx, 0], self.obs[idx, 1]
+        images = us_image_from_id(id_, self.base_dir, self.country) 
+        composite_label = self.obs[idx, 1:] # get genus, family as well
+        if self.transform:
+            images = self.transform(images)
+        return (composite_label, images)
+
+    def num_cats(self):
+        return self.num_cats
+    def num_channels(self):
+        return self.channels    

@@ -27,9 +27,9 @@ def topk_acc(output, target, topk=(1,), device=None):
     correct = pred.eq(targ)
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0)
+        correct_k = correct[:k].view(-1).float().sum(0).cpu()
         res.append(correct_k.mul_(100.0 / batch_size))
-    del targ
+    del targ, pred, target
     return res
 
 def split_train_test(full_dat, split_amt):
@@ -52,18 +52,14 @@ def main():
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = Dataset.GEOCELF_Dataset(ARGS.base_dir, 'train',ARGS.country)
+    train_dataset = Dataset.GEOCELF_Cali_Dataset(ARGS.base_dir, ARGS.country)
     val_split = .9
     train_loader = None
     test_loader = None
-    if ARGS.test:
-        train_samp, test_samp = split_train_test(train_dataset, val_split)
-        train_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=train_samp) 
-        test_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=test_samp)
-    else:
-        train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes) 
-        test_dataset = Dataset(ARGS.base_dir, 'test',ARGS.country)
-        test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)
+    test_dataset = None
+    train_samp, test_samp = split_train_test(train_dataset, val_split)
+    train_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=train_samp) 
+    test_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=test_samp)
     # set up net
     datock = time.time()
     dadiff = datock - datick
@@ -90,10 +86,17 @@ def main():
     num_batches = math.ceil(len(train_dataset) / batch_size)
     print(f"batch size is {batch_size} and size of dataset is {len(train_loader)} total size of dataset is {len(train_dataset)} and num batches is {num_batches}\n")
     print("starting training") 
+    all_time_loss = []
+    all_time_sp_loss = []
+    all_time_gen_loss = []
+    all_time_fam_loss = []    
     for epoch in range(n_epochs):
         tick = time.time()
         net.train()
-        loss_meter = []
+        tot_loss_meter = []
+        spec_loss_meter = []
+        gen_loss_meter = []
+        fam_loss_meter = []        
         with tqdm(total=len(train_loader), unit="batch") as prog:
             for i, (labels, batch) in enumerate(train_loader):
                 batch = batch.to(device)
@@ -118,42 +121,63 @@ def main():
                 loss_fam.backward()
                 optimizer.step()
                 # update tqdm
+
+                tot_loss = loss_spec.item() + loss_gen.item() + loss_fam.item()
+                tot_loss_meter.append(tot_loss)                
+                spec_loss_meter.append(loss_spec.item())
+                gen_loss_meter.append(loss_gen.item())
+                fam_loss_meter.append(loss_fam.item())                    
                 prog.update(1)
-                curr_loss = loss_spec.item() + loss_gen.item() + loss_fam.item()
-                prog.set_description(f"loss: {curr_loss}")
+                prog.set_description(f"loss: {tot_loss}")
                 # update loss tracker
-                loss_meter.append(curr_loss)                                     
-                #print(f"training took {diff} sec, just train took {diff2} seconds and dataload took {datload} seconds with {ARGS.processes} workers")
-#                 prog.set_description(f"total time: {diff} time training: {difff} time loading {ddiff} with {ARGS.processes} workers")
-        print (f"Average Train Loss: {np.stack(loss_meter).mean(0)}")
+        prog.close() 
+        all_time_loss.append(np.stack(tot_loss_meter))
+        all_time_sp_loss.append(np.stack(spec_loss_meter))
+        all_time_gen_loss.append(np.stack(gen_loss_meter))
+        all_time_fam_loss.append(np.stack(fam_loss_meter))
+
         
+        
+        print (f"Average Train Loss: {np.stack(tot_loss_meter).mean(0)}")
+#         all_time_loss.append(np.stack(loss_meter))
+        del batch, labels, specs, gens, fams, loss_spec, loss_gen, loss_fam
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         # test
         net.eval()
-        if ARGS.test:
-            
-            labels, batch = test_loader[randrange(len(test_loader))]
+        all_accs = []
+        with tqdm(total=len(test_loader), unit="batch") as prog:
+            for i, (labels, batch) in enumerate(test_loader):
+                labels = labels.to(device)
+                batch = batch.to(device)
 
-            labels = labels.to(device)
-            batch = batch.to(device)
-            
-            (outputs, _, _) = net(batch.float()) 
-            accs = topk_acc(outputs, labels, topk=(30,1), device=device) # magic no from CELF2020
-            print(f"average top 30 accuracy: {accs[0]} average top1 accuracy: {accs[1]}")
-            del outputs, labels, batch
-        else:
-            # TODO: add validation + csv for GeoCLEF here
-            print("GeoCLEF validation not implemented yet!")        
-            pass
+                (outputs, _, _) = net(batch.float()) 
+                accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
+
+                prog.set_description(f"top 30: {accs[0]}  top1: {accs[1]}")
+                all_accs.append(accs)
+
+        prog.close()
+        all_accs = np.stack(all_accs)
+        print(f"max top 30 accuracy: {all_accs[:,0].max()} average top1 accuracy: {all_accs[:,1].max()}")
+        del outputs, labels, batch
         # save model 
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
         print(f"saving model for epoch {epoch}")
         PATH=f"{paths.NETS_DIR}cnn_{ARGS.exp_id}.tar"
         torch.save({
                     'epoch': epoch,
                     'model_state_dict': net.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss_rec,
-                    'accuracy': accs
+                    'all_loss' : np.stack(all_time_loss),
+                    'spec_loss': np.stack(all_time_sp_loss),
+                    'gen_loss': np.stack(all_time_gen_loss), 
+                    'fam_loss': np.stack(all_time_fam_loss), 
+                    'accuracy': all_accs,
                     }, PATH)
+
         tock = time.time()
         diff = ( tock-tick)/60
         print (f"one epoch took {diff} minutes")
@@ -168,10 +192,10 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=int, help="which gpu to send model to, don't put anything to use cpu")
     parser.add_argument("--processes", type=int, help="how many worker processes to use for data loading", default=1)
     parser.add_argument("--exp_id", type=str, help="experiment id of this run", required=True)
-    parser.add_argument("--country", type=str, help="which country's images to read", default='us')
     parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH'], required=True)
+    parser.add_argument("--country", type=str, help="which country's images to read", default='us')
     parser.add_argument("--seed", type=int, help="random seed to use")
-    parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full datasett", action='store_true')
+#     parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full datasett", action='store_true')
     parser.add_argument("--batch_size", type=int, help="size of batches to use", default=256)    
     ARGS, _ = parser.parse_known_args()
     # parsing which path to use
