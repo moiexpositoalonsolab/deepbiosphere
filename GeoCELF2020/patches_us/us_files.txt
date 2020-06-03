@@ -1,0 +1,2 @@
+https://lilablobssc.blob.core.windows.net/geolifeclef-2020/patches_us_01.tar.gz
+#https://lilablobssc.blob.core.windows.net/geolifeclef-2020/patches_us_20.tar.gz

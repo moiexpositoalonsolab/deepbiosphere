@@ -1,0 +1,3 @@
+https://lilablobssc.blob.core.windows.net/geolifeclef-2020/patches_fr_06.zip
+https://lilablobssc.blob.core.windows.net/geolifeclef-2020/patches_fr_08.zip
+https://lilablobssc.blob.core.windows.net/geolifeclef-2020/patches_fr_12.zip
