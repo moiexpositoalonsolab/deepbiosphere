@@ -69,7 +69,7 @@ def main():
     # set up net
     datock = time.time()
     dadiff = datock - datick
-    print(f"loading data took {dadiff} seconds")
+    print("loading data took {dadiff} seconds".format(dadiff=dadiff))
     print("setting up network")
     num_channels = train_dataset.channels# num_channels should be idx 1 in the order torch expects
     num_specs = train_dataset.num_specs
@@ -90,7 +90,7 @@ def main():
     batch_size=ARGS.batch_size
     n_epochs=ARGS.epoch
     num_batches = math.ceil(len(train_dataset) / batch_size)
-    print(f"batch size is {batch_size} and size of dataset is {len(train_loader)} total size of dataset is {len(train_dataset)} and num batches is {num_batches}\n")
+    print("batch size is {batch_size} and size of dataset is {lens} total size of dataset is {len_dat} and num batches is {num_batches}\n".format(batch_size=batch_size, lens=len(train_loader), len_dat=len(train_dataset), num_batches=num_batches))
     print("starting training") 
     all_time_loss = []
     all_time_sp_loss = []
@@ -136,7 +136,7 @@ def main():
                 gen_loss_meter.append(loss_gen.item())
                 fam_loss_meter.append(loss_fam.item())                    
                 prog.update(1)
-                prog.set_description(f"loss: {tot_loss}")
+                prog.set_description("loss: {tot_loss}".format(tot_loss=tot_loss))
                 # update loss tracker
         prog.close() 
         all_time_loss.append(np.stack(tot_loss_meter))
@@ -146,7 +146,7 @@ def main():
 
         
         
-        print (f"Average Train Loss: {np.stack(tot_loss_meter).mean(0)}")
+        print ("Average Train Loss: {avg_loss}".format(avg_loss=np.stack(tot_loss_meter).mean(0)))
 #         all_time_loss.append(np.stack(loss_meter))
         del batch, labels, specs, gens, fams, loss_spec, loss_gen, loss_fam
         if ARGS.device is not None:
@@ -169,13 +169,13 @@ def main():
                     (outputs, _, _) = net(batch.float()) 
                     if ARGS.test:
                         accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
-                        prog.set_description(f"top 30: {accs[0]}  top1: {accs[1]}")
+                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=accs[0], acc1=accs[1]))
                         all_accs.append(accs)
                     else:
                         all_accs.append(outputs.cpu())
                 prog.close()
                 all_accs = np.stack(all_accs)
-                print(f"max top 30 accuracy: {all_accs[:,0].max()} average top1 accuracy: {all_accs[:,1].max()}")
+                print("max top 30 accuracy: {max1} average top1 accuracy: {max2}".format(max1=all_accs[:,0].max(), max2=all_accs[:,1].max()))
                 del outputs, labels, batch 
             if ARGS.device is not None:
                 torch.cuda.empty_cache()
@@ -184,8 +184,8 @@ def main():
         # save model 
 
 
-        print(f"saving model for epoch {epoch}")
-        PATH=f"{paths.NETS_DIR}cnn_{ARGS.exp_id}.tar"
+        print("saving model for epoch {epoch}".format(epoch=epoch))
+        PATH="{}cnn_{}.tar".format(paths.NETS_DIR, ARGS.exp_id)
         torch.save({
                     'epoch': epoch,
                     'model_state_dict': net.state_dict(),
@@ -199,7 +199,7 @@ def main():
 
         tock = time.time()
         diff = ( tock-tick)/60
-        print (f"one epoch took {diff} minutes")
+        print ("one epoch took {} minutes".format(diff))
 
 
 if __name__ == "__main__":
@@ -218,8 +218,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, help="size of batches to use", default=256)    
     ARGS, _ = parser.parse_known_args()
     # parsing which path to use
-    ARGS.base_dir = eval(f"paths.{ARGS.base_dir}")
-    print(f"using base directory {ARGS.base_dir}")
+    ARGS.base_dir = eval("paths.{}".format(ARGS.base_dir))
+    print("using base directory {}".format(ARGS.base_dir))
     # Seed
     if ARGS.seed is not None:
         np.random.seed(ARGS.seed)

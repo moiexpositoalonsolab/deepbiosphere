@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 
 def get_gbif_data(pth, split, country):
     ## Grab GBIF observation data
-    obs_pth = f"{pth}occurrences/occurrences_{country}_{split}.csv"
+    obs_pth = "{}occurrences/occurrences_{}_{}.csv".format(pth, country, split)
 #     print(obs_pth)
     return pd.read_csv(obs_pth, sep=';')  
 
@@ -22,12 +22,12 @@ def us_image_from_id(id_, pth, country):
     abcd = id_ % 10000
     ab, cd = math.floor(abcd/100), abcd%100
     cdd = math.ceil((cd+ 1)/5)
-    cdd = f"0{cdd}"  if cdd < 10 else f"{cdd}"
-    ab = f"0{ab}" if id_ / 1000 > 1 and ab < 10 else ab
-    cd = f"0{cd}" if  cd < 10 else cd
-    subpath = f"patches_{country}/patches_{country}_{cdd}/{cd}/{ab}/"
-    alt = f"{pth}{subpath}{id_}_alti.npy"
-    rgbd = f"{pth}{subpath}{id_}.npy"    
+    cdd = "0{}".format(cdd)  if cdd < 10 else "{}".format(cdd)
+    ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
+    cd = "0{}".format(cd) if  cd < 10 else cd
+    subpath = "patches_{}/patches_{}_{}/{}/{}/".format(country, country, cdd, cd, ab)
+    alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
+    rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
     np_al = np.load(alt)
     np_img = np.load(rgbd)
     np_al = np.expand_dims(np_al, 2)
@@ -41,8 +41,8 @@ def fr_img_from_id(id_, pth):
 def add_us_genus_family_data(pth, us_train):
     ## getting family, genus, species ids for each observation
     # get all relevant files
-    gbif_meta = pd.read_csv(f"{pth}occurrences/species_metadata.csv", sep=";")
-    taxons = pd.read_csv(f"{pth}occurrences/Taxon.tsv", sep="\t")
+    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
+    taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(pth), sep="\t")
     # get all unique species ids in us train data
     us_celf_spec = us_train.species_id.unique()
     # get all the gbif species ids for all the species in the us sample
@@ -159,7 +159,7 @@ class GEOCELF_Cali_Dataset(Dataset):
     def __init__(self, base_dir, country, transform=None):
         
 
-        obs = pd.read_csv(f"{base_dir}occurrences/occurrences_cali_filtered.csv")
+        obs = pd.read_csv("{}occurrences/occurrences_cali_filtered.csv".format(base_dir))
         obs = prep_US_data(obs)
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.base_dir = base_dir
@@ -197,7 +197,7 @@ class GEOCELF_Cali_Dataset_Tiny(Dataset):
     def __init__(self, base_dir, country, transform=None):
         
 
-        obs = pd.read_csv(f"{base_dir}occurrences/occurrences_cali_filtered.csv")
+        obs = pd.read_csv("{}occurrences/occurrences_cali_filtered.csv".format(base_dir))
         obs = obs[:1000]
         obs = prep_US_data(obs)
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
