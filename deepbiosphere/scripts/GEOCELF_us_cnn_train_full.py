@@ -42,12 +42,13 @@ def split_train_test(full_dat, split_amt):
     return train_sampler, valid_sampler
 
 def main():
-    print(f"number of devices visible: {torch.cuda.device_count()}")
-    device = torch.device(f"cuda:{ARGS.device}" if ARGS.device is not None else "cpu")
-    print(f'using device: {device}')
+    # gg = "gg{ff}".format(ff=ff)
+    print("number of devices visible: {dev}".format(dev=torch.cuda.device_count()))
+    device = torch.device("cuda:{dev}".format(dev=ARGS.device) if ARGS.device is not None else "cpu")
+    print('using device: {device}'.format(device=device))
     if ARGS.device is not None:
-        print(f"current device: {torch.cuda.current_device()} current device name: {torch.cuda.get_device_name(torch.cuda.current_device())}")
-    print(f"current host: {socket.gethostname()}")
+        print("current device: {dev} current device name: {name}".format(dev=torch.cuda.current_device(), name=torch.cuda.get_device_name(torch.cuda.current_device())))
+    print("current host: {host}".format(host=socket.gethostname()))
 
     # load observation data
     print("loading data")
