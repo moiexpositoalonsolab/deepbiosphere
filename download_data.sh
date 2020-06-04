@@ -13,7 +13,7 @@
 #unzip occurences.zip
 #unzip rasters.zip
 
-cd GeoCELF/
+cd GeoCELF2020/
 mkdir patches_us
 cd patches_us
 wget -i us_files.txt
