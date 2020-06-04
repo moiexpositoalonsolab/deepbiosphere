@@ -166,12 +166,12 @@ def main():
                     batch = batch.to(device)
 
                     (outputs, _, _) = net(batch.float()) 
-                        if ARGS.test:
-                            accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
-
-                            prog.set_description(f"top 30: {accs[0]}  top1: {accs[1]}")
-                            all_accs.append(accs)
-                        else:                                                             all_accs.append(outputs.cpu())
+                    if ARGS.test:
+                        accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
+                        prog.set_description(f"top 30: {accs[0]}  top1: {accs[1]}")
+                        all_accs.append(accs)
+                    else:
+                        all_accs.append(outputs.cpu())
                 prog.close()
                 all_accs = np.stack(all_accs)
                 print(f"max top 30 accuracy: {all_accs[:,0].max()} average top1 accuracy: {all_accs[:,1].max()}")
@@ -210,7 +210,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=int, help="which gpu to send model to, don't put anything to use cpu")
     parser.add_argument("--processes", type=int, help="how many worker processes to use for data loading", default=1)
     parser.add_argument("--exp_id", type=str, help="experiment id of this run", required=True)
-    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH'], required=True)
+    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
     parser.add_argument("--country", type=str, help="which country's images to read", default='us')
     parser.add_argument("--seed", type=int, help="random seed to use")
     parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full datasett", action='store_true')
