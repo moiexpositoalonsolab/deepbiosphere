@@ -91,6 +91,8 @@ def main():
     all_time_gen_loss = []
     all_time_fam_loss = []    
     for epoch in range(n_epochs):
+        if ARGS.device is not None:
+            torch.cuda.synchronize()
         tick = time.time()
         net.train()
         tot_loss_meter = []
@@ -145,25 +147,26 @@ def main():
             torch.cuda.synchronize()
         # test
         net.eval()
-        all_accs = []
-        with tqdm(total=len(test_loader), unit="batch") as prog:
-            for i, (labels, batch) in enumerate(test_loader):
-                labels = labels.to(device)
-                batch = batch.to(device)
+        with torch.no_grad():
+            all_accs = []
+            with tqdm(total=len(test_loader), unit="batch") as prog:
+                for i, (labels, batch) in enumerate(test_loader):
+                    labels = labels.to(device)
+                    batch = batch.to(device)
 
-                (outputs, _, _) = net(batch.float()) 
-                accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
+                    (outputs, _, _) = net(batch.float()) 
+                    accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
 
-                prog.set_description(f"top 30: {accs[0]}  top1: {accs[1]}")
-                all_accs.append(accs)
+                    prog.set_description(f"top 30: {accs[0]}  top1: {accs[1]}")
+                    all_accs.append(accs)
 
-        prog.close()
-        all_accs = np.stack(all_accs)
-        print(f"max top 30 accuracy: {all_accs[:,0].max()} average top1 accuracy: {all_accs[:,1].max()}")
-        del outputs, labels, batch
-        # save model 
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+            prog.close()
+            all_accs = np.stack(all_accs)
+            print(f"max top 30 accuracy: {all_accs[:,0].max()} average top1 accuracy: {all_accs[:,1].max()}")
+            del outputs, labels, batch
+            # save model 
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
 
         print(f"saving model for epoch {epoch}")
         PATH=f"{paths.NETS_DIR}cnn_{ARGS.exp_id}.tar"

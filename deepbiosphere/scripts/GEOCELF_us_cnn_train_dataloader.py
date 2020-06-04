@@ -29,7 +29,7 @@ def topk_acc(output, target, topk=(1,), device=None):
     for k in topk:
         correct_k = correct[:k].view(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
-    del targ
+    del targ, pred, target
     return res
 
 def split_train_test(full_dat, split_amt):
