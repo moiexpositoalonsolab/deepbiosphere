@@ -14,6 +14,11 @@
 #unzip rasters.zip
 
 cd GeoCELF2020/
+
+cd occurrences/
+wget https://hosted-datasets.gbif.org/datasets/backbone/2019-09-06/backbone.zip
+unzip backbone.zip
+cd ..
 mkdir patches_us
 cd patches_us
 wget -i us_files.txt
