@@ -53,7 +53,10 @@ def main():
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = Dataset.GEOCELF_Dataset(ARGS.base_dir, 'train', ARGS.country)
+    if ARGS.country == 'both':
+        train_dataset = Dataset.GEOCELF_Dataset_Full(ARGS.base_dir, 'train')
+    else:
+        train_dataset = Dataset.GEOCELF_Dataset(ARGS.base_dir, 'train', ARGS.country)
     val_split = .9
     train_loader = None
     test_loader = None
@@ -64,8 +67,17 @@ def main():
         test_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=test_samp)
     else:
         train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes) 
-        test_dataset = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, 'test', ARGS.country)
-        test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)
+        #TODO: implement GeoCLEF pipeline
+#         if ARGS.country is 'both':
+#             train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes) 
+#             test_dataset_fr = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, 'test', 'fr')
+#             test_dataset_us = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, 'test', 'us')
+#             test_loader_fr = DataLoader(test_dataset_fr, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)   
+#             test_loader_us = DataLoader(test_dataset_us, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)               
+#         else:
+#             train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes) 
+#             test_dataset = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, 'test', ARGS.country)
+#             test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)
     # set up net
     datock = time.time()
     dadiff = datock - datick
@@ -155,27 +167,22 @@ def main():
         # test
         net.eval()
         # https://stackoverflow.com/questions/60018578/what-does-model-eval-do-in-pytorch
-        with torch.no_grad():
+        all_accs = []
+        if ARGS.test:
+            with torch.no_grad():
+                with tqdm(total=len(test_loader), unit="batch") as prog:
+                    for i, (labels, batch) in enumerate(test_loader):
+                        labels = labels.to(device)
+                        batch = batch.to(device)
 
-#             idxs = np.random.permutation(len(test_dataset))
-#             labels, batch = test_dataset[idxs[:batch_size]]
-#             labels, batch = test_dataset[randrange(len(test_loader)-batch_size)]
-            all_accs = []
-            with tqdm(total=len(test_loader), unit="batch") as prog:
-                for i, (labels, batch) in enumerate(test_loader):
-                    labels = labels.to(device)
-                    batch = batch.to(device)
-
-                    (outputs, _, _) = net(batch.float()) 
-                    if ARGS.test:
-                        accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
-                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=accs[0], acc1=accs[1]))
-                        all_accs.append(accs)
-                    else:
-                        all_accs.append(outputs.cpu())
-                prog.close()
-                all_accs = np.stack(all_accs)
-                print("max top 30 accuracy: {max1} average top1 accuracy: {max2}".format(max1=all_accs[:,0].max(), max2=all_accs[:,1].max()))
+                        (outputs, _, _) = net(batch.float()) 
+                        if ARGS.test:
+                            accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
+                            prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=accs[0], acc1=accs[1]))
+                            all_accs.append(accs)
+                    prog.close()
+                    all_accs = np.stack(all_accs)
+                    print("max top 30 accuracy: {max1} average top1 accuracy: {max2}".format(max1=all_accs[:,0].max(), max2=all_accs[:,1].max()))
                 del outputs, labels, batch 
             if ARGS.device is not None:
                 torch.cuda.empty_cache()
@@ -200,7 +207,12 @@ def main():
         tock = time.time()
         diff = ( tock-tick)/60
         print ("one epoch took {} minutes".format(diff))
-
+# TODO add csv creation
+#     if not ARGS.test:
+#         if ARGS.country == 'both':
+#             # eval both sets
+#         else:
+#             # eval the one
 
 if __name__ == "__main__":
     #print(f"torch version: {torch.__version__}") 
@@ -212,7 +224,7 @@ if __name__ == "__main__":
     parser.add_argument("--processes", type=int, help="how many worker processes to use for data loading", default=1)
     parser.add_argument("--exp_id", type=str, help="experiment id of this run", required=True)
     parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
-    parser.add_argument("--country", type=str, help="which country's images to read", default='us')
+    parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'both'])
     parser.add_argument("--seed", type=int, help="random seed to use")
     parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full datasett", action='store_true')
     parser.add_argument("--batch_size", type=int, help="size of batches to use", default=256)    
