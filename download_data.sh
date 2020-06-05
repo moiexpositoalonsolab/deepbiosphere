@@ -1,4 +1,6 @@
 #!/bin/bash
+
+# all of this stuff is already in the deepbiophere repo so no need to do hopefully, but uncomment if you want to build fully from scratch
 #mkdir GeoCLEF
 #cd GeoCLEF
 #mkdir occurrences
@@ -13,6 +15,9 @@
 #unzip occurences.zip
 #unzip rasters.zip
 
+# make sure you have parallel downloaded and installed!
+# follow these instructions to get parallel
+
 cd GeoCELF2020/
 
 cd occurrences/
@@ -21,11 +26,16 @@ unzip backbone.zip
 cd ..
 mkdir patches_us
 cd patches_us
-wget -i us_files.txt
-for file in *.tar.gz*; do tar -zxvf "$file"; done
+parallel --eta -v -a us_files.txt wget
+# wget -i us_files.txt
+parallel tar xvfz ::: *.gz
+#parallel unzip ::: *.tar.gz*
+# for file in *.tar.gz*; do tar -zxvf "$file"; done
 cd ..
 mkdir patches_fr
 cd patches_fr
-wget -i french_files.txt
-unzip '*.zip*'
+parallel --eta -v -a french_files.txt wget
+# wget -i french_files.txt
+parallel unzip ::: '*.zip*'
+# unzip '*.zip*'
 echo "data successfully downloaded"
