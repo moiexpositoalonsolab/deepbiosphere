@@ -4,8 +4,6 @@
 
 # first, create joint_obs directory
 # need to be in GeoCLEF2020/ directory
-pwd
-mkdir joint_obs
 
 
 CURR_PARAMS=""
@@ -28,6 +26,9 @@ shift # shift past curr value
 esac
 done
 
+pwd
+cd GeoCELF2020/
+mkdir joint_obs
 
 
 python3 ../deepbiosphere/scripts/joint_obs.py --country us --base_dir $BASE_DIR
