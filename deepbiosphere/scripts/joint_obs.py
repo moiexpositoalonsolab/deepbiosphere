@@ -75,7 +75,7 @@ def main():
         
     gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
     taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(pth), sep="\t")
-
+    us_train.fillna('nan', inplace = True)
     us_celf_spec = us_train.species_id.unique()
     # get all the gbif species ids for all the species in the us sample
     conversion = gbif_meta[gbif_meta['species_id'].isin(us_celf_spec)]
