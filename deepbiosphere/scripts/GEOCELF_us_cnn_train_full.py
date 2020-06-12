@@ -119,7 +119,7 @@ def main():
         spec_loss_meter = []
         gen_loss_meter = []
         fam_loss_meter = []        
-        num_batches = math.ceil(len(test_dataset) / batch_size)        
+        num_batches = math.ceil(len(train_dataset) / batch_size)        
         with tqdm(total=num_batches, unit="batch") as prog:
             took = time.time()
             for i, (loaded_labels, loaded_imgs) in enumerate(train_loader):
