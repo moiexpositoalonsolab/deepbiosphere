@@ -124,12 +124,15 @@ def main():
             took = time.time()
             for i, (loaded_labels, loaded_imgs) in enumerate(train_loader):
                 # Loop inside loaded data
-                chunked_labels, chunked_imgs = torch.chunk(loaded_labels, ARGS.batch_size), torch.chunk(loaded_imgs, ARGS.batch_size)
+                chunked_labels, chunked_imgs = torch.split(loaded_labels, ARGS.batch_size), torch.split(loaded_imgs, ARGS.batch_size)
                 for j, (labels, batch) in enumerate(zip(chunked_labels, chunked_imgs)):
-                    
+#                     import pdb; pdb.set_trace()
+#                     print(batch.device, labels.device )                    
+#                     print(labels.shape, batch.shape, chunked_labels.shape, chunked_imgs.shape)
                     tick = time.time()
                     batch = batch.to(device)
-                    labels = labels.to(device)                                     
+                    labels = labels.to(device)         
+
                     # zero the parameter gradients
                     tuck = time.time()
                     optimizer.zero_grad()
@@ -188,8 +191,8 @@ def main():
                 num_batches = math.ceil(len(test_dataset) / batch_size)
                 with tqdm(total=num_batches, unit="batch") as prog:
                     for i, (specs_label, _, _, loaded_imgs) in enumerate(test_loader):
-                        chunked_imgs = torch.chunk(loaded_imgs, ARGS.batch_size)
-                        chunked_specs = torch.chunk(specs_tens, ARGS.batch_size)
+                        chunked_imgs = torch.split(loaded_imgs, ARGS.batch_size)
+                        chunked_specs = torch.split(specs_tens, ARGS.batch_size)
                         for j, (specs_lab, batch) in enumerate(zip(chunked_specs, chunked_imgs)):
                         
                             labels = specs_lab.to(device)
@@ -213,8 +216,8 @@ def main():
                         header = ['observation_id'] + ['top_class_id'] * 150 + ['top_class_score'] * 150
                         writer.writerow(header)
                         for i, (loaded_imgs, ids) in enumerate(test_loader):
-                            chunked_imgs = torch.chunk(loaded_imgs, ARGS.batch_size)
-                            chunked_ids = torch.chunk(ids, ARGS.batch_size)
+                            chunked_imgs = torch.split(loaded_imgs, ARGS.batch_size)
+                            chunked_ids = torch.split(ids, ARGS.batch_size)
                             for j, (batch, id_) in enumerate(zip(chunked_imgs, chunked_ids)):
 
                                 tick = time.time()
