@@ -29,6 +29,7 @@ cd patches_us
 parallel --eta -v -a us_files.txt wget
 # wget -i us_files.txt
 parallel tar xvfz ::: *.gz
+rm *.gz
 #parallel unzip ::: *.tar.gz*
 # for file in *.tar.gz*; do tar -zxvf "$file"; done
 cd ..
@@ -37,5 +38,6 @@ cd patches_fr
 parallel --eta -v -a french_files.txt wget
 # wget -i french_files.txt
 parallel unzip ::: '*.zip*'
+rm *.zip
 # unzip '*.zip*'
 echo "data successfully downloaded"
