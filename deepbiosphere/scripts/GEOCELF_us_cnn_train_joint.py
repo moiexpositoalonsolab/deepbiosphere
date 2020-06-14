@@ -1,5 +1,8 @@
+
 from random import randrange
+import statistics
 import pandas as pd
+import itertools
 import os
 import argparse
 import time
@@ -7,10 +10,9 @@ import numpy as np
 import socket
 import torch
 import torch.nn as nn
+import gc
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
-import itertools
-import gc
 import csv
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -22,20 +24,32 @@ from deepbiosphere.scripts import GEOCELF_CNN as cnn
 from deepbiosphere.scripts import GEOCELF_Dataset as Dataset
 from deepbiosphere.scripts import paths
         
-# https://gist.github.com/weiaicunzai/2a5ae6eac6712c70bde0630f3e76b77b        
-def topk_acc(output, target, topk=(1,), device=None):
+    
+def topk_acc(output, target):
     """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    batch_size = target.size(0)
-    _, pred = output.topk(maxk, 1, True, True)
-    targ = target.unsqueeze(1).repeat(1,maxk).to(device)
-    correct = pred.eq(targ)
-    res = []
-    for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0).cpu()
-        res.append(correct_k.mul_(100.0 / batch_size))
-    del targ, pred, target
-    return res
+    tot_acc = []
+    for obs, trg in zip(output, target):
+        out_vals, out_idxs = torch.topk(obs, int(trg.sum().item()))
+        targ_vals, targ_idxs = torch.topk(trg, int(trg.sum().item()))
+        eq = len(list(set(out_idxs.tolist()) & set(targ_idxs.tolist())))
+        acc = eq / trg.sum() * 100
+        tot_acc.append(acc)
+        print(eq, out_idxs, targ_idxs)
+    tot_acc = torch.tensor(tot_acc)
+    mean = torch.mean(tot_acc, dim=0)
+#     del output, target, correct
+    return mean.item(), tot_acc.tolist()
+
+
+def check_mem():
+    for obj in gc.get_objects():
+        try:
+            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
+                print(type(obj), obj.size(), obj.device)
+        except: pass
+
+
+
 
 def split_train_test(full_dat, split_amt):
     #grab split_amt% of labeled data for holdout testing
@@ -46,15 +60,7 @@ def split_train_test(full_dat, split_amt):
     valid_sampler = SubsetRandomSampler(test_idx)
     return train_sampler, valid_sampler
 
-def check_mem():
-    for obj in gc.get_objects():
-        try:
-            if torch.is_tensor(obj) or (hasattr(obj, 'data') and torch.is_tensor(obj.data)):
-                print(type(obj), obj.size(), obj.device)
-        except: pass
-
 def main():
-
     print("number of devices visible: {dev}".format(dev=torch.cuda.device_count()))
     device = torch.device("cuda:{dev}".format(dev=ARGS.device) if ARGS.device is not None else "cpu")
     print('using device: {device}'.format(device=device))
@@ -66,30 +72,11 @@ def main():
     print("loading data")
     datick = time.time()
     if ARGS.country == 'both':
-        train_dataset = Dataset.GEOCELF_Dataset_Full(ARGS.base_dir)
+        train_dataset = Dataset.GEOCELF_Dataset_Joint_Full(ARGS.base_dir)
     else:
-        train_dataset = Dataset.GEOCELF_Dataset(ARGS.base_dir, ARGS.country)
-    tb_writer = SummaryWriter(comment="exp_id: {}".format(ARGS.exp_id))
+        train_dataset = Dataset.GEOCELF_Dataset_Joint(ARGS.base_dir, ARGS.country)
     val_split = .9
-    train_loader = None
-    test_loader = None
-    test_dataset = None
-    if ARGS.test:
-        train_samp, test_samp = split_train_test(train_dataset, val_split)
-        train_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=train_samp) 
-        test_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=test_samp)
-        test_dataset = train_dataset
-    else:
-#         train_loader = DataLoader(train_dataset, ARGS.load_size, shuffle=True, pin_memory=False, num_workers=ARGS.processes) 
-        train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)         
-        if ARGS.country == 'both':
-            test_dataset = Dataset.GEOCELF_Test_Dataset_Full(ARGS.base_dir)
-            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)            
-        else:
-            test_dataset = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, ARGS.country)
-            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)        
-        
-        #TODO: implement GeoCLEF pipeline
+    tb_writer = SummaryWriter(comment="exp_id: {}".format(ARGS.exp_id))
     # set up net
     datock = time.time()
     dadiff = datock - datick
@@ -100,29 +87,72 @@ def main():
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens    
     net= cnn.Net(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
+#     loss = torch.nn.BCELoss()
 # multi loss from here: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch 
-    spec_loss = torch.nn.CrossEntropyLoss()
-    gen_loss = torch.nn.CrossEntropyLoss()
-    fam_loss = torch.nn.CrossEntropyLoss()    
+    spec_loss = torch.nn.BCEWithLogitsLoss()
+    gen_loss = torch.nn.BCEWithLogitsLoss()
+    fam_loss = torch.nn.BCEWithLogitsLoss()    
     optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
-
-    net.to(device)    
+    model = net.to(device)
     
+    
+    def collate_fn(batch):
+#         print("custom batch boi")
+        # batch is a list of tuples of (specs_label, gens_label, fams_label, images)  
+        all_specs = []
+        all_gens = []
+        all_fams = []
+        imgs = []
+        #(specs_label, gens_label, fams_label, images)  
+        for (spec, gen, fam, img) in batch:
+            specs_tens = torch.zeros(net.species)
+            specs_tens[spec] += 1
+            all_specs.append(specs_tens)
 
+            gens_tens = torch.zeros(net.genuses)
+            gens_tens[gen] += 1
+            all_gens.append(gens_tens)
+
+            fams_tens = torch.zeros(net.families)
+            fams_tens[fam] += 1
+            all_fams.append(fams_tens)
+            imgs.append(img)
+            
+        return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs))
+
+
+
+ 
+
+    train_loader = None
+    test_loader = None
+    test_dataset = None
+    if ARGS.test:
+        train_samp, test_samp = split_train_test(train_dataset, val_split)
+        train_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=train_samp, collate_fn=collate_fn) 
+        test_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=test_samp, collate_fn=collate_fn)
+    else:
+        train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes, collate_fn=collate_fn) 
+        if ARGS.country == 'both':
+            test_dataset = Dataset.GEOCELF_Test_Dataset_Full(ARGS.base_dir)
+            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)
+        else: 
+            test_dataset = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, ARGS.country)
+            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)
+
+    
 
     batch_size=ARGS.batch_size
     n_epochs=ARGS.epoch
     num_batches = math.ceil(len(train_dataset) / batch_size)
-    print("batch size is {batch_size} and size of dataset is {lens} and num batches is {num_batches}\n".format(batch_size=ARGS.batch_size, lens=len(train_dataset), num_batches=len(train_loader)))
+    print("batch size is {batch_size} and size of dataset is {lens} and number of batches is {num_batches}\n".format(batch_size=ARGS.batch_size, num_batches=len(train_loader), lens=len(train_dataset)))
     print("starting training") 
     all_time_loss = []
     all_time_sp_loss = []
     all_time_gen_loss = []
-    all_time_fam_loss = []  
-    step = 0
+    all_time_fam_loss = []    
+    step = 0    
     for epoch in range(n_epochs):
-        print("starting training for epoch {}".format(epoch))
-
         if ARGS.device is not None:
             torch.cuda.synchronize()
         tick = time.time()
@@ -130,17 +160,16 @@ def main():
         tot_loss_meter = []
         spec_loss_meter = []
         gen_loss_meter = []
-        fam_loss_meter = []        
-
+        fam_loss_meter = []  
+        
         with tqdm(total=len(train_loader), unit="batch") as prog:
-            
-            for i, (labels, batch) in enumerate(train_loader):
-                # Loop inside loaded data
 
+            for i, (specs_lab, gens_lab, fams_lab, batch) in enumerate(train_loader):
                 batch = batch.to(device)
-                labels = labels.to(device)                             
+                specs_lab = specs_lab.to(device)                                     
+                gens_lab = gens_lab.to(device)
+                fams_lab = fams_lab.to(device)
                 # zero the parameter gradients
-#                 tuck = time.time()
                 optimizer.zero_grad()
                 # forward + backward + optimize
                 (specs, gens, fams) = net(batch.float()) # convert to float so torch happy
@@ -148,15 +177,12 @@ def main():
 
                 # compute loss https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
                 # https://stackoverflow.com/questions/48274929/pytorch-runtimeerror-trying-to-backward-through-the-graph-a-second-time-but
-                # https://stackoverflow.com/questions/46774641/what-does-the-parameter-retain-graph-mean-in-the-variables-backward-method
-                loss_spec = spec_loss(specs, labels[:,0]) 
-                loss_gen = gen_loss(gens, labels[:,1]) 
-                loss_fam = fam_loss(fams, labels[:,2])
+                loss_spec = spec_loss(specs, specs_lab) 
+                loss_gen = gen_loss(gens, gens_lab) 
+                loss_fam = fam_loss(fams, fams_lab)       
                 total_loss = loss_spec + loss_gen + loss_fam
                 total_loss.backward()
                 optimizer.step()
-                # optimizer.zero_grad()
-                # update tqdm
 
                 tot_loss = total_loss.item()
                 tot_loss_meter.append(tot_loss)                
@@ -167,21 +193,19 @@ def main():
                 tb_writer.add_scalar("train/tot_loss", tot_loss, step)
                 tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
                 tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
-                tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)                
-                step += 1
+                tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)   
                 prog.set_description("loss: {tot_loss}".format(tot_loss=tot_loss))
-            # update loss tracker
+                step += 1                
+                # update loss tracker
         prog.close() 
         all_time_loss.append(np.stack(tot_loss_meter))
         all_time_sp_loss.append(np.stack(spec_loss_meter))
         all_time_gen_loss.append(np.stack(gen_loss_meter))
         all_time_fam_loss.append(np.stack(fam_loss_meter))
 
-        
-        
-        print ("Average Train Loss: {avg_loss}".format(avg_loss=np.stack(tot_loss_meter).mean(0)))
 
-        del batch, labels, specs, gens, fams, loss_spec, loss_gen, loss_fam
+        print ("Average Train Loss: {avg_loss}".format(avg_loss=np.stack(tot_loss_meter).mean(0)))
+        del batch, specs_lab, gens_lab, fams_lab, specs, gens, fams, loss_spec, loss_gen, loss_fam
         
         # save model 
 
@@ -196,7 +220,10 @@ def main():
                     'spec_loss': np.stack(all_time_sp_loss),
                     'gen_loss': np.stack(all_time_gen_loss), 
                     'fam_loss': np.stack(all_time_fam_loss)
-                    }, PATH)        
+                    }, PATH)
+        
+        
+        
         
         if ARGS.device is not None:
             print("cleaning gpu")
@@ -205,33 +232,32 @@ def main():
         net.eval()
         # https://stackoverflow.com/questions/60018578/what-does-model-eval-do-in-pytorch
         all_accs = []
-        print("testing model")
         with torch.no_grad():
             if ARGS.test:
                 with tqdm(total=len(test_loader), unit="batch") as prog:
-                    for i, (specs_lab, _, _, batch) in enumerate(test_loader):
-
-                        labels = specs_lab.to(device)
+                    for i, (specs_label, _, _, loaded_imgs) in enumerate(test_loader):
+                        tick = time.time()
+                        batch = batch.to(device)
+                        specs_lab = specs_label.to(device)                                     
                         batch = batch.to(device)
 
                         (outputs, _, _) = net(batch.float()) 
-                        accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
-                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=accs[0], acc1=accs[1]))
-                        all_accs.append(accs)
-                        tb_writer.add_scalar("test/30_accuracy", accs[0], epoch)
-                        tb_writer.add_scalar("test/1_accuracy", accs[1], epoch)                            
-                        prog.update(1)
+                        accs, tot_accs = topk_acc(outputs, specs_lab) # magic no from CELF2020
+                        prog.set_description("mean accuracy across batch: {acc0}".format(acc0=accs))
+                        prog.update(1)          
+                        tb_writer.add_scalar("test/avg_accuracy", accs, epoch)
+                        all_accs.append(tot_accs)
+                        all_accs = np.stack(all_accs)
                 prog.close()
-                all_accs = np.stack(all_accs)
-                print("max top 30 accuracy: {max1} average top1 accuracy: {max2}".format(max1=all_accs[:,0].max(), max2=all_accs[:,1].max()))
-                del outputs, labels, batch 
-            else:
-                with tqdm(total=len(test_dataset), unit="obs") as prog:
+                print("max top 1 accuracy across batches: {max1} average top1 accuracy across batches: {avg1}".format(max1=max(all_accs), avg1=statistics.mean(all_accs)))
+                del outputs, specs_lab, batch 
+            else: 
+                with tqdm(total=len(test_loader), unit="batch") as prog:
                     file = "{}output/{}_{}_e{}.csv".format(ARGS.base_dir, ARGS.country, ARGS.exp_id, epoch)
                     with open(file,'w') as f:
                         writer = csv.writer(f, dialect='excel')
                         header = ['observation_id'] + ['top_class_id'] * 150 + ['top_class_score'] * 150
-                        writer.writerow(header)
+                        writer.writerow(header)                        
                         for i, (batch, id_) in enumerate(test_loader):
                             batch = batch.to(device)                                  
                             (outputs, _, _) = net(batch.float()) 
@@ -243,19 +269,18 @@ def main():
                                 row = itertools.chain( [idd.item()], ids, scores.tolist())
                                 writer.writerow(row)
                             prog.update(1)
+                    print("saving to : {}".format(file))                            
                 prog.close()
-                del outputs, batch                 
-
+                f.close() 
+                del batch, outputs
         if ARGS.device is not None:
             torch.cuda.empty_cache()
-      
-    
 
 
         tock = time.time()
         diff = ( tock-tick)/60
         print ("one epoch took {} minutes".format(diff))
-    tb_writer.close()
+
 
 if __name__ == "__main__":
     #print(f"torch version: {torch.__version__}") 
@@ -270,14 +295,14 @@ if __name__ == "__main__":
     parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'both'])
     parser.add_argument("--seed", type=int, help="random seed to use")
     parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full dataset", action='store_true')
-    parser.add_argument("--load_size", type=int, help="how many instances to hold in memory at a time", default=1000)    
+#     parser.add_argument("--load_size", type=int, help="how many instances to hold in memory at a time", default=1000)    
     parser.add_argument("--batch_size", type=int, help="size of batches to use", default=50)    
     ARGS, _ = parser.parse_known_args()
     # parsing which path to use
     ARGS.base_dir = eval("paths.{}".format(ARGS.base_dir))
     print("using base directory {}".format(ARGS.base_dir))
     # Seed
-    assert ARGS.load_size >= ARGS.batch_size, "load size must be bigger than batch size!"
+#     assert ARGS.load_size >= ARGS.batch_size, "load size must be bigger than batch size!"
     if ARGS.seed is not None:
         np.random.seed(ARGS.seed)
         torch.manual_seed(ARGS.seed)
