@@ -1,3 +1,4 @@
+
 from random import randrange
 import pandas as pd
 import os
@@ -46,6 +47,7 @@ def split_train_test(full_dat, split_amt):
 
 def main():
     # gg = "gg{ff}".format(ff=ff)
+    print("torch version {}".format(torch.__version__))
     print("number of devices visible: {dev}".format(dev=torch.cuda.device_count()))
     device = torch.device("cuda:{dev}".format(dev=ARGS.device) if ARGS.device is not None else "cpu")
     print('using device: {device}'.format(device=device))

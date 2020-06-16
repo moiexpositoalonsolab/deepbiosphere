@@ -38,7 +38,7 @@ def nmea_2_meters(lat1, lon1, lat2, lon2):
 
 
 def get_joint_from_group(group_df):
-    df_np = group_df[['lat', 'lon', 'species_id', 'gbif_id', 'family', 'genus']].to_numpy()
+    df_np = group_df[['lat', 'lon', 'species_id', 'gbif_id', 'family', 'genus']].values #.to_numpy()
     extra_specs = [{df_np[i,2]} for i in range(len(df_np))]
     extra_fams = [{df_np[i,4]} for i in range(len(df_np))] 
     extra_gens = [{df_np[i,5]} for i in range(len(df_np))]
@@ -56,7 +56,7 @@ def get_joint_from_group(group_df):
     tock = time.time()                
     diff = tock - tick
     # ((diff / len(bb_np)) * len(filtered))/(60*60)
-    print(f"took {diff} seconds")
+    print("took {diff} seconds".format(diff=diff))
     group_df['all_specs'] = extra_specs
     group_df['all_fams'] = extra_fams
     group_df['all_gens'] = extra_gens    
@@ -68,9 +68,9 @@ def main():
     pth = ARGS.base_dir
     us_train = None
     if ARGS.filtered:
-        us_train = pd.read_csv(f"{pth}/occurrences/occurrences_cali_filtered_full.csv")
+        us_train = pd.read_csv("{pth}/occurrences/occurrences_cali_filtered_full.csv".format(pth=pth))
     else:
-        us_train_pth = f"{pth}occurrences/occurrences_{ARGS.country}_train.csv"
+        us_train_pth = "{pth}occurrences/occurrences_{country}_train.csv".format(pth=pth, country=ARGS.country)
         us_train = pd.read_csv(us_train_pth, sep=';')
         
     gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
@@ -110,15 +110,15 @@ def main():
     grouped = us_train.groupby(['city', 'state', 'region'])
     all_datframes = []
     for (grouping, df) in grouped:
-        print(f"grouping {grouping}")
+        print("grouping {grouping}".format(grouping=grouping))
         joint_df = get_joint_from_group(df)
 
         if not ARGS.filtered:
-            write_pth = f"{pth}joint_obs/"
+            write_pth = "{pth}joint_obs/".format(pth=pth)
             city = grouping[0].replace(" ", "")
             region = grouping[2].replace(" ", "")
             state = grouping[1].replace(" ", "")
-            pth_pth = f"{write_pth}{ARGS.country}_{city}_{region}_{state}.csv"
+            pth_pth = "{write_pth}{country}_{city}_{region}_{state}.csv".format(write_pth=write_pth, country=ARGS.country, city=city, region=region, state=state)
 #             print(f"saving to {pth_pth}")
             joint_df.to_csv(pth_pth)
         else:     
@@ -128,7 +128,7 @@ def main():
         joint_obs = pd.concat(all_datframes)
         print("save data")
         region = 'cali' if ARGS.filtered else ARGS.country
-        joint_obs.to_csv(f"{pth}/occurrences/joint_obs_{region}.csv")
+        joint_obs.to_csv("{pth}/occurrences/joint_obs_{region}.csv".format(pth=pth, region=region))
     
     
 if __name__ == "__main__":

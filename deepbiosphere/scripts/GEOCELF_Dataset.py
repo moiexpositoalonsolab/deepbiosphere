@@ -150,7 +150,7 @@ class GEOCELF_Dataset(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
-        self.obs = obs[['id', 'species_id', 'genus', 'family']].to_numpy()
+        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
         if self.country == 'us':
             self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
@@ -183,7 +183,7 @@ class GEOCELF_Test_Dataset(Dataset):
         self.country = country
         self.split = 'test'
         obs = get_gbif_data(self.base_dir, self.split, country)
-        self.obs = obs[['id']].to_numpy()
+        self.obs = obs[['id']].values
         self.transform = transform
 
     def __len__(self):
@@ -209,12 +209,12 @@ class GEOCELF_Test_Dataset_Full(Dataset):
                 # def get_gbif_data(pth, split, country):
         us_obs = get_gbif_data(self.base_dir, self.split, 'us')
         fr_obs = get_gbif_data(self.base_dir, self.split, 'fr')
-        
+ 
 
         
         obs = pd.concat([us_obs, fr_obs])
 
-        self.obs = obs[['id']].to_numpy()
+        self.obs = obs[['id']].values
         self.transform = transform
 
     def __len__(self):
@@ -243,7 +243,7 @@ class GEOCELF_Cali_Dataset(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
-        self.obs = obs[['id', 'species_id', 'genus', 'family']].to_numpy()
+        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
         self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
 
@@ -282,7 +282,7 @@ class GEOCELF_Cali_Dataset_Tiny(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
-        self.obs = obs[['id', 'species_id', 'genus', 'family']].to_numpy()
+        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
         self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
 
@@ -324,9 +324,9 @@ class GEOCELF_Dataset_Full(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
-        self.obs = obs[['id', 'species_id', 'genus', 'family']].to_numpy()
+        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
-        id_ = int(us_obs.to_numpy()[0,0])
+        id_ = int(us_obs.values[0,0])
         self.channels = us_image_from_id(id_, self.base_dir, 'us').shape[0]
 
     def __len__(self):
@@ -361,7 +361,7 @@ class GEOCELF_Dataset_Joint(Dataset):
         self.num_gens = len(obs.genus.unique())
         # TODO: get right columns and not numpy b/c jagged
         obs = obs[:1000]
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].to_numpy()
+        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         self.transform = transform
         if self.country == 'us':
             self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
@@ -402,9 +402,9 @@ class GEOCELF_Dataset_Joint_Full(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].to_numpy()
+        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         self.transform = transform
-        id_ = int(us_obs.to_numpy()[0,0])
+        id_ = int(us_obs.values[0,0])
         self.channels = us_image_from_id(id_, self.base_dir, 'us').shape[0]
 
     def __len__(self):

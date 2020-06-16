@@ -2,7 +2,7 @@
 File system paths
 """
 DBS_DIR = "/Carnegie/DPB/Data/Shared/Labs/Moi/Everyone/deepbiosphere/GeoCELF2020/"
-AZURE_DIR = '/data/deepbiosphere/deepbiosphere/GeoCELF2020/'
+AZURE_DIR = '/data/deepbiosphere/deepbiosphere/GeoCLEF/'
 MEMEX_LUSTRE = "/lustre/scratch/lgillespie/"
 CALC_SCRATCH = "/NOBACKUP/scratch/lgillespie/"
 #GEOCELF_DIR = f"{DBS_DIR}GeoCELF2020/"
