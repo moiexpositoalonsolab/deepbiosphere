@@ -37,9 +37,9 @@ def main():
     print("number of us missing files: {} number of missing fr files: {}".format(us_missed, fr_missed))
 
     # get ids of files that are present
-    us_path_ids = [ path.split("_alti")[0].split("/")[-1] for path in us_paths]
+    us_path_ids = [ path.split("_alti")[0].split("/")[-1] for path in paths_us]
 
-    fr_path_ids = [ path.split("_alti")[0].split("/")[-1] for path in fr_paths]
+    fr_path_ids = [ path.split("_alti")[0].split("/")[-1] for path in paths_fr]
     # grab ids from both train and test set
     us_cat_ids = pd.concat([us_train['id'], us_test['id']])
     fr_cat_ids = pd.concat([fr_train['id'], fr_test['id']])
@@ -57,7 +57,8 @@ def main():
         cdd = "0{}".format(cdd)  if cdd < 10 else "{}".format(cdd)
         ab = "0{}".format(ab) if miss / 1000 > 1 and ab < 10 else ab
         cd = "0{}".format(cd) if miss / 1000 > 1 and cd < 10 else cd
-        subpath = "patches_us_{}/{}/{}/".format(cdd, cd, ab)
+        #subpath = "patches_us_{}/{}/{}/".format(cdd, cd, ab)
+        subpath = "patches_us_{}".format(cdd)
         missing_folders.add(subpath)
     pprint.pprint("missing us folders: {}".format(missing_folders))
     missing_fr_folders = set()
