@@ -47,8 +47,16 @@ def us_image_from_id(id_, pth, country):
     subpath = "patches_{}/patches_{}_{}/{}/{}/".format(country, country, cdd, cd, ab)
     alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
     rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
-    np_al = np.load(alt)
-    np_img = np.load(rgbd)
+    try:
+        np_al = np.load(alt)
+        np_img = np.load(rgbd)
+    except KeyboardInterrupt:
+        print("operation cancelled")
+        exit(1)
+    except:
+        print("trouble loading file {}, faking data :(".format(rgbd))
+        np_al = np.zeros(self.alt_shape)
+        np_img = np.zeros(self.rgbd_shape)
     np_al = np.expand_dims(np_al, 2)
     np_all = np.concatenate((np_al, np_img), axis=2)
     return np.transpose(np_all,(2, 0, 1))
@@ -61,13 +69,57 @@ def fr_img_from_id(id_, pth, country):
     subpath = "patches_{}/{}/{}/".format(country, cd, ab)
     alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
     rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
-    np_al = np.load(alt)
-    np_img = np.load(rgbd)
+    try:
+        np_al = np.load(alt)
+        np_img = np.load(rgbd)
+    except KeyboardInterrupt:
+        print("operation cancelled")
+        exit(1)
+    except:
+        print("trouble loading file {}, faking data :(".format(rgbd))
+        np_al = np.zeros(self.alt_shape)
+        np_img = np.zeros(self.rgbd_shape)
     np_al = np.expand_dims(np_al, 2)
     np_all = np.concatenate((np_al, np_img), axis=2)
     return np.transpose(np_all,(2, 0, 1))
     
 
+def get_shapes(id_):
+    if id_ >= 10000000:
+                
+        abcd = id_ % 10000
+        ab, cd = math.floor(abcd/100), abcd%100
+        ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
+        cd = "0{}".format(cd) if  cd < 10 else cd
+        subpath = "patches_{}/{}/{}/".format(country, cd, ab)
+        alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
+        rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
+        np_al = np.load(alt)
+        np_img = np.load(rgbd)
+        np_al = np.load(alt)
+        np_img = np.load(rgbd)        
+
+    else: 
+
+        abcd = id_ % 10000
+        ab, cd = math.floor(abcd/100), abcd%100
+        cdd = math.ceil((cd+ 1)/5)
+        cdd = "0{}".format(cdd)  if cdd < 10 else "{}".format(cdd)
+        ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
+        cd = "0{}".format(cd) if  cd < 10 else cd
+        subpath = "patches_{}/patches_{}_{}/{}/{}/".format(country, country, cdd, cd, ab)
+        alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
+        rgbd = "{}{}{}.npy".format(pth, subpath, id_)
+        np_al = np.load(alt)
+        np_img = np.load(rgbd)        
+    alt_shape = np_al.shape
+    rgbd_shape = np_img.shape
+    
+    np_al = np.expand_dims(np_al, 2)
+    np_all = np.concatenate((np_al, np_img), axis=2)    
+    
+    channels = np.transpose(np_all,(2, 0, 1)).shape[0]
+    return channels, alt_shape, rgbd_shape
 
 
 def add_genus_family_data(pth, train):
@@ -149,14 +201,16 @@ class GEOCELF_Dataset(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
+        
+        self.alt_shape = 
+        self.rgb_shape = 
         self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
-        if self.country == 'us':
-            self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
-        elif self.country == 'fr':
-            self.channels = fr_img_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
-        else:
-            exit(1), "improper country id specified!"
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        self.channels = channels
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
+
 
     def __len__(self):
         return len(self.obs)
@@ -193,8 +247,10 @@ class GEOCELF_Dataset_Full(Dataset):
         self.num_gens = len(obs.genus.unique())
         self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
-        id_ = int(us_obs.values[0,0])
-        self.channels = us_image_from_id(id_, self.base_dir, 'us').shape[0]
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        self.channels = channels
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
 
     def __len__(self):
         return len(self.obs)
@@ -286,13 +342,10 @@ class GEOCELF_Dataset_Joint(Dataset):
         self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         #self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].to_numpy()
         self.transform = transform
-        if self.country == 'us':
-            self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
-        elif self.country == 'fr':
-            self.channels = fr_img_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
-        else:
-            exit(1), "improper country id specified!"
-
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        self.channels = channels
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
     def __len__(self):
         return len(self.obs)
 
@@ -327,9 +380,10 @@ class GEOCELF_Dataset_Joint_Full(Dataset):
         self.num_gens = len(obs.genus.unique())
         self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         self.transform = transform
-        id_ = int(us_obs.values[0,0])
-        self.channels = us_image_from_id(id_, self.base_dir, 'us').shape[0]
-
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        self.channels = channels
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
     def __len__(self):
         return len(self.obs)
 
