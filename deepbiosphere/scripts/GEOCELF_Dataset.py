@@ -4,7 +4,6 @@ import math
 import torch
 import pandas as pd
 import numpy as np
-import yaml
 from torch.utils.data import Dataset
 #from torchvision import transforms, utils
 
@@ -147,10 +146,13 @@ class GEOCELF_Dataset(Dataset):
         obs, inv_spec  = prep_data(obs)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        
+        obs = obs[:500]
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
         self.obs = obs[['id', 'species_id', 'genus', 'family']].values
+        import pdb; pdb.set_trace()
         self.transform = transform
         if self.country == 'us':
             self.channels = us_image_from_id(self.obs[0,0], self.base_dir, self.country).shape[0]
@@ -166,7 +168,7 @@ class GEOCELF_Dataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
-        id_, label = self.obs[idx, 0], self.obs[idx, 1]
+        id_ = self.obs[idx, 0]
         images = us_image_from_id(id_, self.base_dir, self.country) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country) 
         composite_label = self.obs[idx, 1:] # get genus, family as well
         if self.transform:
@@ -183,6 +185,7 @@ class GEOCELF_Test_Dataset(Dataset):
         self.country = country
         self.split = 'test'
         obs = get_gbif_data(self.base_dir, self.split, country)
+        obs = obs[:500]
         self.obs = obs[['id']].values
         self.transform = transform
 
@@ -199,7 +202,7 @@ class GEOCELF_Test_Dataset(Dataset):
 #         composite_label = self.obs[idx, 1:] # get genus, family as well
         if self.transform:
             images = self.transform(images)
-        return images
+        return (images, id_)    
 
 class GEOCELF_Test_Dataset_Full(Dataset):
     def __init__(self, base_dir, transform=None):
@@ -249,6 +252,7 @@ class GEOCELF_Dataset_Joint(Dataset):
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
         # TODO: get right columns and not numpy b/c jagged
+        obs = obs[:500]
         self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         #self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].to_numpy()
         self.transform = transform

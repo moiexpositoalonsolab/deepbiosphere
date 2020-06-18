@@ -28,17 +28,16 @@ from deepbiosphere.scripts import paths
 def topk_acc(output, target):
     """Computes the precision@k for the specified values of k"""
     tot_acc = []
+    acc_acc = []
     for obs, trg in zip(output, target):
         out_vals, out_idxs = torch.topk(obs, int(trg.sum().item()))
         targ_vals, targ_idxs = torch.topk(trg, int(trg.sum().item()))
         eq = len(list(set(out_idxs.tolist()) & set(targ_idxs.tolist())))
         acc = eq / trg.sum() * 100
-        tot_acc.append(acc)
-        print(eq, out_idxs, targ_idxs)
-    tot_acc = torch.tensor(tot_acc)
-    mean = torch.mean(tot_acc, dim=0)
-#     del output, target, correct
-    return mean.item(), tot_acc.tolist()
+        tot_acc.append((eq, len(targ_idxs)))
+        acc_acc.append(acc.item())
+    
+    return np.stack(acc_acc), np.stack(tot_acc)
 
 
 def check_mem():
@@ -211,7 +210,7 @@ def main():
 
 
         print("saving model for epoch {epoch}".format(epoch=epoch))
-        PATH="{}nets/cnn_{}_{}.tar".format(paths.DBS_DIR, ARGS.exp_id, epoch)
+        PATH="{}nets/cnn_{}_{}.tar".format(ARGS.base_dir, ARGS.exp_id, epoch)
         torch.save({
                     'epoch': epoch,
                     'model_state_dict': net.state_dict(),
@@ -232,24 +231,26 @@ def main():
         net.eval()
         # https://stackoverflow.com/questions/60018578/what-does-model-eval-do-in-pytorch
         all_accs = []
+        mean_accs = []
         with torch.no_grad():
             if ARGS.test:
                 with tqdm(total=len(test_loader), unit="batch") as prog:
+                    means = []
                     for i, (specs_label, _, _, loaded_imgs) in enumerate(test_loader):
                         tick = time.time()
-                        batch = batch.to(device)
+                        batch = loaded_imgs.to(device)
                         specs_lab = specs_label.to(device)                                     
-                        batch = batch.to(device)
-
                         (outputs, _, _) = net(batch.float()) 
                         accs, tot_accs = topk_acc(outputs, specs_lab) # magic no from CELF2020
-                        prog.set_description("mean accuracy across batch: {acc0}".format(acc0=accs))
+                        prog.set_description("mean accuracy across batch: {acc0}".format(acc0=accs.mean()))
                         prog.update(1)          
-                        tb_writer.add_scalar("test/avg_accuracy", accs, epoch)
+                        tb_writer.add_scalar("test/avg_accuracy", accs.mean(), epoch)
                         all_accs.append(tot_accs)
-                        all_accs = np.stack(all_accs)
+                        mean_accs.append(accs)
+                        means.append(accs.mean()) 
                 prog.close()
-                print("max top 1 accuracy across batches: {max1} average top1 accuracy across batches: {avg1}".format(max1=max(all_accs), avg1=statistics.mean(all_accs)))
+                means = np.stack(means)
+                print("max top 1 accuracy across batches: {max1} average top1 accuracy across batches: {avg1}".format(max1=means.max(), avg1=means.mean()))
                 del outputs, specs_lab, batch 
             else: 
                 with tqdm(total=len(test_loader), unit="batch") as prog:
@@ -306,8 +307,8 @@ if __name__ == "__main__":
     if ARGS.seed is not None:
         np.random.seed(ARGS.seed)
         torch.manual_seed(ARGS.seed)
-    if not os.path.exists("{}outputs/".format(ARGS.base_dir)):
-        os.makedirs("{}outputs/".format(ARGS.base_dir))
+    if not os.path.exists("{}output/".format(ARGS.base_dir)):
+        os.makedirs("{}output/".format(ARGS.base_dir))
     if not os.path.exists("{}nets/".format(ARGS.base_dir)):
         os.makedirs("{}nets/".format(ARGS.base_dir))        
     main()

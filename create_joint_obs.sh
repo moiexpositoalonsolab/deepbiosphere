@@ -27,9 +27,10 @@ esac
 done
 
 pwd
-cd GeoCELF2020/
+cd GeoCLEF/
 mkdir joint_obs
 
+echo $BASE_DIR
 
 python3 ../deepbiosphere/scripts/joint_obs.py --country us --base_dir $BASE_DIR
 python3 ../deepbiosphere/scripts/joint_obs.py --country fr --base_dir $BASE_DIR

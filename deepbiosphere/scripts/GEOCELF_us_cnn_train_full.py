@@ -188,7 +188,7 @@ def main():
 
 
         print("saving model for epoch {epoch}".format(epoch=epoch))
-        PATH="{}nets/cnn_{}_{}.tar".format(paths.DBS_DIR, ARGS.exp_id, epoch)
+        PATH="{}nets/cnn_{}_{}.tar".format(ARGS.base_dir, ARGS.exp_id, epoch)
         torch.save({
                     'epoch': epoch,
                     'model_state_dict': net.state_dict(),
@@ -210,6 +210,7 @@ def main():
         with torch.no_grad():
             if ARGS.test:
                 with tqdm(total=len(test_loader), unit="batch") as prog:
+                    import pdb; pdb.set_trace()
                     for i, (specs_lab, _, _, batch) in enumerate(test_loader):
 
                         labels = specs_lab.to(device)
@@ -227,7 +228,7 @@ def main():
                 print("max top 30 accuracy: {max1} average top1 accuracy: {max2}".format(max1=all_accs[:,0].max(), max2=all_accs[:,1].max()))
                 del outputs, labels, batch 
             else:
-                with tqdm(total=len(test_dataset), unit="obs") as prog:
+                with tqdm(total=len(test_loader), unit="obs") as prog:
                     file = "{}output/{}_{}_e{}.csv".format(ARGS.base_dir, ARGS.country, ARGS.exp_id, epoch)
                     with open(file,'w') as f:
                         writer = csv.writer(f, dialect='excel')
@@ -282,8 +283,8 @@ if __name__ == "__main__":
     if ARGS.seed is not None:
         np.random.seed(ARGS.seed)
         torch.manual_seed(ARGS.seed)
-    if not os.path.exists("{}outputs/".format(ARGS.base_dir)):
-        os.makedirs("{}outputs/".format(ARGS.base_dir))
+    if not os.path.exists("{}output/".format(ARGS.base_dir)):
+        os.makedirs("{}output/".format(ARGS.base_dir))
     if not os.path.exists("{}nets/".format(ARGS.base_dir)):
         os.makedirs("{}nets/".format(ARGS.base_dir))        
     main()
