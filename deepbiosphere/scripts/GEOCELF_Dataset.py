@@ -37,7 +37,7 @@ def get_joint_gbif_data(pth, country):
     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
     return joint_obs
 
-def us_image_from_id(id_, pth, country):
+def us_image_from_id(id_, pth, country, alt_shape, rgbd_shape):
     abcd = id_ % 10000
     ab, cd = math.floor(abcd/100), abcd%100
     cdd = math.ceil((cd+ 1)/5)
@@ -55,13 +55,13 @@ def us_image_from_id(id_, pth, country):
         exit(1)
     except:
         print("trouble loading file {}, faking data :(".format(rgbd))
-        np_al = np.zeros(self.alt_shape)
-        np_img = np.zeros(self.rgbd_shape)
+        np_al = np.zeros(alt_shape, dtype='uint8')
+        np_img = np.zeros(rgbd_shape, dtype='uint8')
     np_al = np.expand_dims(np_al, 2)
     np_all = np.concatenate((np_al, np_img), axis=2)
     return np.transpose(np_all,(2, 0, 1))
 
-def fr_img_from_id(id_, pth, country):
+def fr_img_from_id(id_, pth, country, alt_shape, rgbd_shape):
     abcd = id_ % 10000
     ab, cd = math.floor(abcd/100), abcd%100
     ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
@@ -77,27 +77,25 @@ def fr_img_from_id(id_, pth, country):
         exit(1)
     except:
         print("trouble loading file {}, faking data :(".format(rgbd))
-        np_al = np.zeros(self.alt_shape)
-        np_img = np.zeros(self.rgbd_shape)
+        np_al = np.zeros(alt_shape, dtype='uint8')
+        np_img = np.zeros(rgbd_shape, dtype='uint8')
     np_al = np.expand_dims(np_al, 2)
     np_all = np.concatenate((np_al, np_img), axis=2)
     return np.transpose(np_all,(2, 0, 1))
     
 
-def get_shapes(id_):
+def get_shapes(id_, pth):
     if id_ >= 10000000:
                 
         abcd = id_ % 10000
         ab, cd = math.floor(abcd/100), abcd%100
         ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
         cd = "0{}".format(cd) if  cd < 10 else cd
-        subpath = "patches_{}/{}/{}/".format(country, cd, ab)
+        subpath = "patches_{}/{}/{}/".format('fr', cd, ab)
         alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
         rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
         np_al = np.load(alt)
         np_img = np.load(rgbd)
-        np_al = np.load(alt)
-        np_img = np.load(rgbd)        
 
     else: 
 
@@ -107,7 +105,7 @@ def get_shapes(id_):
         cdd = "0{}".format(cdd)  if cdd < 10 else "{}".format(cdd)
         ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
         cd = "0{}".format(cd) if  cd < 10 else cd
-        subpath = "patches_{}/patches_{}_{}/{}/{}/".format(country, country, cdd, cd, ab)
+        subpath = "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
         alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
         rgbd = "{}{}{}.npy".format(pth, subpath, id_)
         np_al = np.load(alt)
@@ -202,11 +200,9 @@ class GEOCELF_Dataset(Dataset):
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
         
-        self.alt_shape = 
-        self.rgb_shape = 
         self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
         self.channels = channels
         self.alt_shape = alt_shape
         self.rgbd_shape = rgbd_shape
@@ -220,7 +216,7 @@ class GEOCELF_Dataset(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, 0]
-        images = us_image_from_id(id_, self.base_dir, self.country) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country) 
+        images = us_image_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) 
         composite_label = self.obs[idx, 1:] # get genus, family as well
         if self.transform:
             images = self.transform(images)
@@ -235,8 +231,9 @@ class GEOCELF_Dataset_Full(Dataset):
         us_obs = get_gbif_data(self.base_dir, self.split, 'us')
         fr_obs = get_gbif_data(self.base_dir, self.split, 'fr')
 
-
         obs = pd.concat([us_obs, fr_obs])
+    
+        
         obs.fillna('nan', inplace=True)
         obs = add_genus_family_data(self.base_dir, obs)
         obs, inv_spec  = prep_data(obs)
@@ -247,7 +244,7 @@ class GEOCELF_Dataset_Full(Dataset):
         self.num_gens = len(obs.genus.unique())
         self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
         self.channels = channels
         self.alt_shape = alt_shape
         self.rgbd_shape = rgbd_shape
@@ -260,7 +257,7 @@ class GEOCELF_Dataset_Full(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_, label = self.obs[idx, 0], self.obs[idx, 1]
-        images = fr_img_from_id(id_, self.base_dir, 'fr')  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us')
+        images = fr_img_from_id(id_, self.base_dir, 'fr', self.alt_shape, self.rgbd_shape)  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us', self.alt_shape, self.rgbd_shape)
 
         composite_label = self.obs[idx, 1:] # get genus, family as well
         if self.transform:
@@ -275,6 +272,9 @@ class GEOCELF_Test_Dataset(Dataset):
         self.split = 'test'
         obs = get_gbif_data(self.base_dir, self.split, country)
         self.obs = obs[['id']].values
+        _, alt_shape, rgbd_shape = get_shapes(self.obs[0, 0], self.base_dir)
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
         self.transform = transform
 
     def __len__(self):
@@ -285,7 +285,7 @@ class GEOCELF_Test_Dataset(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx,0]
-        images = us_image_from_id(id_, self.base_dir, self.country) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country) 
+        images = us_image_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) 
 
 #         composite_label = self.obs[idx, 1:] # get genus, family as well
         if self.transform:
@@ -304,7 +304,12 @@ class GEOCELF_Test_Dataset_Full(Dataset):
 
         
         obs = pd.concat([us_obs, fr_obs])
+        
         self.obs = obs[['id']].values
+        _, alt_shape, rgbd_shape = get_shapes(self.obs[0, 0], self.base_dir)
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
+        self.transform = transform
 #        self.obs = obs[['id']].to_numpy()
         self.transform = transform
 
@@ -316,7 +321,7 @@ class GEOCELF_Test_Dataset_Full(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx,0]
-        images = fr_img_from_id(id_, self.base_dir, 'fr')  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us')         
+        images = fr_img_from_id(id_, self.base_dir, 'fr', self.alt_shape, self.rgbd_shape)  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us', self.alt_shape, self.rgbd_shape)         
 
         if self.transform:
             images = self.transform(images)
@@ -342,7 +347,7 @@ class GEOCELF_Dataset_Joint(Dataset):
         self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         #self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].to_numpy()
         self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
         self.channels = channels
         self.alt_shape = alt_shape
         self.rgbd_shape = rgbd_shape
@@ -354,7 +359,7 @@ class GEOCELF_Dataset_Joint(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, 0]
-        images = us_image_from_id(id_, self.base_dir, self.country) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country) 
+        images = us_image_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) 
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]
         fams_label = self.obs[idx, 2]        
@@ -380,7 +385,7 @@ class GEOCELF_Dataset_Joint_Full(Dataset):
         self.num_gens = len(obs.genus.unique())
         self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0])
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
         self.channels = channels
         self.alt_shape = alt_shape
         self.rgbd_shape = rgbd_shape
@@ -394,7 +399,7 @@ class GEOCELF_Dataset_Joint_Full(Dataset):
         id_ = self.obs[idx, 0]            
         # obs is of shape [id, species_id, genus, family]    
         id_, label = self.obs[idx, 0], self.obs[idx, 1]
-        images = fr_img_from_id(id_, self.base_dir, 'fr')  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us')
+        images = fr_img_from_id(id_, self.base_dir, 'fr', self.alt_shape, self.rgbd_shape)  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us', self.alt_shape, self.rgbd_shape)
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]
         fams_label = self.obs[idx, 2]        

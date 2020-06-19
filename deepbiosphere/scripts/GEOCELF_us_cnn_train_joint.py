@@ -256,9 +256,11 @@ def main():
                 with tqdm(total=len(test_loader), unit="batch") as prog:
                     file = "{}output/{}_{}_e{}.csv".format(ARGS.base_dir, ARGS.country, ARGS.exp_id, epoch)
                     with open(file,'w') as f:
-                        writer = csv.writer(f, dialect='excel')
-                        header = ['observation_id'] + ['top_class_id'] * 150 + ['top_class_score'] * 150
-                        writer.writerow(header)                        
+                        writer = csv.writer(f, dialect='unix')
+                        top_class = [f'top_{n}_class_id' for n in np.arange(1, 151)]
+			top_score = [f'top_{n}_class_score' for n in np.arange(1, 151)]  
+			header = ['observation_id'] + top_class + top_score
+			writer.writerow(header)                        
                         for i, (batch, id_) in enumerate(test_loader):
                             batch = batch.to(device)                                  
                             (outputs, _, _) = net(batch.float()) 
@@ -292,7 +294,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=int, help="which gpu to send model to, don't put anything to use cpu")
     parser.add_argument("--processes", type=int, help="how many worker processes to use for data loading", default=1)
     parser.add_argument("--exp_id", type=str, help="experiment id of this run", required=True)
-    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
+    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MNT_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
     parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'both'])
     parser.add_argument("--seed", type=int, help="random seed to use")
     parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full dataset", action='store_true')

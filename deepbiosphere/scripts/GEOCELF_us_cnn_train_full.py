@@ -75,20 +75,6 @@ def main():
     train_loader = None
     test_loader = None
     test_dataset = None
-    if ARGS.test:
-        train_samp, test_samp = split_train_test(train_dataset, val_split)
-        train_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=train_samp) 
-        test_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=test_samp)
-        test_dataset = train_dataset
-    else:
-#         train_loader = DataLoader(train_dataset, ARGS.load_size, shuffle=True, pin_memory=False, num_workers=ARGS.processes) 
-        train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)         
-        if ARGS.country == 'both':
-            test_dataset = Dataset.GEOCELF_Test_Dataset_Full(ARGS.base_dir)
-            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)            
-        else:
-            test_dataset = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, ARGS.country)
-            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)        
         
         #TODO: implement GeoCLEF pipeline
     # set up net
@@ -108,8 +94,28 @@ def main():
     optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
 
     net.to(device)    
-    
+    def collate_fn(batch): 
+        # batch is a list of tuples of (composite_label <np array [3]>, images <np array [6, 256, 256]>)   
+        labs, img = zip(*batch) 
+        lbs = [torch.tensor(l, dtype=torch.long) for l in labs]      
+        img = [i.astype(np.uint8, copy=False) for i in img]
+        imgs = [torch.from_numpy(i) for i in img]
+        return torch.stack(lbs), torch.stack(imgs)    
 
+    if ARGS.test:
+        train_samp, test_samp = split_train_test(train_dataset, val_split)
+        train_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=train_samp, collate_fn=collate_fn) 
+        test_loader = DataLoader(train_dataset, ARGS.batch_size,  pin_memory=True, num_workers=ARGS.processes, sampler=test_samp, collate_fn=collate_fn)
+        test_dataset = train_dataset
+    else:
+#         train_loader = DataLoader(train_dataset, ARGS.load_size, shuffle=True, pin_memory=False, num_workers=ARGS.processes) 
+        train_loader = DataLoader(train_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes, collate_fn=collate_fn)         
+        if ARGS.country == 'both':
+            test_dataset = Dataset.GEOCELF_Test_Dataset_Full(ARGS.base_dir)
+            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)            
+        else:
+            test_dataset = Dataset.GEOCELF_Test_Dataset(ARGS.base_dir, ARGS.country)
+            test_loader = DataLoader(test_dataset, ARGS.batch_size, shuffle=True, pin_memory=True, num_workers=ARGS.processes)        
 
     batch_size=ARGS.batch_size
     n_epochs=ARGS.epoch
@@ -210,7 +216,6 @@ def main():
         with torch.no_grad():
             if ARGS.test:
                 with tqdm(total=len(test_loader), unit="batch") as prog:
-                    import pdb; pdb.set_trace()
                     for i, (specs_lab, _, _, batch) in enumerate(test_loader):
 
                         labels = specs_lab.to(device)
@@ -231,8 +236,10 @@ def main():
                 with tqdm(total=len(test_loader), unit="obs") as prog:
                     file = "{}output/{}_{}_e{}.csv".format(ARGS.base_dir, ARGS.country, ARGS.exp_id, epoch)
                     with open(file,'w') as f:
-                        writer = csv.writer(f, dialect='excel')
-                        header = ['observation_id'] + ['top_class_id'] * 150 + ['top_class_score'] * 150
+                        writer = csv.writer(f, dialect='unix')
+                        top_class = ['top_{n}_class_id'.format(n=n) for n in np.arange(1, 151)]
+                        top_score = ['top_{n}_class_score'.format(n=n) for n in np.arange(1, 151)]  
+                        header = ['observation_id'] + top_class + top_score
                         writer.writerow(header)
                         for i, (batch, id_) in enumerate(test_loader):
                             batch = batch.to(device)                                  
@@ -260,15 +267,13 @@ def main():
     tb_writer.close()
 
 if __name__ == "__main__":
-    #print(f"torch version: {torch.__version__}") 
-    #print(f"numpy version: {np.__version__}")
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, help="learning rate of model",required=True)
     parser.add_argument("--epoch", type=int, required=True, help="how many epochs to train the model")
     parser.add_argument("--device", type=int, help="which gpu to send model to, don't put anything to use cpu")
     parser.add_argument("--processes", type=int, help="how many worker processes to use for data loading", default=1)
     parser.add_argument("--exp_id", type=str, help="experiment id of this run", required=True)
-    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
+    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MNT_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
     parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'both'])
     parser.add_argument("--seed", type=int, help="random seed to use")
     parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full dataset", action='store_true')

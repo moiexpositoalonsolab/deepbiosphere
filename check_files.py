@@ -75,7 +75,7 @@ if __name__ == "__main__":
     #print(f"torch version: {torch.__version__}") 
     #print(f"numpy version: {np.__version__}")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
+    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MNT_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
     ARGS, _ = parser.parse_known_args()
     # parsing which path to use
     ARGS.base_dir = eval("paths.{}".format(ARGS.base_dir))
