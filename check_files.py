@@ -63,11 +63,11 @@ def main():
     pprint.pprint("missing us folders: {}".format(missing_folders))
     missing_fr_folders = set()
     for miss in fr_missing:
-        abcd = id_ % 10000
+        abcd = miss % 10000
         ab, cd = math.floor(abcd/100), abcd%100
-        ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
+        ab = "0{}".format(ab) if miss / 1000 > 1 and ab < 10 else ab
         cd = "0{}".format(cd) if  cd < 10 else cd
-        subpath = "patches_{}/{}/{}/".format(country, cd, ab)
+        subpath = "patches_{}/{}/{}/".format('fr', cd, ab)
         missing_fr_folders.add(subpath)
     pprint.pprint("missing fr folders: {}".format(missing_fr_folders))
 
