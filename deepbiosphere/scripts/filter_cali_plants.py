@@ -7,11 +7,10 @@ import math
 from deepbiosphere.scripts import GEOCELF_CNN as cnn
 from deepbiosphere.scripts import GEOCELF_Dataset as Dataset
 from deepbiosphere.scripts import paths
-from pygeocoder import Geocoder
 import reverse_geocoder as rg
 print("getting data")
 pth = paths.DBS_DIR
-us_train_pth = f"{pth}occurrences/occurrences_us_train.csv"
+us_train_pth = "{}occurrences/occurrences_us_train.csv".format(pth)
 us_train = pd.read_csv(us_train_pth, sep=';')
 print("filtering by state")
 # create a new tuple column
@@ -32,8 +31,8 @@ filtered_us = us_train[us_train.state == 'California']
 ## getting family, genus, species ids for each observation
 # get all relevant files
 print("adding taxon information")
-gbif_meta = pd.read_csv(f"{pth}occurrences/species_metadata.csv", sep=";")
-taxons = pd.read_csv(f"{pth}occurrences/Taxon.tsv", sep="\t")
+gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
+taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(pth), sep="\t")
 # get all unique species ids in filtered train data
 us_celf_spec = filtered_us.species_id.unique()
 # get all the gbif species ids for all the species in the us sample
@@ -62,4 +61,4 @@ cali_plant = filtered_us[filtered_us.kingdom == 'Plantae']
 
 # grab only relevant data for training
 print("saving to file")
-cali_plant.to_csv(f"{pth}/occurrences/occurrences_cali_plants.csv", sep = ';')
+cali_plant.to_csv("{}/occurrences/occurrences_cali_plants.csv".format(pth), sep = ';')
