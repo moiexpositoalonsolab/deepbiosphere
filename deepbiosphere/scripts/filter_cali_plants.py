@@ -61,4 +61,4 @@ cali_plant = filtered_us[filtered_us.kingdom == 'Plantae']
 
 # grab only relevant data for training
 print("saving to file")
-cali_plant.to_csv("{}/occurrences/occurrences_cali_plants.csv".format(pth), sep = ';')
+cali_plant.to_csv(f"{pth}/occurrences/occurrences_cali_plant.csv", sep = ';')
