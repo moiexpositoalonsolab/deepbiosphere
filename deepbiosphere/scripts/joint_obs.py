@@ -67,30 +67,28 @@ def main():
     print("grab data")
     pth = ARGS.base_dir
     us_train = None
-    if ARGS.filtered:
-        us_train = pd.read_csv("{pth}/occurrences/occurrences_cali_filtered_full.csv".format(pth=pth))
-    else:
-        us_train_pth = "{pth}occurrences/occurrences_{country}_train.csv".format(pth=pth, country=ARGS.country)
-        us_train = pd.read_csv(us_train_pth, sep=';')
-        
-    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
-    taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(pth), sep="\t")
-    us_train.fillna('nan', inplace = True)
-    us_celf_spec = us_train.species_id.unique()
-    # get all the gbif species ids for all the species in the us sample
-    conversion = gbif_meta[gbif_meta['species_id'].isin(us_celf_spec)]
-    gbif_specs = conversion.GBIF_species_id.unique()
-    # get dict that maps CELF id to GBIF id
-    spec_2_gbif = dict(zip(conversion.species_id, conversion.GBIF_species_id))
-    us_train['gbif_id'] = us_train['species_id'].map(spec_2_gbif)
-    # grab all the phylogeny mappings from the gbif taxons file for all the given species
-    # GBIF id == taxonID
-    taxa = taxons[taxons['taxonID'].isin(gbif_specs)]
-    phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus']]
-    gbif_2_fam = dict(zip(phylogeny.taxonID, phylogeny.family))
-    gbif_2_gen = dict(zip(phylogeny.taxonID, phylogeny.genus))
-    us_train['family'] = us_train['gbif_id'].map(gbif_2_fam)
-    us_train['genus'] = us_train['gbif_id'].map(gbif_2_gen)
+    train = 'plants' if ARGS.plants else 'train'
+    us_train_pth = "{pth}occurrences/occurrences_{country}_{train}.csv".format(pth=pth, country=ARGS.country, train=train)
+    us_train = pd.read_csv(us_train_pth, sep=';')
+    if 'genus' not in us_train.columns.tolist():
+        gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
+        taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(pth), sep="\t")
+        us_train.fillna('nan', inplace = True)
+        us_celf_spec = us_train.species_id.unique()
+        # get all the gbif species ids for all the species in the us sample
+        conversion = gbif_meta[gbif_meta['species_id'].isin(us_celf_spec)]
+        gbif_specs = conversion.GBIF_species_id.unique()
+        # get dict that maps CELF id to GBIF id
+        spec_2_gbif = dict(zip(conversion.species_id, conversion.GBIF_species_id))
+        us_train['gbif_id'] = us_train['species_id'].map(spec_2_gbif)
+        # grab all the phylogeny mappings from the gbif taxons file for all the given species
+        # GBIF id == taxonID
+        taxa = taxons[taxons['taxonID'].isin(gbif_specs)]
+        phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus']]
+        gbif_2_fam = dict(zip(phylogeny.taxonID, phylogeny.family))
+        gbif_2_gen = dict(zip(phylogeny.taxonID, phylogeny.genus))
+        us_train['family'] = us_train['gbif_id'].map(gbif_2_fam)
+        us_train['genus'] = us_train['gbif_id'].map(gbif_2_gen)
     
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
@@ -113,7 +111,7 @@ def main():
         print("grouping {grouping}".format(grouping=grouping))
         joint_df = get_joint_from_group(df)
 
-        if not ARGS.filtered:
+        if not ARGS.plants:
             write_pth = "{pth}joint_obs/".format(pth=pth)
             city = grouping[0].replace(" ", "")
             region = grouping[2].replace(" ", "")
@@ -124,21 +122,18 @@ def main():
         else:     
             all_datframes.append(joint_df)
 
-    if ARGS.filtered:
+    if ARGS.plants:
         joint_obs = pd.concat(all_datframes)
         print("save data")
-        region = 'cali' if ARGS.filtered else ARGS.country
-        joint_obs.to_csv("{pth}/occurrences/joint_obs_{region}.csv".format(pth=pth, region=region))
+        plant = 'plant' if ARGS.plants else ""
+        joint_obs.to_csv("{pth}/occurrences/joint_obs_{region}{plant}.csv".format(pth=pth, region=ARGS.country, plant=plant))
     
     
 if __name__ == "__main__":
-    #print(f"torch version: {torch.__version__}") 
-    #print(f"numpy version: {np.__version__}")
-    print("hello")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr'])
+    parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'cali'])
     parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
-    parser.add_argument('--filtered', dest='filtered', help="if using cali filtered data", action='store_true')
+    parser.add_argument('--plants', dest='plants', help="if using cali plant-only data", action='store_true')
     ARGS, _ = parser.parse_known_args()
     ARGS.base_dir = eval("paths.{}".format(ARGS.base_dir))
     print("using base directory {}".format(ARGS.base_dir))
