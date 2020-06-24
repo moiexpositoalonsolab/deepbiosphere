@@ -28,9 +28,9 @@ def parse_string_to_int(string):
     return [int(s) for s in split]
 
 
-def get_joint_gbif_data(pth, country):
+def get_joint_gbif_data(pth, country, plants=''):
     ## Grab GBIF observation data
-    obs_pth = "{}occurrences/joint_obs_{}.csv".format(pth, country)
+    obs_pth = "{}occurrences/joint_obs_{}{}.csv".format(pth, country, plants)
     joint_obs = pd.read_csv(obs_pth)  
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
@@ -183,11 +183,11 @@ def prep_joint_data(us_obs):
     return us_obs, inv_spec      
 
 class GEOCELF_Dataset(Dataset):
-    def __init__(self, base_dir, country='us', transform=None):
+    def __init__(self, base_dir, country='us', split='train', transform=None):
 
         self.base_dir = base_dir
         self.country = country
-        self.split = 'train'
+        self.split = split
 
         obs = get_gbif_data(self.base_dir, self.split, country)
         obs.fillna('nan', inplace=True)
@@ -329,12 +329,12 @@ class GEOCELF_Test_Dataset_Full(Dataset):
     
     
 class GEOCELF_Dataset_Joint(Dataset):
-    def __init__(self, base_dir, country='us', transform=None):
+    def __init__(self, base_dir, country='us', split='', transform=None):
 #         print('in dataset')
         self.base_dir = base_dir
         self.country = country
-        self.split = 'train'
-        obs = get_joint_gbif_data(self.base_dir, country)
+        self.split = split
+        obs = get_joint_gbif_data(self.base_dir, country, plants=split)
         obs.fillna('nan', inplace=True)        
 #         obs = add_genus_family_data(self.base_dir, obs)
         obs, inv_spec = prep_joint_data(obs)
