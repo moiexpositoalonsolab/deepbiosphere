@@ -216,7 +216,7 @@ class GEOCELF_Dataset(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, 0]
-        images = us_image_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) 
+        images = fr_img_from_id(id_, self.base_dir, 'fr', self.alt_shape, self.rgbd_shape)  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us', self.alt_shape, self.rgbd_shape)
         composite_label = self.obs[idx, 1:] # get genus, family as well
         if self.transform:
             images = self.transform(images)
@@ -285,7 +285,7 @@ class GEOCELF_Test_Dataset(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx,0]
-        images = us_image_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) 
+        images = fr_img_from_id(id_, self.base_dir, 'fr', self.alt_shape, self.rgbd_shape)  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us', self.alt_shape, self.rgbd_shape)
 
 #         composite_label = self.obs[idx, 1:] # get genus, family as well
         if self.transform:
@@ -359,7 +359,7 @@ class GEOCELF_Dataset_Joint(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, 0]
-        images = us_image_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) if self.country == 'us' else fr_img_from_id(id_, self.base_dir, self.country, self.alt_shape, self.rgbd_shape) 
+        images = fr_img_from_id(id_, self.base_dir, 'fr', self.alt_shape, self.rgbd_shape)  if id_ >= 10000000 else us_image_from_id(id_, self.base_dir, 'us', self.alt_shape, self.rgbd_shape)
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]
         fams_label = self.obs[idx, 2]        
