@@ -69,7 +69,8 @@ def main():
     if ARGS.country == 'both':
         train_dataset = Dataset.GEOCELF_Dataset_Full(ARGS.base_dir)
     else:
-        train_dataset = Dataset.GEOCELF_Dataset(ARGS.base_dir, ARGS.country)
+        split = 'plant' if ARGS.plants else ''        
+        train_dataset = Dataset.GEOCELF_Dataset(ARGS.base_dir, ARGS.country, split)
     tb_writer = SummaryWriter(comment="exp_id: {}".format(ARGS.exp_id))
     val_split = .9
     train_loader = None
@@ -275,6 +276,7 @@ if __name__ == "__main__":
     parser.add_argument("--exp_id", type=str, help="experiment id of this run", required=True)
     parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MNT_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
     parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'both'])
+    parser.add_argument('--plants', dest='plants', help="if dataset used only looks at plantae occurrences", action='store_true')
     parser.add_argument("--seed", type=int, help="random seed to use")
     parser.add_argument('--test', dest='test', help="if set, split train into test, val set. If not seif set, split train into test, val set. If not set, train network on full dataset", action='store_true')
     parser.add_argument("--load_size", type=int, help="how many instances to hold in memory at a time", default=1000)    
