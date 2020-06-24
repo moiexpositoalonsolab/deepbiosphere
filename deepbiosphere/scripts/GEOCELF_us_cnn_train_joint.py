@@ -257,10 +257,10 @@ def main():
                     file = "{}output/{}_{}_e{}.csv".format(ARGS.base_dir, ARGS.country, ARGS.exp_id, epoch)
                     with open(file,'w') as f:
                         writer = csv.writer(f, dialect='unix')
-                        top_class = [f'top_{n}_class_id' for n in np.arange(1, 151)]
-			top_score = [f'top_{n}_class_score' for n in np.arange(1, 151)]  
-			header = ['observation_id'] + top_class + top_score
-			writer.writerow(header)                        
+                        top_class = ['top_{n}_class_id'.format(n=n) for n in np.arange(1, 151)]
+                        top_score = ['top_{n}_class_score'.format(n=n) for n in np.arange(1, 151)]  
+                        header = ['observation_id'] + top_class + top_score
+                        writer.writerow(header)                        
                         for i, (batch, id_) in enumerate(test_loader):
                             batch = batch.to(device)                                  
                             (outputs, _, _) = net(batch.float()) 
