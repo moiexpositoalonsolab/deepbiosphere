@@ -87,12 +87,12 @@ def main():
     num_specs = train_dataset.num_specs
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens    
-    net= cnn.Net(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
+    net= cnn.Net(species=num_specs, genuses=num_gens, num_channels=num_channels)
 #     loss = torch.nn.BCELoss()
 # multi loss from here: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch 
     spec_loss = torch.nn.BCEWithLogitsLoss()
     gen_loss = torch.nn.BCEWithLogitsLoss()
-    fam_loss = torch.nn.BCEWithLogitsLoss()    
+#     fam_loss = torch.nn.BCEWithLogitsLoss()    
     optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
     model = net.to(device)
     
@@ -151,7 +151,7 @@ def main():
     all_time_loss = []
     all_time_sp_loss = []
     all_time_gen_loss = []
-    all_time_fam_loss = []    
+#     all_time_fam_loss = []    
     step = 0    
     for epoch in range(n_epochs):
         if ARGS.device is not None:
@@ -161,7 +161,7 @@ def main():
         tot_loss_meter = []
         spec_loss_meter = []
         gen_loss_meter = []
-        fam_loss_meter = []  
+#         fam_loss_meter = []  
         
         with tqdm(total=len(train_loader), unit="batch") as prog:
 
@@ -169,19 +169,19 @@ def main():
                 batch = batch.to(device)
                 specs_lab = specs_lab.to(device)                                     
                 gens_lab = gens_lab.to(device)
-                fams_lab = fams_lab.to(device)
+#                 fams_lab = fams_lab.to(device)
                 # zero the parameter gradients
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                (specs, gens, fams) = net(batch.float()) # convert to float so torch happy
+                (specs, gens) = net(batch.float()) # convert to float so torch happy
                 # size of specs: [N, species] gens: [N, genuses] fam: [N, fams]
 
                 # compute loss https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
                 # https://stackoverflow.com/questions/48274929/pytorch-runtimeerror-trying-to-backward-through-the-graph-a-second-time-but
                 loss_spec = spec_loss(specs, specs_lab) 
                 loss_gen = gen_loss(gens, gens_lab) 
-                loss_fam = fam_loss(fams, fams_lab)       
-                total_loss = loss_spec + loss_gen + loss_fam
+#                 loss_fam = fam_loss(fams, fams_lab)       
+                total_loss = loss_spec + loss_gen #+ loss_fam
                 total_loss.backward()
                 optimizer.step()
 
@@ -189,11 +189,11 @@ def main():
                 tot_loss_meter.append(tot_loss)                
                 spec_loss_meter.append(loss_spec.item())
                 gen_loss_meter.append(loss_gen.item())
-                fam_loss_meter.append(loss_fam.item())                    
+#                 fam_loss_meter.append( /loss_fam.item())                    
                 prog.update(1)
                 tb_writer.add_scalar("train/tot_loss", tot_loss, step)
                 tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
-                tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
+#                 tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
                 tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)   
                 prog.set_description("loss: {tot_loss}".format(tot_loss=tot_loss))
                 step += 1                
@@ -202,11 +202,11 @@ def main():
         all_time_loss.append(np.stack(tot_loss_meter))
         all_time_sp_loss.append(np.stack(spec_loss_meter))
         all_time_gen_loss.append(np.stack(gen_loss_meter))
-        all_time_fam_loss.append(np.stack(fam_loss_meter))
+#         all_time_fam_loss.append(np.stack(fam_loss_meter))
 
 
         print ("Average Train Loss: {avg_loss}".format(avg_loss=np.stack(tot_loss_meter).mean(0)))
-        del batch, specs_lab, gens_lab, fams_lab, specs, gens, fams, loss_spec, loss_gen, loss_fam
+        del batch, specs_lab, gens_lab, specs, gens, loss_spec, loss_gen
         
         # save model 
 
@@ -220,7 +220,7 @@ def main():
                     'all_loss' : np.stack(all_time_loss),
                     'spec_loss': np.stack(all_time_sp_loss),
                     'gen_loss': np.stack(all_time_gen_loss), 
-                    'fam_loss': np.stack(all_time_fam_loss)
+#                     'fam_loss': np.stack(all_time_fam_loss)
                     }, PATH)
         
         
@@ -238,28 +238,25 @@ def main():
             if ARGS.test:
                 with tqdm(total=len(test_loader), unit="batch") as prog:
                     means = []
-                    for i, (specs_label, gens_label, fams_label, loaded_imgs) in enumerate(test_loader):
+                    for i, (specs_label, gens_lab, fams_lab, loaded_imgs) in enumerate(test_loader):
                         tick = time.time()
                         batch = loaded_imgs.to(device)
-                        specs_lab = specs_label.to(device)                                     
-                        gens_label = gens_label.to(device)
-                        fams_label = fams_label.to(device)
-                        (outputs, gens, fams) = net(batch.float()) 
-                        specaccs, totspec_accs = topk_acc(outputs, specs_lab) # magic no from CELF2020
-                        genaccs, totgen_accs = topk_acc(gens, gens_label) # magic no from CELF2020                        
-                        famaccs, totfam_accs = topk_acc(fams, fams_label) # magic no from CELF2020                        
-                        prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
+                        specs_lab = specs_label.to(device)   
+                        gens_lab = gens_lab.to(device)
+                        (outputs, gens) = net(batch.float()) 
+                        gen_accs, totgen_accs = topk_acc(gens, gens_lab) # magic no from CELF2020
+                        spec_accs, totspec_accs = topk_acc(outputs, specs_lab) # magic no from CELF2020
+                        prog.set_description("mean spec accuracy across batch: {acc0}".format(acc0=spec_accs.mean()))
                         prog.update(1)          
-                        tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
-                        tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
-                        tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
-                        all_accs.append(totspec_accs)
-                        mean_accs.append(specaccs)
-                        means.append(specaccs.mean()) 
+                        tb_writer.add_scalar("test/avg_spec_accuracy", spec_accs.mean(), epoch)
+                        tb_writer.add_scalar("test/avg_gen_accuracy", gen_accs.mean(), epoch)                        
+                        all_accs.append((tot_accs, totgen_accs))
+                        mean_accs.append(spec_accs)
+                        means.append(spec_accs.mean()) 
                 prog.close()
                 means = np.stack(means)
                 print("max top 1 accuracy across batches: {max1} average top1 accuracy across batches: {avg1}".format(max1=means.max(), avg1=means.mean()))
-                del outputs, specs_lab, batch, gens_label, fams_label, gens, fams
+                del outputs, specs_lab, batch, gens_lab, gens 
             else: 
                 with tqdm(total=len(test_loader), unit="batch") as prog:
                     file = "{}output/{}_{}_e{}.csv".format(ARGS.base_dir, ARGS.country, ARGS.exp_id, epoch)

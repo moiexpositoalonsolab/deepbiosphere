@@ -217,22 +217,36 @@ def main():
         with torch.no_grad():
             if ARGS.test:
                 with tqdm(total=len(test_loader), unit="batch") as prog:
-                    for i, (specs_lab, _, _, batch) in enumerate(test_loader):
+                    for i, (labels, batch) in enumerate(train_loader):
 
                         labels = specs_lab.to(device)
                         batch = batch.to(device)
 
-                        (outputs, _, _) = net(batch.float()) 
-                        accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
-                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=accs[0], acc1=accs[1]))
-                        all_accs.append(accs)
-                        tb_writer.add_scalar("test/30_accuracy", accs[0], epoch)
-                        tb_writer.add_scalar("test/1_accuracy", accs[1], epoch)                            
+                        (outputs, genus, family) = net(batch.float())
+                        # species
+                        spec_accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
+                        # genus
+                        gens_accs = topk_acc(genus, labels[:,1], topk=(30,1), device=device) # magic no from CELF2020
+                        # family
+                        fam_accs = topk_acc(family, labels[:,2], topk=(30,1), device=device) # magic no from CELF2020
+
+                        
+                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
+                        all_accs.append(spec_accs)
+                        tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
+                        tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch)  
+                        
+                        tb_writer.add_scalar("test/30_gen_accuracy", gens_accs[0], epoch)
+                        tb_writer.add_scalar("test/1_gen_accuracy", gens_accs[1], epoch)  
+                        
+                        tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
+                        tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)                          
+                        
                         prog.update(1)
                 prog.close()
                 all_accs = np.stack(all_accs)
                 print("max top 30 accuracy: {max1} average top1 accuracy: {max2}".format(max1=all_accs[:,0].max(), max2=all_accs[:,1].max()))
-                del outputs, labels, batch 
+                del outputs, labels, batch, genus, family
             else:
                 with tqdm(total=len(test_loader), unit="obs") as prog:
                     file = "{}output/{}_{}_e{}.csv".format(ARGS.base_dir, ARGS.country, ARGS.exp_id, epoch)
