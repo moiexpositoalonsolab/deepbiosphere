@@ -217,7 +217,7 @@ def main():
         with torch.no_grad():
             if ARGS.test:
                 with tqdm(total=len(test_loader), unit="batch") as prog:
-                    for i, (specs_lab, _, _, batch) in enumerate(test_loader):
+                    for i, (specs_lab, batch) in enumerate(test_loader):
 
                         labels = specs_lab.to(device)
                         batch = batch.to(device)
