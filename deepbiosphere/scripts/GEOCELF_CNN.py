@@ -63,13 +63,13 @@ class Net(nn.Module):
         return(spec, gen, fam)
 
     
-    class No_Fam_Net(nn.Module):
+class No_Fam_Net(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
     """
     def __init__(self, species, genuses, num_channels):
 
-        super(Net, self).__init__()
+        super(No_Fam_Net, self).__init__()
         self.categories=species
         self.species = species
         self.genuses = genuses
