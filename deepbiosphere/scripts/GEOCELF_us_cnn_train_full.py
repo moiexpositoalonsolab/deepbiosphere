@@ -219,7 +219,7 @@ def main():
                 with tqdm(total=len(test_loader), unit="batch") as prog:
                     for i, (labels, batch) in enumerate(train_loader):
 
-                        labels = specs_lab.to(device)
+                        labels = labels.to(device)
                         batch = batch.to(device)
 
                         (outputs, genus, family) = net(batch.float())
