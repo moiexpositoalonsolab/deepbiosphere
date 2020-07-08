@@ -225,7 +225,7 @@ def main():
                         (outputs, gens) = net(batch.float()) 
                         spec_accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
                         gen_accs = topk_acc(gens, labels[:,1], topk=(30,1), device=device) # magic no from CELF2020                        
-                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(spec_accs=accs[0], spec_accs=accs[1]))
+                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
                         all_accs.append(spec_accs)
                         tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
                         tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch) 
