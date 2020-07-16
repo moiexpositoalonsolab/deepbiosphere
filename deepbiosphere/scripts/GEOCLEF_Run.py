@@ -1,9 +1,7 @@
-#TODO: break into modular methods
-from random import randrange
 import pandas as pd
-import os
 import argparse
 import time
+from IPython.core.debugger import set_trace
 import deepdish as dd
 import numpy as np
 import socket
@@ -14,17 +12,18 @@ from torch.utils.tensorboard import SummaryWriter
 import itertools
 import gc
 import csv
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
-import random
 import math
 from tqdm import tqdm
 from deepbiosphere.scripts import GEOCELF_CNN as cnn
 from deepbiosphere.scripts import GEOCELF_Dataset as Dataset
-from deepbiosphere.scripts import paths
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
+
+
+
+
 
 def split_train_test(full_dat, split_amt):
     '''grab split_amt% of labeled data for holdout testing'''
@@ -47,18 +46,18 @@ def check_mem():
         except: pass
 
 
-def setup_train_dataset(base_dir, region, organism):        
-      '''grab and setup train dataset'''
+def setup_train_dataset(base_dir, region, organism, observation):        
+    '''grab and setup train dataset'''
     if observation == 'single':
         if region == 'both':
             return Dataset.GEOCELF_Dataset_Full(base_dir, organism)
         else:
-            return Dataset.GEOCELF_Dataset(base_dir, organism, country)
+            return Dataset.GEOCELF_Dataset(base_dir, organism, region)
     elif observation == 'joint':
         if region == 'both':
             return Dataset.GEOCELF_Dataset_Joint_Full(base_dir, organism)
         else:
-            return Dataset.GEOCELF_Dataset_Joint(base_dir, organism, country)
+            return Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
     else:
         exit(1), "should never reach this..."
         
@@ -74,6 +73,7 @@ def setup_model(model, num_specs, num_fams, num_gens, num_channels):
     elif model == 'OGNoFamNet':
         return cnn.OGNoFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
     elif model == 'OGNet':
+        print("channels", num_channels)
         return cnn.OGNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
     elif model == 'SkipFCNet':
         return cnn.SkipFCNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
@@ -93,10 +93,23 @@ def setup_GeoCLEF_dataloaders(train_dataset, base_dir, region, observation, batc
 
 def setup_dataloader(dataset, observation, batch_size, processes, sampler):
     if observation == 'joint':
-        return DataLoader(dataset, batch_size, shuffle=True, pin_memory=True, num_workers=processes, collate_fn=joint_collate_fn, sampler=sampler)
+        return DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=joint_collate_fn, sampler=sampler)
     elif observation == 'single':
-        return DataLoader(dataset, batch_size, shuffle=True, pin_memory=True, num_workers=processes, collate_fn=single_collate_fn, sampler=sampler)
+        return DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=single_collate_fn, sampler=sampler)
 
+def setup_loss(observation):
+    if observation == 'joint':
+        spec_loss = torch.nn.BCEWithLogitsLoss()
+        gen_loss = torch.nn.BCEWithLogitsLoss()
+        fam_loss = torch.nn.BCEWithLogitsLoss()    
+        return spec_loss, gen_loss, fam_loss
+    elif observation == 'single':
+        spec_loss = torch.nn.CrossEntropyLoss()
+        gen_loss = torch.nn.CrossEntropyLoss()
+        fam_loss = torch.nn.CrossEntropyLoss()  
+        return spec_loss, gen_loss, fam_loss
+    
+    
 def clean_gpu(device):
     if device is not None:
         print("cleaning gpu")            
@@ -109,6 +122,7 @@ def single_collate_fn(batch):
     img = [i.astype(np.uint8, copy=False) for i in img]
     imgs = [torch.from_numpy(i) for i in img]
     return torch.stack(lbs), torch.stack(imgs)  
+
 def joint_collate_fn(batch):
     # batch is a list of tuples of (specs_label, gens_label, fams_label, images)  
     all_specs = []
@@ -117,19 +131,18 @@ def joint_collate_fn(batch):
     imgs = []
     #(specs_label, gens_label, fams_label, images)  
     for (spec, gen, fam, img) in batch:
-        specs_tens = torch.zeros(net.species)
+        specs_tens = torch.zeros(num_specs)
         specs_tens[spec] += 1
         all_specs.append(specs_tens)
 
-        gens_tens = torch.zeros(net.genuses)
+        gens_tens = torch.zeros(num_gens)
         gens_tens[gen] += 1
         all_gens.append(gens_tens)
 
-        fams_tens = torch.zeros(net.families)
+        fams_tens = torch.zeros(num_fams)
         fams_tens[fam] += 1
         all_fams.append(fams_tens)
         imgs.append(img)
-
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs))
 
 def test_batch(test_loader, tb_writer, device, net, observation):
@@ -144,13 +157,13 @@ def test_single_obs_batch(test_loader, tb_writer, device, net):
         all_spec = []
         all_gen = []
         all_fam = []
-        for i, (labels, batch) in enumerate(train_loader):
+        for i, (labels, batch) in enumerate(test_loader):
             labels = labels.to(device)
             batch = batch.to(device)
             (outputs, genus, family) = net(batch.float())
-            spec_accs = topk_acc(outputs, labels[:,0], utils.topk=(30,1), device=device) # magic no from CELF2020
-            gens_accs = topk_acc(genus, labels[:,1], utils.topk=(30,1), device=device) # magic no from CELF2020
-            fam_accs = topk_acc(family, labels[:,2], utils.topk=(30,1), device=device) # magic no from CELF2020
+            spec_accs = utils.topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
+            gens_accs = utils.topk_acc(genus, labels[:,1], topk=(30,1), device=device) # magic no from CELF2020
+            fam_accs = utils.topk_acc(family, labels[:,2], topk=(30,1), device=device) # magic no from CELF2020
             prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
             all_spec.append(spec_accs)
             all_gen.append(gens_accs)
@@ -165,8 +178,8 @@ def test_single_obs_batch(test_loader, tb_writer, device, net):
             tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)                          
 
             prog.update(1)
-    prog.close()
-    return all_spec, all_gen, all_fam
+        prog.close()
+        return all_spec, all_gen, all_fam
     
 def test_joint_obs_batch(test_loader, tb_writer, device, net):
     with tqdm(total=len(test_loader), unit="batch") as prog:
@@ -218,11 +231,11 @@ def test_GeoCLEF_batch(test_loader, base_dir, region, exp_id, epoch):
                 prog.update(1)
     prog.close()
 
-def train_batch(observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer):
+def train_batch(observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step):
     if observation == 'single':
-        return single_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer)
+        return train_single_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
     elif observation == 'joint':
-        return joint_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer)    
+        return train_joint_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)    
     
 def train_joint_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step):
     tot_loss_meter = []
@@ -329,15 +342,20 @@ def main():
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(ARGS.base_dir, ARGS.region, ARGS.organism)
+    train_dataset = setup_train_dataset(ARGS.base_dir, ARGS.region, ARGS.organism, ARGS.observation)
 
     tb_writer = SummaryWriter(comment="exp_id: {}".format(ARGS.exp_id))
     val_split = .9
     print("setting up network")
+    # global so can access in collate_fn easily
+    global num_specs 
     num_specs = train_dataset.num_specs
+    global num_fams
     num_fams = train_dataset.num_fams
+    global num_gens
     num_gens = train_dataset.num_gens    
     num_channels = train_dataset.channels
+    start_epoch = None
     net_path = params.get_recent_model(ARGS.base_dir)
     
     if net_path is None or ARGS.from_scratch:
@@ -352,18 +370,15 @@ def main():
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
-
-    spec_loss = torch.nn.CrossEntropyLoss()
-    gen_loss = torch.nn.CrossEntropyLoss()
-    fam_loss = torch.nn.CrossEntropyLoss()    
-
+    
+    spec_loss, gen_loss, fam_loss = setup_loss(ARGS.observation) 
             
     if ARGS.GeoCLEF_validate:
         train_loader, test_loader = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, ARGS.region, ARGS.observation)
     else: 
         train_samp, test_samp = split_train_test(train_dataset, val_split) 
-        train_loader = setup_dataloader(dataset, observation, batch_size, processes, train_samp)
-        test_loader = setup_dataloader(dataset, observation, batch_size, processes, test_samp)
+        train_loader = setup_dataloader(train_dataset, ARGS.observation, ARGS.batch_size, ARGS.processes, train_samp)
+        test_loader = setup_dataloader(train_dataset, ARGS.observation, ARGS.batch_size, ARGS.processes, test_samp)
     datock = time.time()
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
@@ -384,7 +399,7 @@ def main():
             torch.cuda.synchronize()
         tick = time.time()
         net.train()
-        tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = test_batch(test_loader, tb_writer, device, net, observation)
+        tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(ARGS.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
         all_time_loss.append(np.stack(tot_loss_meter))
         all_time_sp_loss.append(np.stack(spec_loss_meter))
         all_time_gen_loss.append(np.stack(gen_loss_meter))
@@ -420,14 +435,15 @@ def main():
             'mean_accs': mean_accs
         }
         desiderata_path = params.build_abs_datum_path(ARGS.base_dir, 'desiderata', epoch)
-        dd.io.save(desiderata_path, desiderata)
+        dd.io.save(desiderata_path, desiderata, compression=True)
         tock = time.time()
         diff = ( tock-tick)/60
         print ("one epoch took {} minutes".format(diff))
     tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['lr', 'epoch', 'device', 'processes', 'exp_id', 'base_dir', 'country', 'organism', 'seed', 'test', 'batch_size', 'model', 'from_scratch']
+    args = ['lr', 'epoch', 'device', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch']
+    print("main ", args)
     ARGS = config.parse_known_args(args)
     config.setup_main_dirs(ARGS.base_dir)
     params = config.Run_Params(ARGS)

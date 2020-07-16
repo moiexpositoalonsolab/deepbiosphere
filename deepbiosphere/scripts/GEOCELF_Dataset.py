@@ -3,6 +3,7 @@ import torch
 import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset
+from deepbiosphere.scripts import GEOCLEF_Utils as utils
 
 
 # Ignore warnings
@@ -52,7 +53,7 @@ def subpath_2_img(pth, subpath, id_):
     except:
         print("trouble loading file {}, faking data :(".format(rgbd))
         # magic numbers 173 and 10000000 are first files in both us and fr datasets
-        _, alt_shape, rgbd_shape = get_shapes(173, pth) if ??? else get_shapes(10000000, pth)
+        _, alt_shape, rgbd_shape = get_shapes(173, pth) if id_ < 10000000 else get_shapes(10000000, pth)
         np_al = np.zeros(alt_shape, dtype='uint8') 
         np_img = np.zeros(rgbd_shape, dtype='uint8')
     np_al = np.expand_dims(np_al, 2)
@@ -70,7 +71,7 @@ def image_from_id(id_, pth):
 def get_shapes(id_, pth):
     tens = image_from_id(id_, pth)
     # channels, alt_shape, rgbd_shape    
-    return tens[0], tens[1], tens[2]
+    return tens.shape[0], tens.shape[1], tens.shape[2]
 
 
 

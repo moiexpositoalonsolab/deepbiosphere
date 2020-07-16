@@ -24,7 +24,7 @@ class OGNet(nn.Module):
     """
     def __init__(self, species, families, genuses, num_channels):
 
-        super(Net, self).__init__()
+        super(OGNet, self).__init__()
         self.categories=species
         self.species = species
         self.families = families
@@ -62,7 +62,7 @@ class SkipNet(nn.Module):
     """
     def __init__(self, species, families, genuses, num_channels):
 
-        super(Net, self).__init__()
+        super(SkipNet, self).__init__()
         self.categories=species
         self.species = species
         self.families = families
@@ -101,7 +101,7 @@ class SkipFCNet(nn.Module):
     """
     def __init__(self, species, families, genuses, num_channels):
     #TODO: add 2 fc layers before fgs downsampling
-        super(Net, self).__init__()
+        super(SkipFCNet, self).__init__()
         self.categories=species
         self.species = species
         self.families = families
@@ -142,7 +142,7 @@ class OGNoFamNet(nn.Module):
     """
     def __init__(self, species, genuses, num_channels):
 
-        super(No_Fam_Net, self).__init__()
+        super(OGNoFamNet, self).__init__()
         self.categories=species
         self.species = species
         self.genuses = genuses
