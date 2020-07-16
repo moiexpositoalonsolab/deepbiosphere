@@ -92,3 +92,7 @@ def check_gbif_files(occ_paths, img_path, sep=';'):
         subpath = "patches_us_{}".format(cdd) if id_ >= 10000000 else "patches_{}/{}".format('fr', cd)
         missing_folders.add(subpath)
     return missing_folders
+
+def key_for_value(d, value):
+    # this will be useful for final implementation
+    return(list(d.keys())[list(d.values()).index(value)])
