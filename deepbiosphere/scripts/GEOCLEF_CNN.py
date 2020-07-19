@@ -17,7 +17,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-
 class OGNet(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
@@ -74,8 +73,12 @@ class SkipNet(nn.Module):
         self.conv4 = nn.Conv2d(256, 256, 3,1,1)        
         self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
         self.pool2 = nn.MaxPool2d(2, 2)
+                               
         self.pool5 = nn.MaxPool2d(5, 5)
         self.famfc = nn.Linear(256*6*6, self.families) 
+        # TODO: insert downsampling here???
+        #self.fc1 = nn.Linear(256 * 5 * 5, 120)
+        #self.fc2 = nn.Linear(120, 84)                               
         self.genfc = nn.Linear(self.families, self.genuses)
         self.specfc = nn.Linear(self.genuses, self.species) 
         
@@ -85,8 +88,7 @@ class SkipNet(nn.Module):
         x = self.pool2(F.relu(self.conv2(x)))
         #x = F.relu(self.conv2(x))
         x = self.pool2(F.relu(self.conv3(x)))
-        x = F.relu(self.conv4(x))
-        x = self.pool5(x)
+        x = self.pool5(F.relu(self.conv4(x)))
         #x = self.pool5(F.relu(self.conv5(x)))
         x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
         fam = F.relu(self.famfc(x))
