@@ -264,7 +264,6 @@ def train_joint_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_l
             total_loss = loss_spec + loss_gen + loss_fam
             total_loss.backward()
             optimizer.step()
-
             tot_loss = total_loss.item()
             tot_loss_meter.append(tot_loss)                
             spec_loss_meter.append(loss_spec.item())

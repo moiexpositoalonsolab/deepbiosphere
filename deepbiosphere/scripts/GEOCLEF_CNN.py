@@ -54,7 +54,7 @@ class OGNet(nn.Module):
         gen = F.relu(self.genfc(fam))
         spec = self.specfc(gen)
         return(spec, gen, fam)
-# TODO    
+
 class SkipNet(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
@@ -75,12 +75,13 @@ class SkipNet(nn.Module):
         self.pool2 = nn.MaxPool2d(2, 2)
                                
         self.pool5 = nn.MaxPool2d(5, 5)
-        self.famfc = nn.Linear(256*6*6, self.families) 
+        self.chokepoint = 256*6*6
+        self.famfc = nn.Linear(self.chokepoint, self.families) 
         # TODO: insert downsampling here???
         #self.fc1 = nn.Linear(256 * 5 * 5, 120)
         #self.fc2 = nn.Linear(120, 84)                               
-        self.genfc = nn.Linear(self.families, self.genuses)
-        self.specfc = nn.Linear(self.genuses, self.species) 
+        self.genfc = nn.Linear(self.chokepoint + self.families, self.genuses)
+        self.specfc = nn.Linear(self.chokepoint + self.genuses, self.species) 
         
         
     def forward(self, x): 
@@ -91,12 +92,13 @@ class SkipNet(nn.Module):
         x = self.pool5(F.relu(self.conv4(x)))
         #x = self.pool5(F.relu(self.conv5(x)))
         x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
+        #TODO: relu help or not?
         fam = F.relu(self.famfc(x))
-        gen = F.relu(self.genfc(fam))
-        spec = self.specfc(gen)
+        gen = F.relu(self.genfc(torch.cat([fam, x] ,1)))
+        spec = self.specfc(torch.cat([gen, x], 1))
         return(spec, gen, fam)
     
-# TODO:     
+
 class SkipFCNet(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
@@ -116,9 +118,13 @@ class SkipFCNet(nn.Module):
         self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
         self.pool2 = nn.MaxPool2d(2, 2)
         self.pool5 = nn.MaxPool2d(5, 5)
-        self.famfc = nn.Linear(256*6*6, self.families) 
-        self.genfc = nn.Linear(self.families, self.genuses)
-        self.specfc = nn.Linear(self.genuses, self.species) 
+        self.choke1 = 120
+        self.choke2 = 84
+        self.fc1 = nn.Linear(256 * 5 * 5, self.choke1)
+        self.fc2 = nn.Linear(120, self.choke2) 
+        self.famfc = nn.Linear(self.choke2, self.families) 
+        self.genfc = nn.Linear(self.choke2+self.families, self.genuses)
+        self.specfc = nn.Linear(self.choke2+self.genuses, self.species) 
         
         
     def forward(self, x): 
@@ -130,9 +136,11 @@ class SkipFCNet(nn.Module):
         x = self.pool5(x)
         #x = self.pool5(F.relu(self.conv5(x)))
         x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
         fam = F.relu(self.famfc(x))
-        gen = F.relu(self.genfc(fam))
-        spec = self.specfc(gen)
+        gen = F.relu(self.genfc(torch.cat([fam, x] ,1)))
+        spec = self.specfc(torch.cat([gen, x], 1))
         return(spec, gen, fam)
 
     
