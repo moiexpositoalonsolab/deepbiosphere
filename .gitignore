@@ -27,6 +27,8 @@ deepbiosphere.egg*
 docs
 *txt
 *sh
+.*
+runs/
 dist
 figs
 *pdf
