@@ -99,10 +99,13 @@ def setup_dataloader(dataset, observation, batch_size, processes, sampler):
 
 
     
-def setup_loss(observation, dataset):
-    spec_freq = freq_from_dict(dataset.spec_freqs)
-    gen_freq = freq_from_dict(dataset.gen_freqs)
-    fam_freq = freq_from_dict(dataset.fam_freqs)    
+def setup_loss(observation, dataset, device):
+    spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
+    gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
+    fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)    
+    spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
+    gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
+    fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
     if observation == 'joint':
         spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq)
         gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq)
@@ -375,8 +378,8 @@ def main():
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
     
-    spec_loss, gen_loss, fam_loss = setup_loss(ARGS.observation) 
-            
+    spec_loss, gen_loss, fam_loss = setup_loss(ARGS.observation, train_dataset, device) 
+#     set_trace()       
     if ARGS.GeoCLEF_validate:
         train_loader, test_loader = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, ARGS.region, ARGS.observation)
     else: 
