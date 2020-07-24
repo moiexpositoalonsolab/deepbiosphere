@@ -66,7 +66,10 @@ def image_from_id(id_, pth):
     subpath = "patches_{}/{}/{}/".format('fr', cd, ab) if id_ >= 10000000 else "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
     return subpath_2_img(pth, subpath, id_)
 
-    
+def freq_from_dict(f_dict):
+    list(f_dict.items())
+    # sort frequency list by species_id (key of dict)
+    return [freq for (sp_id, freq) in sorted(list(f_dict.items()), key=lambda x:x[0])]    
 
 def get_shapes(id_, pth):
     tens = image_from_id(id_, pth)
@@ -156,6 +159,9 @@ class GEOCELF_Dataset(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()                
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
@@ -199,6 +205,9 @@ class GEOCELF_Dataset_Full(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()                
         self.obs = obs[['id', 'species_id', 'genus', 'family']].values
         self.transform = transform
         channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
@@ -290,6 +299,9 @@ class GEOCELF_Dataset_Joint(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()                
         self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         self.transform = transform
         channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
@@ -329,6 +341,9 @@ class GEOCELF_Dataset_Joint_Full(Dataset):
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
         self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()                
         self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
         self.transform = transform
         channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
