@@ -16,8 +16,8 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 import math
 from tqdm import tqdm
-from deepbiosphere.scripts import GEOCELF_CNN as cnn
-from deepbiosphere.scripts import GEOCELF_Dataset as Dataset
+from deepbiosphere.scripts import GEOCLEF_CNN as cnn
+from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
 
@@ -97,16 +97,21 @@ def setup_dataloader(dataset, observation, batch_size, processes, sampler):
     elif observation == 'single':
         return DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=single_collate_fn, sampler=sampler)
 
-def setup_loss(observation):
+
+    
+def setup_loss(observation, dataset):
+    spec_freq = freq_from_dict(dataset.spec_freqs)
+    gen_freq = freq_from_dict(dataset.gen_freqs)
+    fam_freq = freq_from_dict(dataset.fam_freqs)    
     if observation == 'joint':
-        spec_loss = torch.nn.BCEWithLogitsLoss()
-        gen_loss = torch.nn.BCEWithLogitsLoss()
-        fam_loss = torch.nn.BCEWithLogitsLoss()    
+        spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq)
+        gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq)
+        fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq)    
         return spec_loss, gen_loss, fam_loss
     elif observation == 'single':
-        spec_loss = torch.nn.CrossEntropyLoss()
-        gen_loss = torch.nn.CrossEntropyLoss()
-        fam_loss = torch.nn.CrossEntropyLoss()  
+        spec_loss = torch.nn.CrossEntropyLoss(spec_freq)
+        gen_loss = torch.nn.CrossEntropyLoss(gen_freq)
+        fam_loss = torch.nn.CrossEntropyLoss(fam_freq)  
         return spec_loss, gen_loss, fam_loss
     
     
