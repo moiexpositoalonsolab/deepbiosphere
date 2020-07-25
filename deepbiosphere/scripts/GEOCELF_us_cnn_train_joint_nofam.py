@@ -87,7 +87,7 @@ def main():
     num_specs = train_dataset.num_specs
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens    
-    net= cnn.Net(species=num_specs, genuses=num_gens, num_channels=num_channels)
+    net= cnn.No_Fam_Net(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
 #     loss = torch.nn.BCELoss()
 # multi loss from here: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch 
     spec_loss = torch.nn.BCEWithLogitsLoss()
@@ -250,7 +250,7 @@ def main():
                         prog.update(1)          
                         tb_writer.add_scalar("test/avg_spec_accuracy", spec_accs.mean(), epoch)
                         tb_writer.add_scalar("test/avg_gen_accuracy", gen_accs.mean(), epoch)                        
-                        all_accs.append((tot_accs, totgen_accs))
+                        all_accs.append((totspec_accs, totgen_accs))
                         mean_accs.append(spec_accs)
                         means.append(spec_accs.mean()) 
                 prog.close()

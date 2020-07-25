@@ -87,7 +87,7 @@ def main():
     num_specs = train_dataset.num_specs
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens    
-    net= cnn.No_Fam_Net(species=num_specs, genuses=num_gens, num_channels=num_channels)
+    net= cnn.No_Fam_Net(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
 # multi loss from here: https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch 
     spec_loss = torch.nn.CrossEntropyLoss()
     gen_loss = torch.nn.CrossEntropyLoss()
@@ -219,13 +219,13 @@ def main():
                 with tqdm(total=len(test_loader), unit="batch") as prog:
                     for i, (labels, batch) in enumerate(test_loader):
 
-                        labels = specs_lab.to(device)
+                        labels = labels.to(device)
                         batch = batch.to(device)
 
                         (outputs, gens) = net(batch.float()) 
                         spec_accs = topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
                         gen_accs = topk_acc(gens, labels[:,1], topk=(30,1), device=device) # magic no from CELF2020                        
-                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(spec_accs=accs[0], spec_accs=accs[1]))
+                        prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
                         all_accs.append(spec_accs)
                         tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
                         tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch) 

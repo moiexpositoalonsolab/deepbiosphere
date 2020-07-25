@@ -62,17 +62,18 @@ class Net(nn.Module):
         spec = self.specfc(gen)
         return(spec, gen, fam)
 
-    
-    class No_Fam_Net(nn.Module):
+ 
+class No_Fam_Net(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
     """
-    def __init__(self, species, genuses, num_channels):
+    def __init__(self, species, families, genuses, num_channels):
 
-        super(Net, self).__init__()
+        super(No_Fam_Net, self).__init__()
         self.categories=species
         self.species = species
         self.genuses = genuses
+        self.families = families
         self.num_channels=num_channels
         self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
         self.conv2 = nn.Conv2d(64, 128, 3,1,1)
