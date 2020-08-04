@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 paths = {
     'DBS_DIR' : "/Carnegie/DPB/Data/Shared/Labs/Moi/Everyone/deepbiosphere/GeoCELF2020/",
-    'AZURE_DIR' : '/data/deepbiosphere/deepbiosphere/GeoCLEF/',
+    'AZURE_DIR' : '/home/leg/deepbiosphere/GeoCLEF/',
     'MNT_DIR' : '/mnt/GeoCLEF/',
     'MEMEX_LUSTRE' : "/lustre/scratch/lgillespie/",
     'CALC_SCRATCH' : "/NOBACKUP/scratch/lgillespie/"
@@ -128,7 +128,8 @@ def parse_known_args(args):
     # parsing which path to use
     ARGS.base_dir = getattr(paths, ARGS.base_dir)
     print("using base directory {}".format(ARGS.base_dir))
-    if ARGS.seed is not None:
+    if hasattr(ARGS, 'seed'):
+    #if ARGS.seed is not None:
         np.random.seed(ARGS.seed)
         torch.manual_seed(ARGS.seed)
     return ARGS
