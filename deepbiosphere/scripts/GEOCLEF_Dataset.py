@@ -53,9 +53,10 @@ def subpath_2_img(pth, subpath, id_):
     except:
         print("trouble loading file {}, faking data :(".format(rgbd))
         # magic numbers 173 and 10000000 are first files in both us and fr datasets
-        _, alt_shape, rgbd_shape = get_shapes(173, pth) if id_ < 10000000 else get_shapes(10000000, pth)
-        np_al = np.zeros(alt_shape, dtype='uint8') 
-        np_img = np.zeros(rgbd_shape, dtype='uint8')
+        channels, height, width = get_shapes(173, pth) if id_ < 10000000 else get_shapes(10000000, pth)
+        np_al = np.zeros([height, width], dtype='uint8') 
+        np_img = np.zeros([channels-1, height, width], dtype='uint8')
+        np_img = np.transpose(np_img, (1,2,0))
     np_al = np.expand_dims(np_al, 2)
     np_all = np.concatenate((np_al, np_img), axis=2)
     return np.transpose(np_all,(2, 0, 1))
@@ -238,7 +239,6 @@ class GEOCELF_Test_Dataset(Dataset):
         obs = get_gbif_data(self.base_dir, self.split, country, organism)
         self.obs = obs[['id']].values
         _, alt_shape, rgbd_shape = get_shapes(self.obs[0, 0], self.base_dir)
-        self.alt_shape = alt_shape
         self.rgbd_shape = rgbd_shape
         self.transform = transform
 
@@ -367,3 +367,89 @@ class GEOCELF_Dataset_Joint_Full(Dataset):
         if self.transform:
             images = self.transform(images)
         return (specs_label, gens_label, fams_label, images)  
+
+    
+class Joint_Toy_Dataset(Dataset):
+    def __init__(self, base_dir, organism, country='us', transform=None):
+        self.base_dir = base_dir
+        self.country = country
+        self.organism = organism
+        obs = get_joint_gbif_data(self.base_dir, country, organism)
+        obs.fillna('nan', inplace=True)        
+        obs, inv_spec = prep_joint_data(obs)
+        self.idx_2_id = inv_spec
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family.unique())
+        self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()  
+        obs = obs[:50]
+        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
+        self.transform = transform
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
+        self.channels = channels
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
+        
+    def __len__(self):
+        return len(self.obs)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, 0]
+        images = image_from_id(id_, self.base_dir)                    
+        specs_label = self.obs[idx, 1]
+        gens_label = self.obs[idx, 3]
+        fams_label = self.obs[idx, 2]        
+        if self.transform:
+            images = self.transform(images)
+        return (specs_label, gens_label, fams_label, images)   
+    
+    
+class Single_Toy_Dataset(Dataset):
+    def __init__(self, base_dir, organism, country='us', transform=None):
+
+        self.base_dir = base_dir
+        self.country = country
+        self.organism = organism
+        self.split = 'train'
+        obs = get_gbif_data(self.base_dir, self.split, country, organism)
+        obs.fillna('nan', inplace=True)
+        obs = add_genus_family_data(self.base_dir, obs)
+        obs, inv_spec  = prep_data(obs)
+        self.idx_2_id = inv_spec
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family.unique())
+        self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()                
+        # convert to numpy
+        obs = obs[:50]        
+        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
+        self.transform = transform
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
+        self.channels = channels
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
+
+    def __len__(self):
+        return len(self.obs)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, 0]
+        images = image_from_id(id_, self.base_dir)
+        composite_label = self.obs[idx, 1:] # get genus, family as well
+        if self.transform:
+            images = self.transform(images)
+        return (composite_label, images)
+    
+    
