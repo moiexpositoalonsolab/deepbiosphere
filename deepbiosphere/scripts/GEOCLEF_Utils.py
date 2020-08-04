@@ -42,9 +42,8 @@ def topk_acc(output, target, topk=(1,), device=None):
     return res
 
 def id_2_subdir(id_):
-    return id_2_subdir_fr(id_) if id_ >=  10000000 lse id_2_subdir_us(id_)
+    return id_2_subdir_fr(id_) if id_ >=  10000000 else id_2_subdir_us(id_)
 
-def id_2_subdir_fr(id_):
     
 def id_2_file(id_):
     return id_2_file_fr(id_) if id_ >= 10000000 else id_2_file_us(id_)
