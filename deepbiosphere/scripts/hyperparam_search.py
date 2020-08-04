@@ -15,16 +15,16 @@ lrs = [
     .0001,
 #     .00025,
     .0005,
-    .00075,
+#    .00075,
     .001,
-    .0025,
-    .005,
+#    .0025,
+#    .005,
 #     .0075,    
     .01,
 #     .025,
 #     .05,
 #     .075,        
-    .1
+#    .1
 ]
 
 observation = [
@@ -61,7 +61,7 @@ def train_treatment(obs, org, reg, modl, device_num, ARGS):
         }
         params = SimpleNamespace(**params)
         params = Run_Params(params)
-        print("types in train treat" ,type(ARGS), type(params))
+        print("training params ", params.params)
         train_model(ARGS, params)
 
 def main(ARGS):
@@ -81,16 +81,11 @@ def main(ARGS):
     num_gpus = torch.cuda.device_count()
     all_treatments = [observation, organism, region, models]
     num_treatments = len(list(product(*all_treatments)))
-    print("num tratments ", num_treatments)
-#     num_treatments = len(obs) * len(organism) * len(region) * len(models)
     if num_treatments <= num_gpus:
         processes = []
         for (obs, org, reg, modl), device_num in zip(product(*all_treatments), range(num_treatments)):
             p1 = Process(target = train_treatment(obs, org, reg, modl, device_num, ARGS))
-            #TODO: modify train_treatment to loop through lrs and call train_model on each one
             processes.append(p1)
-        # TODO: call start on all processes in list
-        #TODO: debug this crap
         [p.start() for p in processes]
     else:
         raise NotImplementedError
