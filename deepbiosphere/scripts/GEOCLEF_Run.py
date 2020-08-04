@@ -46,18 +46,19 @@ def check_mem():
         except: pass
 
 
-def setup_train_dataset(base_dir, region, organism, observation):        
+def setup_train_dataset(observation, base_dir, organism, region, toy_dataset):
     '''grab and setup train dataset'''
+
     if observation == 'single':
         if region == 'both':
             return Dataset.GEOCELF_Dataset_Full(base_dir, organism)
         else:
-            return Dataset.GEOCELF_Dataset(base_dir, organism, region)
+            return Dataset.Single_Toy_Dataset(base_dir, organism, region)  if toy_dataset else Dataset.GEOCELF_Dataset(base_dir, organism, region)
     elif observation == 'joint':
         if region == 'both':
             return Dataset.GEOCELF_Dataset_Joint_Full(base_dir, organism)
         else:
-            return Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
+            return Dataset.Joint_Toy_Dataset(base_dir, organism, region) if toy_dataset else Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
     else:
         exit(1), "should never reach this..."
         
@@ -84,18 +85,24 @@ def setup_model(model, num_specs, num_fams, num_gens, num_channels):
 
 
 
-def setup_GeoCLEF_dataloaders(train_dataset, base_dir, region, observation, batch_size, processes):
+def setup_GeoCLEF_dataloaders(train_dataset, base_dir, region, observation, batch_size, processes, optimizer, net, spec_loss, fam_loss, gen_loss):
     train_samp = SubsetRandomSampler(np.arange(len(train_dataset)))
     train_loader = setup_dataloader(train_dataset, observation, batch_size, processes, train_samp)
+    #Call check_batch_size here!
+    if ARGS.dynamic_batch:
+        batch_size, train_loader = check_batch_size(observation, train_dataset, processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
     test_dataset = Dataset.GEOCELF_Test_Dataset_Full(base_dir) if region == 'us_fr' else Dataset.GEOCELF_Test_Dataset(base_dir, region)
     test_loader = DataLoader(test_dataset, batch_size, shuffle=True, pin_memory=True, num_workers=processes)       
-    return train_loader, test_loader
+    return train_loader, test_loader, batch_size
 
 def setup_dataloader(dataset, observation, batch_size, processes, sampler):
     if observation == 'joint':
-        return DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=joint_collate_fn, sampler=sampler)
+        collate_fn = joint_collate_fn
     elif observation == 'single':
-        return DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=single_collate_fn, sampler=sampler)
+        collate_fn = single_collate_fn
+    dataloader = DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
+
+    return dataloader
 
 
     
@@ -153,13 +160,13 @@ def joint_collate_fn(batch):
         imgs.append(img)
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs))
 
-def test_batch(test_loader, tb_writer, device, net, observation):
+def test_batch(test_loader, tb_writer, device, net, observation, epoch):
     if observation == 'joint':
-        return test_joint_obs_batch(test_loader, tb_writer, device, net)
+        return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'single':
-        return test_single_obs_batch(test_loader, tb_writer, device, net)
+        return test_single_obs_batch(test_loader, tb_writer, device, net, epoch)
 
-def test_single_obs_batch(test_loader, tb_writer, device, net):
+def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
      with tqdm(total=len(test_loader), unit="batch") as prog:
         all_accs = []
         all_spec = []
@@ -189,7 +196,7 @@ def test_single_obs_batch(test_loader, tb_writer, device, net):
         prog.close()
         return all_spec, all_gen, all_fam
     
-def test_joint_obs_batch(test_loader, tb_writer, device, net):
+def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
         means = []
         all_accs = []
@@ -240,108 +247,85 @@ def test_GeoCLEF_batch(test_loader, base_dir, region, exp_id, epoch):
     prog.close()
 
 def train_batch(observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step):
-    if observation == 'single':
-        return train_single_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
-    elif observation == 'joint':
-        return train_joint_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)    
     
-def train_joint_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step):
     tot_loss_meter = []
     spec_loss_meter = []
     gen_loss_meter = []
     fam_loss_meter = []  
 
     with tqdm(total=len(train_loader), unit="batch") as prog:
+        
+        for i, ret in enumerate(train_loader):     
+#             print("observatin ", observation)
+            if observation == 'joint':
 
-        for i, (specs_lab, gens_lab, fams_lab, batch) in enumerate(train_loader):
-            batch = batch.to(device)
-            specs_lab = specs_lab.to(device)                                     
-            gens_lab = gens_lab.to(device)
-            fams_lab = fams_lab.to(device)
-            # zero the parameter gradients
-            optimizer.zero_grad()
-            # forward + backward + optimize
-            (specs, gens, fams) = net(batch.float()) # convert to float so torch happy
-            # size of specs: [N, species] gens: [N, genuses] fam: [N, fams]
+                (specs_lab, gens_lab, fams_lab, batch) = ret
+            elif observation == 'single':
+                (labels, batch) = ret
+                specs_lab = labels[:,0]
+                gens_lab = labels[:,1]
+                fams_lab = labels[:,2]
 
-            # compute loss https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-            # https://stackoverflow.com/questions/48274929/pytorch-runtimeerror-trying-to-backward-through-the-graph-a-second-time-but
-            loss_spec = spec_loss(specs, specs_lab) 
-            loss_gen = gen_loss(gens, gens_lab) 
-            loss_fam = fam_loss(fams, fams_lab)       
-            total_loss = loss_spec + loss_gen + loss_fam
-            total_loss.backward()
-            optimizer.step()
-            tot_loss = total_loss.item()
-            tot_loss_meter.append(tot_loss)                
-            spec_loss_meter.append(loss_spec.item())
-            gen_loss_meter.append(loss_gen.item())
-            fam_loss_meter.append(loss_fam.item())                    
-            prog.update(1)
+            tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
+
             tb_writer.add_scalar("train/tot_loss", tot_loss, step)
             tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
             tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
             tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)   
-            prog.set_description("loss: {tot_loss}".format(tot_loss=tot_loss))
-            step += 1                
-            
-    prog.close() 
-    return tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step    
-
-def train_single_obs_batch(train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step):
-    
-    with tqdm(total=len(train_loader), unit="batch") as prog:
-        tot_loss_meter = []
-        spec_loss_meter = []
-        gen_loss_meter = []
-        fam_loss_meter = []  
-        for i, (labels, batch) in enumerate(train_loader):
-            # Loop inside loaded data
-
-            batch = batch.to(device)
-            labels = labels.to(device)                             
-            # zero the parameter gradients
-            optimizer.zero_grad()
-            # forward + backward + optimize
-            (specs, gens, fams) = net(batch.float()) # convert to float so torch happy
-            # size of specs: [N, species] gens: [N, genuses] fam: [N, fams]
-
-            # compute loss https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
-            # https://stackoverflow.com/questions/48274929/pytorch-runtimeerror-trying-to-backward-through-the-graph-a-second-time-but
-            # https://stackoverflow.com/questions/46774641/what-does-the-parameter-retain-graph-mean-in-the-variables-backward-method
-            loss_spec = spec_loss(specs, labels[:,0]) 
-            loss_gen = gen_loss(gens, labels[:,1]) 
-            loss_fam = fam_loss(fams, labels[:,2])
-            total_loss = loss_spec + loss_gen + loss_fam
-            total_loss.backward()
-            optimizer.step()
-            # optimizer.zero_grad()
-            # update tqdm
-
-            tot_loss = total_loss.item()
-            tot_loss_meter.append(tot_loss)                
+            tot_loss_meter.append(tot_loss.item())                
             spec_loss_meter.append(loss_spec.item())
             gen_loss_meter.append(loss_gen.item())
-            fam_loss_meter.append(loss_fam.item())                    
-            prog.update(1)
-            tb_writer.add_scalar("train/tot_loss", tot_loss, step)
-            tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
-            tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
-            tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)                
-            step += 1
+            fam_loss_meter.append(loss_fam.item()) 
             prog.set_description("loss: {tot_loss}".format(tot_loss=tot_loss))
-        # update loss tracker
-    prog.close() 
-    return tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step
+            prog.update(1)                
+            step += 1
+    return tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step    
+
+
+def forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device):
+    batch = batch.to(device)
+    specs_lab = specs_lab.to(device)                                     
+    gens_lab = gens_lab.to(device)
+    fams_lab = fams_lab.to(device)
+    optimizer.zero_grad()
+    (specs, gens, fams) = net(batch.float()) 
+    loss_spec = spec_loss(specs, specs_lab) 
+    loss_gen = gen_loss(gens, gens_lab) 
+    loss_fam = fam_loss(fams, fams_lab)       
+    total_loss = loss_spec + loss_gen + loss_fam
+    total_loss.backward()
+    optimizer.step()
+    return total_loss, loss_spec, loss_gen, loss_fam
+
+def check_batch_size(observation, dataset, processes, loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, sampler, device):
+    if batch_size < 1:
+        exit(1), "non-memory error present!"
+    for ret in loader:
+        if observation == 'single':
+            labels, batch = ret
+            specs_lab = labels[:,0]
+            gens_lab = labels[:,1]
+            fams_lab = labels[:,2]
+        elif observation == 'joint':
+            specs_lab, gens_lab, fams_lab, batch = ret
+        try:
+            forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
+        except RuntimeError:
+            batch_size -= 1
+            print("decreasing batch size to {}".format(batch_size))
+            loader = setup_dataloader(dataset, observation, batch_size, processes, sampler)
+            check_batch_size(observation, dataset, processes, loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, sampler, device)
+        break
+    return batch_size, loader
     
-    
-def main():
+def train_model(ARGS, params):
     #TODO: add checking if config exists and starting from that version
     print("torch version {}".format(torch.__version__))
+#     print(params.params.device, ARGS.device, " hello3")
     print("number of devices visible: {dev}".format(dev=torch.cuda.device_count()))
-    device = torch.device("cuda:{dev}".format(dev=ARGS.device) if ARGS.device is not None else "cpu")
+    device = torch.device("cuda:{dev}".format(dev=params.params.device) if params.params.device is not None else "cpu")
     print('using device: {device}'.format(device=device))
-    if ARGS.device is not None:
+    if params.params.device is not None:
         print("current device: {dev} current device name: {name}".format(dev=torch.cuda.current_device(), name=torch.cuda.get_device_name(torch.cuda.current_device())))
     print("current host: {host}".format(host=socket.gethostname()))
     batch_size=ARGS.batch_size
@@ -349,9 +333,8 @@ def main():
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(ARGS.base_dir, ARGS.region, ARGS.organism, ARGS.observation)
-
-    tb_writer = SummaryWriter(comment="exp_id: {}".format(ARGS.exp_id))
+    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset)
+    tb_writer = SummaryWriter(comment="exp_id: {}".format(params.params.exp_id))
     val_split = .9
     print("setting up network")
     # global so can access in collate_fn easily
@@ -366,47 +349,71 @@ def main():
     net_path = params.get_recent_model(ARGS.base_dir)
     
     if net_path is None or ARGS.from_scratch:
-        net = setup_model(ARGS.model, num_specs, num_fams, num_gens, num_channels)
-        optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
-        net.to(device)   
+        net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
+        optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
+        net.to(device)
         start_epoch = 0
     else:
-        model = torch.load(net_path)
-        net = setup_model(ARGS.model, num_specs, num_fams, num_gens, num_channels)
-        optimizer = optim.Adam(net.parameters(), lr=ARGS.lr)
+        model = torch.load(net_path, map_location=device)
+        net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
+        optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
+        net.to(device)
+#         optimizer.to(device)
+        print("loading model from epoch {}".format(start_epoch))
     
-    spec_loss, gen_loss, fam_loss = setup_loss(ARGS.observation, train_dataset, device) 
+    spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, device) 
 #     set_trace()       
     if ARGS.GeoCLEF_validate:
-        train_loader, test_loader = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, ARGS.region, ARGS.observation)
+        train_loader, test_loader, batch_size = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, params.params.region, params.params.observation, batch_size, ARGS.processes, optimizer, net, spec_loss, fam_loss, gen_loss)
+
     else: 
         train_samp, test_samp = split_train_test(train_dataset, val_split) 
-        train_loader = setup_dataloader(train_dataset, ARGS.observation, ARGS.batch_size, ARGS.processes, train_samp)
-        test_loader = setup_dataloader(train_dataset, ARGS.observation, ARGS.batch_size, ARGS.processes, test_samp)
+        train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp)
+        if ARGS.dynamic_batch:
+            batch_size, train_loader = check_batch_size(params.params.observation, train_dataset, ARGS.processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
+        test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp)
     datock = time.time()
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
 
 
     num_batches = math.ceil(len(train_dataset) / batch_size)
-    print("batch size is {batch_size} and size of dataset is {lens} and num batches is {num_batches}\n".format(batch_size=ARGS.batch_size, lens=len(train_dataset), num_batches=len(train_loader)))
+    print("batch size is {batch_size} and size of dataset is {lens} and num batches is {num_batches}\n".format(batch_size=batch_size, lens=len(train_dataset), num_batches=len(train_loader)))
     print("starting training") 
     all_time_loss = []
     all_time_sp_loss = []
     all_time_gen_loss = []
     all_time_fam_loss = []  
     step = 0
-    for epoch in range(start_epoch, n_epochs):
+    epoch = start_epoch
+    while epoch < n_epochs:
         print("starting training for epoch {}".format(epoch))
         clean_gpu(device)
-        if ARGS.device is not None:
+        if params.params.device is not None:
             torch.cuda.synchronize()
         tick = time.time()
         net.train()
-        tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(ARGS.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
+        if ARGS.dynamic_batch:
+            try:
+                tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
+            except RuntimeError: # CUDA: Out of memory is a generic RTE
+                batch_size -= 1
+                if batch_size < 0:
+                    exit(1), "non-memory error present!"
+                print("decreasing batch size to {} at epoch {}".format(batch_size, epoch))
+                if ARGS.GeoCLEF_validate:
+                    train_loader, test_loader, batch_size = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, params.params.region, params.params.observation, batch_size, ARGS.processes, optimizer, net, spec_loss, fam_loss, gen_loss)
+                else:
+                    train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp)       
+
+                    test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp)
+                    print(check_mem())
+                    continue
+        else:
+            tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
         all_time_loss.append(np.stack(tot_loss_meter))
         all_time_sp_loss.append(np.stack(spec_loss_meter))
         all_time_gen_loss.append(np.stack(gen_loss_meter))
@@ -427,16 +434,15 @@ def main():
         print("testing model")
         with torch.no_grad():
             if ARGS.GeoCLEF_validate:
-                test_GeoCLEF_batch(test_loader, ARGS.base_dir, ARGS.region, ARGS.exp_id, epoch)
+                test_GeoCLEF_batch(test_loader, ARGS.base_dir, params.params.region, params.params.exp_id, epoch)
             else:
-                means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net)       
-        clean_gpu(device)
-
+                means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch)       
+        clean_gpu(device)        
         desiderata = {
-            'all_loss': all_loss,
-            'spec_loss': spec_loss,
-            'gen_loss': gen_loss,
-            'fam_loss': fam_loss,
+            'all_loss': all_time_loss,
+            'spec_loss': all_time_sp_loss,
+            'gen_loss': all_time_gen_loss,
+            'fam_loss': all_time_fam_loss,
             'means': means,
             'all_accs': all_accs,
             'mean_accs': mean_accs
@@ -446,14 +452,15 @@ def main():
         tock = time.time()
         diff = ( tock-tick)/60
         print ("one epoch took {} minutes".format(diff))
+        epoch += 1
+        print("epoch is {}".format(epoch))
     tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['lr', 'epoch', 'device', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch']
+    args = ['lr', 'epoch', 'device', 'toy_dataset', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch', 'dynamic_batch']
     print("main ", args)
     ARGS = config.parse_known_args(args)
     config.setup_main_dirs(ARGS.base_dir)
     params = config.Run_Params(ARGS)
     params.setup_run_dirs(ARGS.base_dir)
-
-    main()
+    train_model(ARGS, params)
