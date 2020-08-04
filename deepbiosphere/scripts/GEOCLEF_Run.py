@@ -1,7 +1,8 @@
+import pickle
 import pandas as pd
 import argparse
 import time
-from IPython.core.debugger import set_trace
+#from IPython.core.debugger import set_trace
 import deepdish as dd
 import numpy as np
 import socket
@@ -448,7 +449,9 @@ def train_model(ARGS, params):
             'mean_accs': mean_accs
         }
         desiderata_path = params.build_abs_datum_path(ARGS.base_dir, 'desiderata', epoch)
-        dd.io.save(desiderata_path, desiderata, compression=True)
+        #dd.io.save(desiderata_path, desiderata, compression=True)
+        with open(desiderata_path, 'wb') as f:
+            pickle.dump(desiderata, f, protocol=pickle.HIGHEST_PROTOCOL)
         tock = time.time()
         diff = ( tock-tick)/60
         print ("one epoch took {} minutes".format(diff))
