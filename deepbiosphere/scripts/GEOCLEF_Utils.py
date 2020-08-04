@@ -1,3 +1,4 @@
+import numpy as np
 import math
 import pandas as pd
 import glob
@@ -54,7 +55,7 @@ def id_2_file_us(id_):
     cdd = math.ceil((cd+ 1)/5)
     cdd = "0{}".format(cdd)  if cdd < 10 else "{}".format(cdd)
     ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
-    cd = "0{}".format(cd) if id_ / 1000 > 1 and cd < 10 else cd
+    cd = "0{}".format(cd) if  cd < 10 else cd
     return cdd, ab, cd
 
 def id_2_file_fr(id_):
