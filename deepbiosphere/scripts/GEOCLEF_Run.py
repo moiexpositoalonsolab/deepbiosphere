@@ -184,14 +184,15 @@ def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
             all_spec.append(spec_accs)
             all_gen.append(gens_accs)
             all_fam.append(fam_accs)
-            tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
-            tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch)  
+            if tb_writer not None:
+                tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
+                tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch)  
 
-            tb_writer.add_scalar("test/30_gen_accuracy", gens_accs[0], epoch)
-            tb_writer.add_scalar("test/1_gen_accuracy", gens_accs[1], epoch)  
+                tb_writer.add_scalar("test/30_gen_accuracy", gens_accs[0], epoch)
+                tb_writer.add_scalar("test/1_gen_accuracy", gens_accs[1], epoch)  
 
-            tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
-            tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)                          
+                tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
+                tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)                          
 
             prog.update(1)
         prog.close()
@@ -213,9 +214,10 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
             famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020                        
             prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
             prog.update(1)          
-            tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
-            tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
-            tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
+            if tb_writer not None:
+                tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
+                tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
+                tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
             all_accs.append(totspec_accs)
             mean_accs.append(specaccs)
             means.append(specaccs.mean()) 
@@ -268,11 +270,11 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                 fams_lab = labels[:,2]
 
             tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
-
-            tb_writer.add_scalar("train/tot_loss", tot_loss, step)
-            tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
-            tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
-            tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)   
+            if tb_writer not None:
+                tb_writer.add_scalar("train/tot_loss", tot_loss, step)
+                tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
+                tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
+                tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)   
             tot_loss_meter.append(tot_loss.item())                
             spec_loss_meter.append(loss_spec.item())
             gen_loss_meter.append(loss_gen.item())
@@ -335,7 +337,10 @@ def train_model(ARGS, params):
     print("loading data")
     datick = time.time()
     train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset)
-    tb_writer = SummaryWriter(comment="exp_id: {}".format(params.params.exp_id))
+    if not ARGS.toy_dataset:
+        tb_writer = SummaryWriter(comment="exp_id: {}".format(params.params.exp_id))
+    else:
+        tb_writer = None
     val_split = .9
     print("setting up network")
     # global so can access in collate_fn easily
@@ -458,7 +463,8 @@ def train_model(ARGS, params):
         print ("one epoch took {} minutes".format(diff))
         epoch += 1
         print("epoch is {}".format(epoch))
-    tb_writer.close()
+    if not ARGS.toy_dataset:
+        tb_writer.close()
 
 if __name__ == "__main__":
     args = ['lr', 'epoch', 'device', 'toy_dataset', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch', 'dynamic_batch']
