@@ -44,7 +44,7 @@ arguments = {
     'model':{'choices':choices.model, 'required':True},
     'from_scratch':{'dest':"from_scratch", 'help':"start training model from scratch or latest checkpoint", 'action':'store_true'},
     'toy_dataset': {'dest':'toy_dataset', 'help': 'to use a small subset of data, set this option', 'action':'store_true'},
-   'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches'}    
+    'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches', 'action' : 'store_true'}    
 }
 
 def setup_main_dirs(base_dir):
@@ -93,9 +93,11 @@ class Run_Params():
             print(self.params.device, ARGS.device, " hello")
             self.setup_run_dirs(ARGS.base_dir)
 
-    def build_abs_datum_path(self, base_dir, datum, epoch):
-        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.h5".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr, epoch)
+    def build_abs_nets_path(self, base_dir, epoch):
+        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.tar".format(base_dir, 'nets', self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr, epoch)
 
+    def build_abs_desider_path(self, base_dir, epoch):
+        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.pkl".format(base_dir, 'desiderata', self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr, epoch)
     def build_datum_path(self, base_dir, datum):
         return "{}{}/{}/{}/{}/{}/".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model)
 
