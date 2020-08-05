@@ -94,9 +94,11 @@ class Run_Params():
             print(self.params.device, ARGS.device, " hello")
             self.setup_run_dirs(ARGS.base_dir)
 
-    def build_abs_datum_path(self, base_dir, datum, epoch):
-        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.h5".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr, epoch)
+    def build_abs_nets_path(self, base_dir, epoch):
+        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.tar".format(base_dir, 'nets', self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr, epoch)
 
+    def build_abs_desider_path(self, base_dir, epoch):
+        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.pkl".format(base_dir, 'desiderata', self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr, epoch)
     def build_datum_path(self, base_dir, datum):
         return "{}{}/{}/{}/{}/{}/".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model)
 

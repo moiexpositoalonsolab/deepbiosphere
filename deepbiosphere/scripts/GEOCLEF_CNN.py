@@ -120,7 +120,7 @@ class SkipFCNet(nn.Module):
         self.pool5 = nn.MaxPool2d(5, 5)
         self.choke1 = 120
         self.choke2 = 84
-        self.fc1 = nn.Linear(256 * 5 * 5, self.choke1)
+        self.fc1 = nn.Linear(256 * 6 * 6, self.choke1)
         self.fc2 = nn.Linear(120, self.choke2) 
         self.famfc = nn.Linear(self.choke2, self.families) 
         self.genfc = nn.Linear(self.choke2+self.families, self.genuses)
