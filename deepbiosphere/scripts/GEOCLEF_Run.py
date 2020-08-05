@@ -335,7 +335,7 @@ def train_model(ARGS, params):
     print("loading data")
     datick = time.time()
     train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset)
-    tb_writer = SummaryWriter(comment="exp_id: {}".format(params.params.exp_id))
+    tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_org-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.organism, params.params.exp_id))
     val_split = .9
     print("setting up network")
     # global so can access in collate_fn easily
@@ -421,7 +421,7 @@ def train_model(ARGS, params):
         all_time_fam_loss.append(np.stack(fam_loss_meter))        
         
         # save model 
-        nets_path=params.build_abs_datum_path(ARGS.base_dir, 'nets', epoch)
+        nets_path=params.build_abs_nets_path(ARGS.base_dir, epoch)
         torch.save({
                     'epoch': epoch,
                     'model_state_dict': net.state_dict(),
@@ -448,7 +448,7 @@ def train_model(ARGS, params):
             'all_accs': all_accs,
             'mean_accs': mean_accs
         }
-        desiderata_path = params.build_abs_datum_path(ARGS.base_dir, 'desiderata', epoch)
+        desiderata_path = params.build_abs_desider_path(ARGS.base_dir, epoch)
         #dd.io.save(desiderata_path, desiderata, compression=True)
         with open(desiderata_path, 'wb') as f:
             pickle.dump(desiderata, f, protocol=pickle.HIGHEST_PROTOCOL)
