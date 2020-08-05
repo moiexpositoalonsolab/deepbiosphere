@@ -63,7 +63,7 @@ def build_params_path(base_dir, observation, organism, region, model, exp_id):
 def build_hyperparams_path(base_dir, exp_id):
     if not os.path.exists("{}desiderata/hyperparams/".format(base_dir)):
         os.makedirs("{}desiderata/hyperparams/".format(base_dir))
-    return "{}desiderata/hyperparams/{}_{}_{}_{}.h5".format(base_dir, datetime.now().day, datetime.now().month, datetime.now().year, exp_id)
+    return "{}desiderata/hyperparams/{}_{}_{}_{}.json".format(base_dir, datetime.now().day, datetime.now().month, datetime.now().year, exp_id)
 
 
 class Run_Params():
@@ -95,7 +95,7 @@ class Run_Params():
             self.setup_run_dirs(ARGS.base_dir)
 
     def build_abs_datum_path(self, base_dir, datum, epoch):
-        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.h5".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, str(self.params.lr).split(".")[1], epoch)
+        return "{}{}/{}/{}/{}/{}/{}_lr{}_e{}.h5".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr, epoch)
 
     def build_datum_path(self, base_dir, datum):
         return "{}{}/{}/{}/{}/{}/".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model)
@@ -129,7 +129,8 @@ def parse_known_args(args):
     # parsing which path to use
     ARGS.base_dir = getattr(paths, ARGS.base_dir)
     print("using base directory {}".format(ARGS.base_dir))
-    if hasattr(ARGS, 'seed'):
+    print("has attr ", hasattr(ARGS, 'seed'))
+    if hasattr(ARGS, 'seed') and  ARGS.seed is not None:
     #if ARGS.seed is not None:
         np.random.seed(ARGS.seed)
         torch.manual_seed(ARGS.seed)

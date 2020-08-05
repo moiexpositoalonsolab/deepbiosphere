@@ -32,7 +32,7 @@ runs/
 dist
 figs
 *pdf
-deepbiosphere/GLC
+#deepbiosphere/GLC
 *swp
 dbs_memex
 scripts/
