@@ -33,7 +33,7 @@ def split_train_test(full_dat, split_amt):
     training_idx, test_idx = idxs[:split], idxs[split:]
     train_sampler = SubsetRandomSampler(training_idx)
     valid_sampler = SubsetRandomSampler(test_idx)
-    return train_sampler, valid_sampler
+    return train_sampler, valid_sampler, {'train': training_idx, 'test' : test_idx}
 
 
       
@@ -371,7 +371,7 @@ def train_model(ARGS, params):
         train_loader, test_loader, batch_size = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, params.params.region, params.params.observation, batch_size, ARGS.processes, optimizer, net, spec_loss, fam_loss, gen_loss)
 
     else: 
-        train_samp, test_samp = split_train_test(train_dataset, val_split) 
+        train_samp, test_samp, idxs = split_train_test(train_dataset, val_split) 
         train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp)
         if ARGS.dynamic_batch:
             batch_size, train_loader = check_batch_size(params.params.observation, train_dataset, ARGS.processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
@@ -446,7 +446,8 @@ def train_model(ARGS, params):
             'fam_loss': all_time_fam_loss,
             'means': means,
             'all_accs': all_accs,
-            'mean_accs': mean_accs
+            'mean_accs': mean_accs,
+            'splits' : idxs
         }
         desiderata_path = params.build_abs_desider_path(ARGS.base_dir, epoch)
         #dd.io.save(desiderata_path, desiderata, compression=True)

@@ -104,3 +104,6 @@ def check_corrupted_files(base_dir):
 def key_for_value(d, value):
     # this will be useful for final implementation
     return(list(d.keys())[list(d.values()).index(value)])
+
+def split_inputs(x):
+    raise NotImplementedError
