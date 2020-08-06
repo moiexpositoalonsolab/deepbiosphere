@@ -414,11 +414,12 @@ def train_model(ARGS, params):
     else:
         model = torch.load(net_path, map_location=device)
         net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
+        net.to(device)
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
-        net.to(device)
+#         net.to(device)
 #         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
     
