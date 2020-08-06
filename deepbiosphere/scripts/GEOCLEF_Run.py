@@ -280,7 +280,7 @@ def test_GeoCLEF_batch(test_loader, base_dir, region, exp_id, epoch):
                 prog.update(1)
     prog.close()
 
-def train_batch(observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step):
+def train_batch(observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, model):
     
     tot_loss_meter = []
     spec_loss_meter = []
@@ -291,7 +291,10 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
         
         for i, ret in enumerate(train_loader):     
 #             print("observatin ", observation)
-            if observation == 'joint':
+            if model == 'MixNet':
+                (specs_lab, gens_lab, fams_lab, images, env_rasters) = ret
+                tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, images, env_rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device)                
+            elif observation == 'joint':
 
                 (specs_lab, gens_lab, fams_lab, batch) = ret
                 tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
@@ -301,9 +304,6 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                 gens_lab = labels[:,1]
                 fams_lab = labels[:,2]
                 tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
-            elif model == 'MixNet':
-                (specs_label, gens_label, fams_label, images, env_rasters) = ret
-                forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device)                
 #             tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
             if tb_writer is not None:
                 tb_writer.add_scalar("train/tot_loss", tot_loss, step)
@@ -432,7 +432,7 @@ def train_model(ARGS, params):
         train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp, ARGS.model)
         if ARGS.dynamic_batch:
             batch_size, train_loader = check_batch_size(params.params.observation, train_dataset, ARGS.processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
-        test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp)
+        test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp, ARGS.model)
     datock = time.time()
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
@@ -456,7 +456,7 @@ def train_model(ARGS, params):
         net.train()
         if ARGS.dynamic_batch:
             try:
-                tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
+                tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model)
             except RuntimeError: # CUDA: Out of memory is a generic RTE
                 batch_size -= 1
                 if batch_size < 0:
@@ -471,7 +471,7 @@ def train_model(ARGS, params):
                     print(check_mem())
                     continue
         else:
-            tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step)
+            tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model)
         all_time_loss.append(np.stack(tot_loss_meter))
         all_time_sp_loss.append(np.stack(spec_loss_meter))
         all_time_gen_loss.append(np.stack(gen_loss_meter))

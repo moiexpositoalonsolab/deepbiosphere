@@ -180,7 +180,7 @@ class MixNet(nn.Module):
         
     def forward(self, img, rasters):
         # pass images through CNN
-        x = self.pool2(F.relu(self.conv1(imgs)))
+        x = self.pool2(F.relu(self.conv1(img)))
         x = self.pool2(F.relu(self.conv2(x)))
         #x = F.relu(self.conv2(x))
         x = self.pool2(F.relu(self.conv3(x)))
