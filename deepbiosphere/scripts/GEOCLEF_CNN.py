@@ -218,7 +218,7 @@ class MixNet(nn.Module):
         self.famfc = nn.Linear(self.bottleneck, self.families) 
         # does this add the values together or 
         self.genfc = nn.Linear(self.bottleneck+self.families, self.genuses)
-        self.specfc = nn.Linear(self.bottleneck+self.genuses, self.species) 
+        self.specfc = nn.Linear(self.bottleneck+self.genuses + self.families, self.species) 
         
         
     def forward(self, img, rasters):
@@ -238,8 +238,8 @@ class MixNet(nn.Module):
         y = F.relu(self.mlp2(y))
         combined = torch.cat([x,y],1)
         fam = F.relu(self.famfc(combined))
-        gen = F.relu(self.genfc(torch.cat([fam, combined] ,1)))
-        spec = self.specfc(torch.cat([gen, combined], 1))
+        gen = F.relu(self.genfc(torch.cat([combined, fam] ,1)))
+        spec = self.specfc(torch.cat([combined, gen, fam], 1))
         return(spec, gen, fam)    
     
     
