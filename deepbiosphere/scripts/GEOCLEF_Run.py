@@ -242,7 +242,7 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
             specs_lab = specs_label.to(device)                                     
             gens_label = gens_label.to(device)
             fams_label = fams_label.to(device)
-            (outputs, gens, fams) = net(batch.float(), env_rasters.float()) 
+            (outputs, gens, fams) = net(imgs.float(), env_rasters.float()) 
             specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
             genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                        
             famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020                        
@@ -252,6 +252,8 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
                 tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
+            else:
+                break
             all_accs.append(totspec_accs)
             mean_accs.append(specaccs)
             means.append(specaccs.mean()) 
@@ -321,7 +323,9 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
 #             print("observatin ", observation)
             if model == 'MixNet':
                 (specs_lab, gens_lab, fams_lab, images, env_rasters) = ret
-                tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, images, env_rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device)                
+                tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, images, env_rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device)               
+                if tb_writer is None:
+                    break
             elif observation == 'joint':
 
                 (specs_lab, gens_lab, fams_lab, batch) = ret
@@ -500,10 +504,11 @@ def train_model(ARGS, params):
                     continue
         else:
             tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model)
-        all_time_loss.append(np.stack(tot_loss_meter))
-        all_time_sp_loss.append(np.stack(spec_loss_meter))
-        all_time_gen_loss.append(np.stack(gen_loss_meter))
-        all_time_fam_loss.append(np.stack(fam_loss_meter))        
+        if not ARGS.toy_dataset:
+            all_time_loss.append(np.stack(tot_loss_meter))
+            all_time_sp_loss.append(np.stack(spec_loss_meter))
+            all_time_gen_loss.append(np.stack(gen_loss_meter))
+            all_time_fam_loss.append(np.stack(fam_loss_meter))        
         
         # save model 
         nets_path=params.build_abs_nets_path(ARGS.base_dir, epoch)
