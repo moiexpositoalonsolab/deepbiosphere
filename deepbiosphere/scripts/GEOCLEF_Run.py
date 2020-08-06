@@ -414,11 +414,12 @@ def train_model(ARGS, params):
     else:
         model = torch.load(net_path, map_location=device)
         net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
+        net.to(device)
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
-        net.to(device)
+#         net.to(device)
 #         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
     
@@ -432,7 +433,7 @@ def train_model(ARGS, params):
         train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp, ARGS.model)
         if ARGS.dynamic_batch:
             batch_size, train_loader = check_batch_size(params.params.observation, train_dataset, ARGS.processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
-        test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp)
+        test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp, ARGS.model)
     datock = time.time()
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
