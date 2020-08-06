@@ -47,7 +47,8 @@ arguments = {
     'toy_dataset': {'dest':'toy_dataset', 'help': 'to use a small subset of data, set this option', 'action':'store_true'},
    'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches', 'action':'store_true'},
     'save_splits': {'dest':'save_splits', 'help': 'if you want to save the train/test split for future inference, set this', 'action':'store_true'},
-    'normalize': {'dest':'normalize', 'help': 'whether to normalize environmental rasters', 'action':'store_true'}    
+    'normalize': {'dest':'normalize', 'help': 'whether to normalize environmental rasters', 'action':'store_true'},
+    'latlon': {'dest':'latlon', 'help': 'whether to include lat lon in environmental data', 'action':'store_true'}        
 }
 
 def setup_main_dirs(base_dir):
