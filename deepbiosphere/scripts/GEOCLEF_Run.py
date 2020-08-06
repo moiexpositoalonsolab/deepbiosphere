@@ -184,7 +184,7 @@ def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
             all_spec.append(spec_accs)
             all_gen.append(gens_accs)
             all_fam.append(fam_accs)
-            if tb_writer not None:
+            if tb_writer is not None:
                 tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
                 tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch)  
 
@@ -214,7 +214,7 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
             famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020                        
             prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
             prog.update(1)          
-            if tb_writer not None:
+            if tb_writer is not None:
                 tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
@@ -270,7 +270,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                 fams_lab = labels[:,2]
 
             tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
-            if tb_writer not None:
+            if tb_writer is not None:
                 tb_writer.add_scalar("train/tot_loss", tot_loss, step)
                 tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
                 tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
