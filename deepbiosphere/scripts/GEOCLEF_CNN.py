@@ -169,8 +169,8 @@ class MixNet(nn.Module):
         self.mlp_choke2 = 128
         self.bottleneck = self.mlp_choke2 + self.cnn_choke2
         self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
-        self.mlp2(self.mlp_choke1, self.mlp_choke2)
-        self.fc1 = nn.Linear(256 * 5 * 5, self.cnn_choke1)
+        self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
+        self.fc1 = nn.Linear(256 * 6 * 6, self.cnn_choke1)
         self.fc2 = nn.Linear(self.cnn_choke1, self.cnn_choke2) 
         self.famfc = nn.Linear(self.bottleneck, self.families) 
         # does this add the values together or 

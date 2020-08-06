@@ -24,8 +24,11 @@ def get_joint_gbif_data(pth, country, organism):
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+    joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
     return joint_obs
 
+def parse_string_to_tuple(string):
+    return eval(string)
 def parse_string_to_string(string):
     string = string.replace("{", '').replace("}", "").replace("'", '')
     split = string.split(", ")
@@ -459,9 +462,10 @@ class GEOCELF_Dataset_Joint_Scalar_Raster(Dataset):
         self.country = country
         self.organism = organism
         obs = get_joint_gbif_data(self.base_dir, country, organism)
-        rasterpath = f"{self.base_dir}rasters"
+        rasterpath = "{}rasters".format(self.base_dir)
         rasters  = PatchExtractor(rasterpath, size = 1)
-        self.rasters = rasters.add_all(normalized=normalize)
+        rasters.add_all(normalized=normalize)
+        self.rasters = rasters
         obs.fillna('nan', inplace=True)        
         obs, inv_spec = prep_joint_data(obs)
         self.idx_2_id = inv_spec
@@ -476,7 +480,7 @@ class GEOCELF_Dataset_Joint_Scalar_Raster(Dataset):
         self.transform = transform
         channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
         self.channels = channels
-        self.num_rasters = len(self.rasters)
+        self.num_rasters = len(rasters)
         self.alt_shape = alt_shape
         self.rgbd_shape = rgbd_shape
     def __len__(self):

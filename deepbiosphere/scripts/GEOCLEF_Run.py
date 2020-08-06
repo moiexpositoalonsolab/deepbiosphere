@@ -47,7 +47,7 @@ def check_mem():
         except: pass
 
 
-def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, normalize):
+def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, normalize, model):
     '''grab and setup train dataset'''
 
     if observation == 'single':
@@ -101,13 +101,13 @@ def setup_GeoCLEF_dataloaders(train_dataset, base_dir, region, observation, batc
     test_loader = DataLoader(test_dataset, batch_size, shuffle=True, pin_memory=True, num_workers=processes)       
     return train_loader, test_loader, batch_size
 
-def setup_dataloader(dataset, observation, batch_size, processes, sampler):
-    if observation == 'joint':
+def setup_dataloader(dataset, observation, batch_size, processes, sampler, model):
+    if model == 'MixNet':
+        collate_fn = joint_raster_collate_fn
+    elif observation == 'joint':
         collate_fn = joint_collate_fn
     elif observation == 'single':
         collate_fn = single_collate_fn
-    elif model == 'MixNet':
-        collate_fn = joint_raster_collate_fn
     dataloader = DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
 
     return dataloader
@@ -386,7 +386,7 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset, ARGS.normalize)
+    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset, ARGS.normalize, ARGS.model)
     if not ARGS.toy_dataset:
         tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_org-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.organism, params.params.exp_id))
 
@@ -429,7 +429,7 @@ def train_model(ARGS, params):
 
     else: 
         train_samp, test_samp, idxs = split_train_test(train_dataset, val_split) 
-        train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp)
+        train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp, ARGS.model)
         if ARGS.dynamic_batch:
             batch_size, train_loader = check_batch_size(params.params.observation, train_dataset, ARGS.processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
         test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp)
