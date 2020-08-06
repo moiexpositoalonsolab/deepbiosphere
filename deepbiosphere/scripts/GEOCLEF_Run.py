@@ -26,11 +26,15 @@ from deepbiosphere.scripts import GEOCLEF_Config as config
 
 
 
-def split_train_test(full_dat, split_amt):
+def split_train_test(full_dat, split_amt, splits=None):
     '''grab split_amt% of labeled data for holdout testing'''
-    idxs = np.random.permutation(len(full_dat))
-    split = int(len(idxs)*split_amt)
-    training_idx, test_idx = idxs[:split], idxs[split:]
+    if splits is not None:
+        training_idx = splits['train']
+        test_idx = splits['test']
+    else:
+        idxs = np.random.permutation(len(full_dat))
+        split = int(len(idxs)*split_amt)
+        training_idx, test_idx = idxs[:split], idxs[split:]
     train_sampler = SubsetRandomSampler(training_idx)
     valid_sampler = SubsetRandomSampler(test_idx)
     return train_sampler, valid_sampler, {'train': training_idx, 'test' : test_idx}
@@ -411,6 +415,7 @@ def train_model(ARGS, params):
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.to(device)
         start_epoch = 0
+        splits = None
     else:
         model = torch.load(net_path, map_location=device)
         net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
@@ -419,6 +424,9 @@ def train_model(ARGS, params):
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
+        splits = params.get_split(ARGS.base_dir)
+#         net.to(device)
+#         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
     
     spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, device) 
@@ -427,7 +435,7 @@ def train_model(ARGS, params):
         train_loader, test_loader, batch_size = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, params.params.region, params.params.observation, batch_size, ARGS.processes, optimizer, net, spec_loss, fam_loss, gen_loss)
 
     else: 
-        train_samp, test_samp, idxs = split_train_test(train_dataset, val_split) 
+        train_samp, test_samp, idxs = split_train_test(train_dataset, val_split, splits) 
         train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp, ARGS.model)
         if ARGS.dynamic_batch:
             batch_size, train_loader = check_batch_size(params.params.observation, train_dataset, ARGS.processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)

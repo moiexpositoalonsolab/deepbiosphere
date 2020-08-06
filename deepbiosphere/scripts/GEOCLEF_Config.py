@@ -1,3 +1,4 @@
+import pickle
 from datetime import datetime
 import numpy as np
 import json
@@ -105,13 +106,24 @@ class Run_Params():
 
     def get_recent_model(self, base_dir):
         model_paths = self.build_datum_path(base_dir, 'nets')
-        all_models = glob.glob(model_paths + "*")
+        all_models = glob.glob(model_paths + "{}_lr{}_e*".format(self.params.exp_id, self.params.lr))
         if len(all_models) <= 0:
             return None
         else:
             most_recent = sorted(all_models, reverse=True)[0]
             return most_recent
         
+    def get_split(self, base_dir):
+        model_paths = self.build_datum_path(base_dir, 'nets')
+        des_path = "{}{}/{}/{}/{}/{}/{}_lr{}_e*.pkl".format(base_dir, 'desiderata', self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr)
+        all_models = glob.glob(des_path)
+        if len(all_models) <= 0:
+            return None
+        else:
+            most_recent = sorted(all_models, reverse=True)[0]
+            with open(most_recent, 'rb') as f:
+                des = pickle.load(f)
+            return des['splits']
 
     def setup_run_dirs(self, base_dir):
         nets_path = self.build_datum_path(base_dir, 'nets') 
