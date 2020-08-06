@@ -26,15 +26,11 @@ from deepbiosphere.scripts import GEOCLEF_Config as config
 
 
 
-def split_train_test(full_dat, split_amt, splits=None):
+def split_train_test(full_dat, split_amt):
     '''grab split_amt% of labeled data for holdout testing'''
-    if splits is not None:
-        training_idx = splits['train']
-        test_idx = splits['test']
-    else:
-        idxs = np.random.permutation(len(full_dat))
-        split = int(len(idxs)*split_amt)
-        training_idx, test_idx = idxs[:split], idxs[split:]
+    idxs = np.random.permutation(len(full_dat))
+    split = int(len(idxs)*split_amt)
+    training_idx, test_idx = idxs[:split], idxs[split:]
     train_sampler = SubsetRandomSampler(training_idx)
     valid_sampler = SubsetRandomSampler(test_idx)
     return train_sampler, valid_sampler, {'train': training_idx, 'test' : test_idx}
@@ -196,8 +192,10 @@ def joint_raster_collate_fn(batch):
         rasters.append(raster)
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs)), torch.from_numpy(np.stack(rasters))
 
-def test_batch(test_loader, tb_writer, device, net, observation, epoch):
-    if observation == 'joint':
+def test_batch(test_loader, tb_writer, device, net, observation, epoch, model):
+    if model == 'MixNet':
+        return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
+    elif observation == 'joint':
         return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'single':
         return test_single_obs_batch(test_loader, tb_writer, device, net, epoch)
@@ -233,6 +231,32 @@ def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
         prog.close()
         return all_spec, all_gen, all_fam
     
+def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
+    with tqdm(total=len(test_loader), unit="batch") as prog:
+        means = []
+        all_accs = []
+        mean_accs = []
+        for i, (specs_label, gens_label, fams_label, imgs, env_rasters) in enumerate(test_loader):
+            imgs = imgs.to(device)
+            env_rasters = env_rasters.to(device)
+            specs_lab = specs_label.to(device)                                     
+            gens_label = gens_label.to(device)
+            fams_label = fams_label.to(device)
+            (outputs, gens, fams) = net(batch.float(), env_rasters.float()) 
+            specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
+            genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                        
+            famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020                        
+            prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
+            prog.update(1)          
+            if tb_writer is not None:
+                tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
+                tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
+                tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
+            all_accs.append(totspec_accs)
+            mean_accs.append(specaccs)
+            means.append(specaccs.mean()) 
+    prog.close()
+    return means, all_accs, mean_accs
 def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
         means = []
@@ -415,17 +439,14 @@ def train_model(ARGS, params):
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.to(device)
         start_epoch = 0
-        splits = None
     else:
         model = torch.load(net_path, map_location=device)
         net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
-        net.to(device)
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
-        splits = params.get_split(ARGS.base_dir)
-#         net.to(device)
+        net.to(device)
 #         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
     
@@ -435,7 +456,7 @@ def train_model(ARGS, params):
         train_loader, test_loader, batch_size = setup_GeoCLEF_dataloaders(train_dataset, ARGS.base_dir, params.params.region, params.params.observation, batch_size, ARGS.processes, optimizer, net, spec_loss, fam_loss, gen_loss)
 
     else: 
-        train_samp, test_samp, idxs = split_train_test(train_dataset, val_split, splits) 
+        train_samp, test_samp, idxs = split_train_test(train_dataset, val_split) 
         train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp, ARGS.model)
         if ARGS.dynamic_batch:
             batch_size, train_loader = check_batch_size(params.params.observation, train_dataset, ARGS.processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
@@ -501,7 +522,7 @@ def train_model(ARGS, params):
             if ARGS.GeoCLEF_validate:
                 test_GeoCLEF_batch(test_loader, ARGS.base_dir, params.params.region, params.params.exp_id, epoch)
             else:
-                means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch)       
+                means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.model)       
         clean_gpu(device)        
         desiderata = {
             'all_loss': all_time_loss,
