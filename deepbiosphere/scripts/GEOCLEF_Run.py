@@ -419,8 +419,6 @@ def train_model(ARGS, params):
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
-#         net.to(device)
-#         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
     
     spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, device) 
