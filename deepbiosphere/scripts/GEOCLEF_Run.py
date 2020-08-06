@@ -47,7 +47,7 @@ def check_mem():
         except: pass
 
 
-def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, normalize, model):
+def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, normalize, model, latlon):
     '''grab and setup train dataset'''
 
     if observation == 'single':
@@ -60,7 +60,7 @@ def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, no
             return Dataset.GEOCELF_Dataset_Joint_Full(base_dir, organism)
         else:
             if model == 'MixNet':
-                return Dataset.GEOCELF_Dataset_Joint_Scalar_Raster(base_dir, organism, region, normalize=normalize)
+                return Dataset.GEOCELF_Dataset_Joint_Scalar_Raster_LatLon(base_dir, organism, region, normalize=normalize) if latlon else Dataset.GEOCELF_Dataset_Joint_Scalar_Raster(base_dir, organism, region, normalize=normalize)
             else:
                 return Dataset.Joint_Toy_Dataset(base_dir, organism, region) if toy_dataset else Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
     else:
@@ -420,7 +420,7 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset, ARGS.normalize, ARGS.model)
+    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset, ARGS.normalize, ARGS.model, ARGS.latlon)
     if not ARGS.toy_dataset:
         tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_org-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.organism, params.params.exp_id))
 
@@ -554,7 +554,7 @@ def train_model(ARGS, params):
         tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['lr', 'epoch', 'device', 'toy_dataset', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch', 'dynamic_batch', 'normalize']
+    args = ['lr', 'epoch', 'device', 'toy_dataset', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch', 'dynamic_batch', 'normalize', 'latlon']
     print("main ", args)
     ARGS = config.parse_known_args(args)
     config.setup_main_dirs(ARGS.base_dir)
