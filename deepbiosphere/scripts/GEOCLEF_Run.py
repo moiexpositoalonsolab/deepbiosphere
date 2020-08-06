@@ -86,6 +86,8 @@ def setup_model(model, num_specs, num_fams, num_gens, num_channels, num_rasters=
         return cnn.SkipNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
     elif model == 'MixNet':
         return cnn.MixNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels, env_rasters=num_rasters)
+    elif model == 'SkipFullFamNet'
+        return cnn.SkipFullFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
     else: 
         exit(1), "if you reach this, you got a real problem bucko"
 
