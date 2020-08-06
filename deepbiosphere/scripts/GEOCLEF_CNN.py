@@ -178,8 +178,7 @@ class MixNet(nn.Module):
         self.specfc = nn.Linear(self.bottleneck+self.genuses, self.species) 
         
         
-    def forward(self, x):
-        imgs, rasters = utils.split_input(x)
+    def forward(self, img, rasters):
         # pass images through CNN
         x = self.pool2(F.relu(self.conv1(imgs)))
         x = self.pool2(F.relu(self.conv2(x)))

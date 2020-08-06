@@ -47,7 +47,7 @@ def check_mem():
         except: pass
 
 
-def setup_train_dataset(observation, base_dir, organism, region, toy_dataset):
+def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, normalize):
     '''grab and setup train dataset'''
 
     if observation == 'single':
@@ -59,11 +59,14 @@ def setup_train_dataset(observation, base_dir, organism, region, toy_dataset):
         if region == 'both':
             return Dataset.GEOCELF_Dataset_Joint_Full(base_dir, organism)
         else:
-            return Dataset.Joint_Toy_Dataset(base_dir, organism, region) if toy_dataset else Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
+            if model == 'MixNet':
+                return Dataset.GEOCELF_Dataset_Joint_Scalar_Raster(base_dir, organism, region, normalize=normalize)
+            else:
+                return Dataset.Joint_Toy_Dataset(base_dir, organism, region) if toy_dataset else Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
     else:
         exit(1), "should never reach this..."
         
-def setup_model(model, num_specs, num_fams, num_gens, num_channels):
+def setup_model(model, num_specs, num_fams, num_gens, num_channels, num_rasters=None):
     # baselines
     if model == 'SVM':
         raise NotImplementedError
@@ -81,6 +84,8 @@ def setup_model(model, num_specs, num_fams, num_gens, num_channels):
         return cnn.SkipFCNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
     elif model == 'SkipNet':
         return cnn.SkipNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
+    elif model == 'MixNet':
+        return cnn.MixNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels, env_rasters=num_rasters)
     else: 
         exit(1), "if you reach this, you got a real problem bucko"
 
@@ -101,6 +106,8 @@ def setup_dataloader(dataset, observation, batch_size, processes, sampler):
         collate_fn = joint_collate_fn
     elif observation == 'single':
         collate_fn = single_collate_fn
+    elif model == 'MixNet':
+        collate_fn = joint_raster_collate_fn
     dataloader = DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
 
     return dataloader
@@ -160,6 +167,30 @@ def joint_collate_fn(batch):
         all_fams.append(fams_tens)
         imgs.append(img)
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs))
+
+def joint_raster_collate_fn(batch):
+    # batch is a list of tuples of (specs_label, gens_label, fams_label, images, env_rasters)  
+    all_specs = []
+    all_gens = []
+    all_fams = []
+    imgs = []
+    rasters = []
+    #(specs_label, gens_label, fams_label, images, env_rasters)  
+    for (spec, gen, fam, img, raster) in batch:
+        specs_tens = torch.zeros(num_specs)
+        specs_tens[spec] += 1
+        all_specs.append(specs_tens)
+
+        gens_tens = torch.zeros(num_gens)
+        gens_tens[gen] += 1
+        all_gens.append(gens_tens)
+
+        fams_tens = torch.zeros(num_fams)
+        fams_tens[fam] += 1
+        all_fams.append(fams_tens)
+        imgs.append(img)
+        rasters.append(raster)
+    return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs)), torch.from_numpy(np.stack(rasters))
 
 def test_batch(test_loader, tb_writer, device, net, observation, epoch):
     if observation == 'joint':
@@ -263,13 +294,17 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
             if observation == 'joint':
 
                 (specs_lab, gens_lab, fams_lab, batch) = ret
+                tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
             elif observation == 'single':
                 (labels, batch) = ret
                 specs_lab = labels[:,0]
                 gens_lab = labels[:,1]
                 fams_lab = labels[:,2]
-
-            tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
+                tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
+            elif model == 'MixNet':
+                (specs_label, gens_label, fams_label, images, env_rasters) = ret
+                forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device)                
+#             tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
             if tb_writer is not None:
                 tb_writer.add_scalar("train/tot_loss", tot_loss, step)
                 tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
@@ -284,6 +319,21 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
             step += 1
     return tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step    
 
+def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device):
+    batch = batch.to(device)
+    rasters = rasters.to(device)
+    specs_lab = specs_lab.to(device)                                     
+    gens_lab = gens_lab.to(device)
+    fams_lab = fams_lab.to(device)
+    optimizer.zero_grad()
+    (specs, gens, fams) = net(batch.float(), rasters.float()) 
+    loss_spec = spec_loss(specs, specs_lab) 
+    loss_gen = gen_loss(gens, gens_lab) 
+    loss_fam = fam_loss(fams, fams_lab)       
+    total_loss = loss_spec + loss_gen + loss_fam
+    total_loss.backward()
+    optimizer.step()
+    return total_loss, loss_spec, loss_gen, loss_fam
 
 def forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device):
     batch = batch.to(device)
@@ -336,7 +386,7 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset)
+    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, ARGS.toy_dataset, ARGS.normalize)
     if not ARGS.toy_dataset:
         tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_org-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.organism, params.params.exp_id))
 
@@ -352,11 +402,12 @@ def train_model(ARGS, params):
     global num_gens
     num_gens = train_dataset.num_gens    
     num_channels = train_dataset.channels
+    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' else None
     start_epoch = None
     net_path = params.get_recent_model(ARGS.base_dir)
     
     if net_path is None or ARGS.from_scratch:
-        net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
+        net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels, num_rasters)
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.to(device)
         start_epoch = 0
@@ -468,7 +519,7 @@ def train_model(ARGS, params):
         tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['lr', 'epoch', 'device', 'toy_dataset', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch', 'dynamic_batch']
+    args = ['lr', 'epoch', 'device', 'toy_dataset', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch', 'dynamic_batch', 'normalize']
     print("main ", args)
     ARGS = config.parse_known_args(args)
     config.setup_main_dirs(ARGS.base_dir)
