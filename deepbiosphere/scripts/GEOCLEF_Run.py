@@ -60,7 +60,7 @@ def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, no
             return Dataset.GEOCELF_Dataset_Joint_Full(base_dir, organism)
         else:
             if model == 'MixNet':
-                return Dataset.GEOCELF_Dataset_Joint_Scalar_Raster_LatLon(base_dir, organism, region, normalize=normalize) if latlon else Dataset.GEOCELF_Dataset_Joint_Scalar_Raster(base_dir, organism, region, normalize=normalize)
+                return Dataset.GEOCELF_Dataset_Joint_BioClim(base_dir, organism, region, normalize=normalize) 
             else:
                 return Dataset.Joint_Toy_Dataset(base_dir, organism, region) if toy_dataset else Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
     else:
@@ -447,7 +447,7 @@ def train_model(ARGS, params):
         start_epoch = 0
     else:
         model = torch.load(net_path, map_location=device)
-        net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels)
+        net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels, num_rasters)
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
@@ -470,8 +470,12 @@ def train_model(ARGS, params):
     datock = time.time()
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
-
-
+#     import pdb; pdb.set_trace()
+    print("model size is ", num_rasters)
+    for tens in next(iter(train_loader)):
+        print(tens.shape)
+#     print("model size is ", num_rasters, "data size is ", next(iter(train_loader)) )
+#     exit(1)
     num_batches = math.ceil(len(train_dataset) / batch_size)
     print("batch size is {batch_size} and size of dataset is {lens} and num batches is {num_batches}\n".format(batch_size=batch_size, lens=len(train_dataset), num_batches=len(train_loader)))
     print("starting training") 
