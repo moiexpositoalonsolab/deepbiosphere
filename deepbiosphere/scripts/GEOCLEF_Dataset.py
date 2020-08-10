@@ -1,7 +1,8 @@
 from deepbiosphere.scripts.GEOCLEF_Config import paths
 import glob
 from rasterio.mask import mask
-import geopandas as gpd
+#import geopandas as gpd
+import geojson
 from shapely.geometry import mapping
 import rasterio
 import math
@@ -26,7 +27,7 @@ def get_gbif_data(pth, split, country, organism):
 
 def get_gbif_rasters_data(pth, country, organism):
 #     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
-obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, country, organism)
+    obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, country, organism)
     joint_obs = pd.read_csv(obs_pth)  
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
@@ -60,13 +61,16 @@ def parse_string_to_int(string):
 
 def get_cali_shape(base_dir):
     path = '{}us_shapefiles/districts/states/CA/shape.geojson'.format(base_dir)
-    geocali = gpd.read_file(path)
-    geocali.geometry.values[0]
-    geoms = [mapping(geocali.geometry.values[0])]
-    return geoms
+    with open(path) as f:
+            geocali = geojson.load(f)
+    #geocali = gpd.read_file(path)
+    #geocali.geometry.values[0]
+    #geoms = [mapping(geocali.geometry.values[0])]
+    #return geoms
+    return [geocali]
 
 def get_us_bioclim(base_dir):
-    rasters = "{}rasters/bio*/*_{}.tif".format(paths.DBS_DIR, 'USA')
+    rasters = "{}rasters/bio*/*_{}.tif".format(base_dir, 'USA')
     ras_paths = glob.glob(rasters)
     return ras_paths
 
@@ -790,7 +794,6 @@ class GEOCELF_Dataset_Joint_BioClim(Dataset):
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]
         fams_label = self.obs[idx, 2]        
-
         if self.transform:
             images = self.transform(images)
         return (specs_label, gens_label, fams_label, images, env_rasters)  

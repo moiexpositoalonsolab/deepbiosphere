@@ -69,7 +69,7 @@ def main():
 
     # grab only relevant data for training
     print("saving to file")
-    cali_plant.to_csv(f"{pth}/occurrences/occurrences_cali_plant_raster.csv", sep = ';')
+    cali_plant.to_csv("{pth}/occurrences/occurrences_cali_plant_raster.csv".format(pth=pth), sep = ';')
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ lrs = [
 #    .00075,
     .001,
 #    .0025,
-#    .005,
+    .005,
 #     .0075,    
     .01,
 #     .025,
@@ -38,7 +38,7 @@ region = [
     'cali'
 ]
 
-models = ['SkipNet']#, "SkipFCNet"] 
+models = ['SkipFCNet', "SkipNet"] 
 
 def train_treatment(obs, org, reg, modl, device_num, ARGS):
     

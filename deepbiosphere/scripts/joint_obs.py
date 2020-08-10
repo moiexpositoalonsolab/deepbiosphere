@@ -14,9 +14,9 @@ import random
 import math 
 import reverse_geocoder as rg
 from tqdm import tqdm
-from deepbiosphere.scripts import GEOCELF_CNN as cnn
-from deepbiosphere.scripts import GEOCELF_Dataset as Dataset
-from deepbiosphere.scripts import paths
+from deepbiosphere.scripts import GEOCLEF_CNN as cnn
+from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
+from deepbiosphere.scripts.GEOCLEF_Config import paths
 
 # https://www.movable-type.co.uk/scripts/latlong.html
 def nmea_2_meters(lat1, lon1, lat2, lon2):
@@ -68,7 +68,7 @@ def main():
     pth = ARGS.base_dir
     us_train = None
     train = 'plants' if ARGS.plants else 'train'
-    us_train_pth = "{}occurrences/occurrences_cali_plant_raster.csv" if ARGS.rasters else "{pth}occurrences/occurrences_{country}_{train}.csv".format(pth=pth, country=ARGS.country, train=train)
+    us_train_pth = "{}occurrences/occurrences_cali_plant_raster.csv".format(pth) if ARGS.rasters else "{pth}occurrences/occurrences_{country}_{train}.csv".format(pth=pth, country=ARGS.country, train=train)
     us_train = pd.read_csv(us_train_pth, sep=';')
     if 'genus' not in us_train.columns.tolist():
         gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
@@ -99,7 +99,6 @@ def main():
     # add env filtering here
 
     
-    res = 
     # grab necessary info from the results
     states = [r['admin1'] for r in res]
     regions = [r['admin2'] for r in res]
@@ -130,7 +129,7 @@ def main():
         joint_obs = pd.concat(all_datframes)
         print("save data")
         plant = 'plant' if ARGS.plants else "plantanimal"
-        pth = "{pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv".format(pth=pth, region=ARGS.country, plant=plant) if ARGS.raster else "{pth}/occurrences/joint_obs_{region}{plant}_{train}.csv".format(pth=pth, region=ARGS.country, plant=plant,train=train)
+        pth = "{pth}/occurrences/joint_obs_{region}_{plant}_train_rasters.csv".format(pth=pth, region=ARGS.country, plant=plant) if ARGS.rasters else "{pth}/occurrences/joint_obs_{region}_{plant}_{train}.csv".format(pth=pth, region=ARGS.country, plant=plant,train=train)
         joint_obs.to_csv(pth)
     
     
@@ -139,7 +138,7 @@ if __name__ == "__main__":
     parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'cali'])
     parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
     parser.add_argument('--plants', dest='plants', help="if using cali plant-only data", action='store_true')
-    parster.add_argument("--rasters", dest='rasters', action='store_true')
+    parser.add_argument("--rasters", dest='rasters', action='store_true')
     ARGS, _ = parser.parse_known_args()
     ARGS.base_dir = eval("paths.{}".format(ARGS.base_dir))
     print("using base directory {}".format(ARGS.base_dir))
