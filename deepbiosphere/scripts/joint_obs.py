@@ -67,8 +67,8 @@ def main():
     print("grab data")
     pth = ARGS.base_dir
     us_train = None
-    train = 'plants' if ARGS.plants else 'train'
-    us_train_pth = "{}occurrences/occurrences_cali_plant_raster.csv" if ARGS.rasters else "{pth}occurrences/occurrences_{country}_{train}.csv".format(pth=pth, country=ARGS.country, train=train)
+#     train = 'plants' if ARGS.plants else 'train'
+    us_train_pth = "{}occurrences/occurrences_cali_plant_raster.csv".format(pth=pth) if ARGS.rasters else "{pth}occurrences/occurrences_{country}_{org}_train.csv".format(pth=pth, country=ARGS.country, org=ARGS.organism)
     us_train = pd.read_csv(us_train_pth, sep=';')
     if 'genus' not in us_train.columns.tolist():
         gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
@@ -99,7 +99,6 @@ def main():
     # add env filtering here
 
     
-    res = 
     # grab necessary info from the results
     states = [r['admin1'] for r in res]
     regions = [r['admin2'] for r in res]
@@ -138,6 +137,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'cali'])
     parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
+    parser.add_argument('--organism', type=str, choices=['plant', 'animal', 'plantanimal'], required=True)
     parser.add_argument('--plants', dest='plants', help="if using cali plant-only data", action='store_true')
     parster.add_argument("--rasters", dest='rasters', action='store_true')
     ARGS, _ = parser.parse_known_args()
