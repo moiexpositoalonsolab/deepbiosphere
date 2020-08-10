@@ -1,3 +1,10 @@
+from deepbiosphere.scripts.GEOCLEF_Config import paths
+import glob
+from rasterio.mask import mask
+import geopandas as gpd
+from shapely.geometry import mapping
+import rasterio
+import math
 import math
 import torch
 import pandas as pd
@@ -16,6 +23,16 @@ def get_gbif_data(pth, split, country, organism):
 
     obs_pth = "{}occurrences/occurrences_{}_{}_{}.csv".format(pth, country, organism, split)
     return pd.read_csv(obs_pth, sep=';')  
+
+def get_gbif_rasters_data(pth, country, organism):
+#     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
+obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, country, organism)
+    joint_obs = pd.read_csv(obs_pth)  
+    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
+    joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+    joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+    joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+    return joint_obs
 
 def get_joint_gbif_data(pth, country, organism):
     ## Grab GBIF observation data
@@ -41,7 +58,122 @@ def parse_string_to_int(string):
 
 
 
+def get_cali_shape(base_dir):
+    path = '{}us_shapefiles/districts/states/CA/shape.geojson'.format(base_dir)
+    geocali = gpd.read_file(path)
+    geocali.geometry.values[0]
+    geoms = [mapping(geocali.geometry.values[0])]
+    return geoms
 
+def get_us_bioclim(base_dir):
+    rasters = "{}rasters/bio*/*_{}.tif".format(paths.DBS_DIR, 'USA')
+    ras_paths = glob.glob(rasters)
+    return ras_paths
+
+raster_metadata = {
+#     'bdticm': {'min_val': 0, 'max_val': 112467, 'nan': -2147483647, 'new_nan': -1, 'mu': 2579, 'sigma': 3058},
+#     'bldfie': {'min_val': 93, 'max_val': 1828, 'nan': -32768, 'new_nan': 92, 'mu': 1372, 'sigma': 137},
+#     'cecsol': {'min_val': 0, 'max_val': 385, 'nan': -32768, 'new_nan': -1, 'mu': 20, 'sigma': 8},
+#     'clyppt': {'min_val': 0, 'max_val': 81, 'nan': -32768, 'new_nan': -1, 'mu': 22, 'sigma': 8},
+#     'orcdrc': {'min_val': 0, 'max_val': 524, 'nan': -32768, 'new_nan': -1, 'mu': 24, 'sigma': 21},
+#     'phihox': {'min_val': 32, 'max_val': 98, 'nan': -32768, 'new_nan': 31, 'mu': 64, 'sigma': 11},
+#     'sltppt': {'min_val': 0, 'max_val': 86, 'nan': -32768, 'new_nan': -1, 'mu': 37, 'sigma': 11},
+#     'sndppt': {'min_val': 0, 'max_val': 99, 'nan': -32768, 'new_nan': -1, 'mu': 42, 'sigma': 14},
+    'bio_1': {'min_val': -116, 'max_val': 259, 'nan': -2147483647, 'new_nan': -117, 'mu': 101, 'sigma': 58},
+    'bio_2': {'min_val': -53, 'max_val': 361, 'nan': -2147483647, 'new_nan': -54, 'mu': 131, 'sigma': 28},
+    'bio_3': {'min_val': 19, 'max_val': 69, 'nan': -2147483647, 'new_nan': 18, 'mu': 36, 'sigma': 8},
+    'bio_4': {'min_val': 1624, 'max_val': 13302, 'nan': -2147483647, 'new_nan': 1623, 'mu': 8267, 'sigma': 2152},
+    'bio_5': {'min_val': -25, 'max_val': 457, 'nan': -2147483647, 'new_nan': -26, 'mu': 289, 'sigma': 48},
+    'bio_6': {'min_val': -276, 'max_val': 183, 'nan': -2147483647, 'new_nan': -277, 'mu': -78, 'sigma': 83},
+    'bio_7': {'min_val': 117, 'max_val': 515, 'nan': -2147483647, 'new_nan': 116, 'mu': 367, 'sigma': 72},
+    'bio_8': {'min_val': -169, 'max_val': 332, 'nan': -2147483647, 'new_nan': -170, 'mu': 149, 'sigma': 82},
+    'bio_9': {'min_val': -181, 'max_val': 331, 'nan': -2147483647, 'new_nan': -182, 'mu': 54, 'sigma': 114},
+    'bio_10': {'min_val': -53, 'max_val': 361, 'nan': -2147483647, 'new_nan': -54, 'mu': 205, 'sigma': 47},
+    'bio_11': {'min_val': -186, 'max_val': 220, 'nan': -2147483647, 'new_nan': -187, 'mu': -7, 'sigma': 80},
+    'bio_12': {'min_val': -35, 'max_val': 3385, 'nan': -2147483647, 'new_nan': -36, 'mu': 746, 'sigma': 383},
+    'bio_13': {'min_val': 7, 'max_val': 570, 'nan': -2147483647, 'new_nan': 6, 'mu': 98, 'sigma': 47},
+    'bio_14': {'min_val': 0, 'max_val': 184, 'nan': -2147483647, 'new_nan': -1, 'mu': 34, 'sigma': 26},
+    'bio_15': {'min_val': 5, 'max_val': 140, 'nan': -2147483647, 'new_nan': 4, 'mu': 38, 'sigma': 23},
+    'bio_16': {'min_val': 19, 'max_val': 1546, 'nan': -2147483647, 'new_nan': 18, 'mu': 265, 'sigma': 132},
+    'bio_17': {'min_val': 0, 'max_val': 612, 'nan': -2147483647, 'new_nan': -1, 'mu': 117, 'sigma': 84},
+    'bio_18': {'min_val': 1, 'max_val': 777, 'nan': -2147483647, 'new_nan': 0, 'mu': 213, 'sigma': 107},
+    'bio_19': {'min_val': 5, 'max_val': 1485, 'nan': -2147483647, 'new_nan': 4, 'mu': 163, 'sigma': 137},
+}
+nan = -2147483647
+
+def open_raster(raster):
+    ras_name = raster.split("/")[-1].split("_{}".format('USA'))[0]
+    print("loading {}".format(ras_name))
+    nan = raster_metadata[ras_name]['nan']
+    src = rasterio.open(raster, nodata=nan)
+    return src
+
+def coord_2_index(affine, lat, lon):
+    x, y =  ~affine * (lon, lat)
+    return int(round(x)), int(round(y))
+def latlon_2_index(affine, latlon):
+    y, x =  ~affine * (latlon[1], latlon[0])
+    return int(round(x)), int(round(y))
+
+def raster_filter_2_cali(base_dir, obs):
+    
+    geoms = get_cali_shape(base_dir)
+    ras_paths = get_us_bioclim(base_dir)
+    src = open_raster(ras_paths[0])       
+# filter down the dataset to only in-range observations
+    filt_obs = filter_to_bioclim(obs, src, geoms, nan)
+    return  filt_obs
+
+def get_bioclim_rasters(base_dir, region, normalized, obs):
+    
+    if region ==  'cali':
+        geoms = get_cali_shape(base_dir)
+        ras_paths = get_us_bioclim(base_dir)
+    else:
+        raise NotImplementedError
+    ras_agg = []
+    aff_agg = []
+    for raster in ras_paths:
+        if region == 'cali': 
+            src = open_raster(raster) 
+        else:
+            raise NotImplementedError
+        
+        masked, affine = mask(src, geoms, nodata=nan, filled=False, crop=True, pad=True)
+    #         z = (x- mean)/std
+        if normalized:
+            masked = (masked - masked.mean()) / masked.var()
+        ras_agg.append(masked)
+        # this method relies on all affine transformations being the same, need to change that for more environmental rasters
+        aff_agg.append(affine)        
+    # filter down the dataset to only in-range observations
+    filt_obs = filter_to_bioclim(obs, src, geoms, nan)
+    # make sure rasters in same affine 
+    for i in range(len(aff_agg)):
+        for j in range(len(aff_agg)):
+            assert aff_agg[i] == aff_agg[j], "not all affines are the same! please align all rasters to same affine transformation"
+    # make sure rasters cropped to same range
+    for i in range(len(ras_agg)):
+        for j in range(len(ras_agg)):
+            assert ras_agg[i].shape == ras_agg[j].shape, "rasters not cropped to the same size!"
+    all_ras = np.stack(np.squeeze(ras_agg))
+    affine = aff_agg[0] # can do because confirmed that all affines are the same, will need to change if having rasters of different affines
+    return all_ras, affine, filt_obs
+
+def filter_to_bioclim(obs, src, geoms, nan):
+    bad_ids = []
+    masked, affine = mask(src, geoms, nodata=nan, filled=True, crop=False, pad=True, all_touched=True)
+    masked = np.squeeze(masked)
+    for i, ob in obs.iterrows():
+        x, y = latlon_2_index(affine, ob.lat_lon)
+#         print("x y: ", x, y, ob.lat_lon)
+        if x >= masked.shape[0] or y >= masked.shape[1] or x < 0 or y < 0:
+            bad_ids.append(ob.id)
+            continue
+        val = masked[x,y]
+        if val == nan:
+            bad_ids.append(ob.id)
+    return obs[~obs.id.isin(bad_ids)]
 
 def subpath_2_img(pth, subpath, id_):
     alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
@@ -142,6 +274,19 @@ def prep_joint_data(obs):
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
     obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])    
     return obs, inv_spec      
+
+def prep_joint_data_toy(obs):
+    spec_dict = dict_key_2_index(obs, 'species_id')
+    gen_dict = dict_key_2_index(obs, 'genus')
+    fam_dict = dict_key_2_index(obs, 'family')
+    inv_spec = {v: k for k, v in spec_dict.items()}
+    inv_gen = {v: k for k, v in gen_dict.items()}
+    inv_fam = {v: k for k, v in fam_dict.items()}    
+    # for each set in
+    obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
+    obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
+    obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])    
+    return obs, inv_spec, inv_gen, inv_fam
 
 #TODO: normalize dataset range to gaussian distribution
 def normalize_dataset():
@@ -379,8 +524,10 @@ class Joint_Toy_Dataset(Dataset):
         self.organism = organism
         obs = get_joint_gbif_data(self.base_dir, country, organism)
         obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
-        self.idx_2_id = inv_spec
+        obs, inv_spec, inv_gen, inv_fam = prep_joint_data_toy(obs)
+        self.spec_idx_2_id = inv_spec
+        self.gen_idx_2_id = inv_gen
+        self.fam_idx_2_id = inv_fam        
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
@@ -570,3 +717,80 @@ class GEOCELF_Dataset_Joint_Scalar_Raster_LatLon(Dataset):
         if self.transform:
             images = self.transform(images)
         return (specs_label, gens_label, fams_label, images, env_rasters)        
+
+
+
+
+    # x, y = eniffa * (get_item_from_obs(obs,1)[1], get_item_from_obs(obs,1)[0])
+class GEOCELF_Dataset_Joint_BioClim(Dataset):
+    def __init__(self, base_dir, organism, country='cali', transform=None, normalize=True):
+        self.base_dir = base_dir
+        self.country = country
+        self.organism = organism
+        obs = get_gbif_rasters_data(self.base_dir, country, organism)
+        rasterpath = "{}rasters".format(self.base_dir)
+        self.rasters, self.affine, obs = get_bioclim_rasters(base_dir, country, normalize, obs)
+        obs.fillna('nan', inplace=True)        
+        obs, inv_spec = prep_joint_data(obs)
+        self.idx_2_id = inv_spec
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family.unique())
+        self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()        
+        self.lat_scale = obs.lat.max()-obs.lat.min()
+        self.lon_scale = obs.lon.max()-obs.lon.min()
+        self.lat_min = obs.lat.min()
+        self.lon_min = obs.lon.min()        
+        self.normalize = normalize
+
+        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
+        self.transform = transform
+        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir)
+        self.channels = channels
+
+        self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
+        print("num rasters is ", self.num_rasters)
+        self.alt_shape = alt_shape
+        self.rgbd_shape = rgbd_shape
+    def __len__(self):
+        return len(self.obs)
+    # assumes the latlon format from gbif observation building
+    def latlon_2_index(self, latlon):
+        y, x =  ~self.affine * (latlon[1], latlon[0])
+        return int(round(x)), int(round(y))
+    
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # get images
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, 0]
+        images = image_from_id(id_, self.base_dir)     
+        # get raster data
+        lat_lon = self.obs[idx, 4]
+        x, y = self.latlon_2_index(lat_lon)
+        env_rasters = self.rasters[:,x,y]
+        assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} for obs index {} value is {} and nan is {}".format(lat_lon, id_, env_rasters, nan)
+        
+#         if self.normalize:
+        lat_norm = utils.normalize_latlon(self.obs[idx, 5], self.lat_min, self.lat_scale)
+        lon_norm = utils.normalize_latlon(self.obs[idx, 6], self.lon_min, self.lon_scale)
+        env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
+#             env_rasters = np.append(env_rasters, )
+                
+#         else:
+            # add lat lon data unnormalized
+#             np.append(env_rasters, [self.obs[idx, 5], self.obs[idx, 6]])
+        # get labels
+#         import pdb; pdb.set_trace()
+        assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
+        specs_label = self.obs[idx, 1]
+        gens_label = self.obs[idx, 3]
+        fams_label = self.obs[idx, 2]        
+
+        if self.transform:
+            images = self.transform(images)
+        return (specs_label, gens_label, fams_label, images, env_rasters)  
