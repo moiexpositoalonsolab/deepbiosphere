@@ -242,6 +242,60 @@ class MixNet(nn.Module):
         spec = self.specfc(torch.cat([combined, gen, fam], 1))
         return(spec, gen, fam)    
     
+class MixFullNet(nn.Module):
+    """
+    Checking - it requires more training time, 1 layer more 
+    """
+    
+    def __init__(self, species, families, genuses, num_channels, env_rasters):
+    #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
+        super(MixFullNet, self).__init__()
+        self.categories=species
+        self.species = species
+        self.families = families
+        self.genuses = genuses
+        self.num_channels=num_channels
+        self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
+        self.conv2 = nn.Conv2d(64, 128, 3,1,1)
+        self.conv3 = nn.Conv2d(128, 256, 3,1,1)
+        self.conv4 = nn.Conv2d(256, 256, 3,1,1)        
+        self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
+        self.pool2 = nn.MaxPool2d(2, 2)
+        self.pool5 = nn.MaxPool2d(5, 5)
+        
+        self.chokepoint = 256*6*6
+
+
+        self.mlp_choke1 = 48
+        self.mlp_choke2 = 96
+
+        self.bottleneck = self.mlp_choke2 + self.chokepoint
+        self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
+        self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
+        self.famfc = nn.Linear(self.bottleneck, self.families) 
+        # does this add the values together or 
+        self.genfc = nn.Linear(self.bottleneck+self.families, self.genuses)
+        self.specfc = nn.Linear(self.bottleneck+self.genuses + self.families, self.species) 
+        
+        
+    def forward(self, img, rasters):
+        # pass images through CNN
+        x = self.pool2(F.relu(self.conv1(img)))
+        x = self.pool2(F.relu(self.conv2(x)))
+        #x = F.relu(self.conv2(x))
+        x = self.pool2(F.relu(self.conv3(x)))
+        x = F.relu(self.conv4(x))
+        x = self.pool5(x)
+        #x = self.pool5(F.relu(self.conv5(x)))
+        x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
+        # pass raster data through MLP
+        y = F.relu(self.mlp1(rasters))
+        y = F.relu(self.mlp2(y))
+        combined = torch.cat([x,y],1)
+        fam = F.relu(self.famfc(combined))
+        gen = F.relu(self.genfc(torch.cat([combined, fam] ,1)))
+        spec = self.specfc(torch.cat([combined, gen, fam], 1))
+        return(spec, gen, fam)    
     
     
 class OGNoFamNet(nn.Module):
