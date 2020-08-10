@@ -59,7 +59,7 @@ def setup_train_dataset(observation, base_dir, organism, region, toy_dataset, no
         if region == 'both':
             return Dataset.GEOCELF_Dataset_Joint_Full(base_dir, organism)
         else:
-            if model == 'MixNet':
+            if model == 'MixNet' or model == 'MixFullNet':
                 return Dataset.GEOCELF_Dataset_Joint_BioClim(base_dir, organism, region, normalize=normalize) 
             else:
                 return Dataset.Joint_Toy_Dataset(base_dir, organism, region) if toy_dataset else Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region)
@@ -86,6 +86,8 @@ def setup_model(model, num_specs, num_fams, num_gens, num_channels, num_rasters=
         return cnn.SkipNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
     elif model == 'MixNet':
         return cnn.MixNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels, env_rasters=num_rasters)
+    elif model == 'MixFullNet':
+        return cnn.MixFullNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels, env_rasters=num_rasters)
     elif model == 'SkipFullFamNet':
         return cnn.SkipFullFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
     else: 
@@ -104,7 +106,7 @@ def setup_GeoCLEF_dataloaders(train_dataset, base_dir, region, observation, batc
     return train_loader, test_loader, batch_size
 
 def setup_dataloader(dataset, observation, batch_size, processes, sampler, model):
-    if model == 'MixNet':
+    if model == 'MixNet' or model == 'MixFullNet':
         collate_fn = joint_raster_collate_fn
     elif observation == 'joint':
         collate_fn = joint_collate_fn
@@ -195,7 +197,7 @@ def joint_raster_collate_fn(batch):
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs)), torch.from_numpy(np.stack(rasters))
 
 def test_batch(test_loader, tb_writer, device, net, observation, epoch, model):
-    if model == 'MixNet':
+    if model == 'MixNet' or model == 'MixFullNet':
         return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'joint':
         return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
@@ -323,7 +325,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
         
         for i, ret in enumerate(train_loader):     
 #             print("observatin ", observation)
-            if model == 'MixNet':
+            if model == 'MixNet' or model == 'MixFullNet':
                 (specs_lab, gens_lab, fams_lab, images, env_rasters) = ret
                 tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, images, env_rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device)               
                 if tb_writer is None:
@@ -436,7 +438,7 @@ def train_model(ARGS, params):
     global num_gens
     num_gens = train_dataset.num_gens    
     num_channels = train_dataset.channels
-    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' else None
+    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or model == 'MixFullNet' else None
     start_epoch = None
     net_path = params.get_recent_model(ARGS.base_dir)
     
