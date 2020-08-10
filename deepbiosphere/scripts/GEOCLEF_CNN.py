@@ -149,7 +149,7 @@ class SkipFullFamNet(nn.Module):
     """
     def __init__(self, species, families, genuses, num_channels):
 
-        super(SkipNet, self).__init__()
+        super(SkipFullFamNet, self).__init__()
         self.categories=species
         self.species = species
         self.families = families
