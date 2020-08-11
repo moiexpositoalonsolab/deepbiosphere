@@ -325,7 +325,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
         
         for i, ret in enumerate(train_loader):     
             if model == 'MixNet' or model == 'MixFullNet':
-                (specs_lab, gens_lab, fams_lab, images, env_rasters) = ret
+                (specs_lab, gens_lab, fams_lab, batch, env_rasters) = ret
                 if species_only:
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 elif sequential or cumulative:
@@ -411,7 +411,7 @@ def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, o
         total_loss = loss_gen + loss_fam
     else:
         total_loss = loss_spec + loss_gen + loss_fam
-
+    print(total_loss, loss_spec, loss_gen, loss_fam)
     total_loss.backward()
     optimizer.step()
     return total_loss, loss_spec, loss_gen, loss_fam
@@ -436,6 +436,7 @@ def forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, sp
         total_loss = loss_gen + loss_fam
     else:
         total_loss = loss_spec + loss_gen + loss_fam
+    print(total_loss, loss_spec, loss_gen, loss_fam)
     total_loss.backward()
     optimizer.step()
     return total_loss, loss_spec, loss_gen, loss_fam
@@ -493,7 +494,7 @@ def train_model(ARGS, params):
     global num_gens
     num_gens = train_dataset.num_gens    
     num_channels = train_dataset.channels
-    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or ARGS.model == 'MixFullNet' else None
+    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or model == 'MixFullNet' else None
     start_epoch = None
     net_path = params.get_recent_model(ARGS.base_dir)
     
