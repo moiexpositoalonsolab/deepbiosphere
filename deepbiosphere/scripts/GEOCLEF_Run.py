@@ -493,7 +493,7 @@ def train_model(ARGS, params):
     global num_gens
     num_gens = train_dataset.num_gens    
     num_channels = train_dataset.channels
-    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or model == 'MixFullNet' else None
+    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or ARGS.model == 'MixFullNet' else None
     start_epoch = None
     net_path = params.get_recent_model(ARGS.base_dir)
     
