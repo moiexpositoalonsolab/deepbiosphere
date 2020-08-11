@@ -25,7 +25,7 @@ choices = {
     'region': ['us', 'fr', 'us_fr', 'cali'],
     'organism': ['plant', 'animal', 'plantanimal'],
     'observation': ['single', 'joint'],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet']    
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet']    
 }
 choices = SimpleNamespace(**choices)
 
