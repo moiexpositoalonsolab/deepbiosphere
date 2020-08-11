@@ -33,7 +33,7 @@ arguments = {
     'base_dir': {'type':str, 'help':"what folder to read images from",'choices':choices.base_dir, 'required':True},
     'lr': {'type':float, 'help':"learning rate of model",'required':True},
     'epoch': {'type':int, 'required':True, 'help':"how many epochs to train the model",'required':True},
-    'device': {'type':int, 'help':"which gpu to send model to, leave blank for cpu",'required':True},
+    'device': {'type':int, 'help':"which gpu to send model to, set -1 for cpu",'required':True},
     'processes': {'type':int, 'help':"how many worker processes to use for data loading",'default':1},
     'exp_id': {'type':str, 'help':"experiment id of this run", 'required':True},
     'region': {'type':str, 'help':"which region to train on", 'required':True, 'choices':choices.region},

@@ -78,7 +78,6 @@ def setup_model(model, num_specs, num_fams, num_gens, num_channels, num_rasters=
     elif model == 'OGNoFamNet':
         return cnn.OGNoFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
     elif model == 'OGNet':
-        print("channels", num_channels)
         return cnn.OGNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
     elif model == 'SkipFCNet':
         return cnn.SkipFCNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)        
@@ -102,7 +101,7 @@ def setup_GeoCLEF_dataloaders(train_dataset, base_dir, region, observation, batc
     if ARGS.dynamic_batch:
         batch_size, train_loader = check_batch_size(observation, train_dataset, processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
     test_dataset = Dataset.GEOCELF_Test_Dataset_Full(base_dir) if region == 'us_fr' else Dataset.GEOCELF_Test_Dataset(base_dir, region)
-    test_loader = DataLoader(test_dataset, batch_size, shuffle=True, pin_memory=True, num_workers=processes)       
+    test_loader = DataLoader(test_dataset, batch_size, shuffle=True, pin_memory=False, num_workers=processes)       
     return train_loader, test_loader, batch_size
 
 def setup_dataloader(dataset, observation, batch_size, processes, sampler, model):
@@ -112,7 +111,7 @@ def setup_dataloader(dataset, observation, batch_size, processes, sampler, model
         collate_fn = joint_collate_fn
     elif observation == 'single':
         collate_fn = single_collate_fn
-    dataloader = DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
+    dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
 
     return dataloader
 
@@ -320,29 +319,36 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
     spec_loss_meter = []
     gen_loss_meter = []
     fam_loss_meter = []  
-
+#     print(f"epoch {epoch} num epochs {nepoch}")
+#     print(f"species only {species_only} sequential {sequential} cumulative {cumulative}")
     with tqdm(total=len(train_loader), unit="batch") as prog:
         
         for i, ret in enumerate(train_loader):     
             if model == 'MixNet' or model == 'MixFullNet':
-                (specs_lab, gens_lab, fams_lab, batch, env_rasters) = ret
+                (specs_lab, gens_lab, fams_lab, batch, rasters) = ret
                 if species_only:
+#                     print("species only loss")
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 elif sequential or cumulative:
                     specophs = nepoch
                     genpoch = nepoch * 2
                     fampoch = nepoch 
+#                     print(f"\n epoch {epoch} genpoch {genpoch} fampoch {fampoch}")    
+#                     print(f" epoch < fampoch {epoch < fampoch} epoch > fampoch and epoch < genpoch {epoch > fampoch and epoch < genpoch}  ")
                     if epoch < fampoch:
                         # family only
+#                         print("family only loss")
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
-                    elif epoch > fampoch and epoch < genpoch:
+                    elif epoch >= fampoch and epoch < genpoch:
                         # family and genus
+#                         print("family and / or genus only loss")
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen') if cumulative else forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
                     else:
                         # all 3 / spec only
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
+#                         print("all or species loss ")
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 else:
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, images, env_rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')               
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')               
 
             elif observation == 'joint':
 
@@ -354,17 +360,22 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                 elif sequential or cumulative:
                     genpoch = nepoch * 2
                     fampoch = nepoch 
+#                     print(f"\n epoch {epoch} genpoch {genpoch} fampoch {fampoch}")    
+#                     print(f" epoch < fampoch {epoch < fampoch} epoch > fampoch and epoch < genpoch {epoch > fampoch and epoch < genpoch}  ")                  
                     if epoch < fampoch:
                         # family only
+#                         print("family only loss")                        
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
-                    elif epoch > fampoch and epoch < genpoch:
+                    elif epoch >= fampoch and epoch < genpoch:
                         # family and genus
+#                         print("family and / or genus only loss")                        
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen') if cumulative else forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
                     else:
                         # all 3 / spec only
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
+#                         print("all or species loss ")                        
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 else:
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, images, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')               
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')               
 
             elif observation == 'single':
                 (labels, batch) = ret
@@ -403,15 +414,15 @@ def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, o
     loss_fam = fam_loss(fams, fams_lab)       
     if calculated == 'species':
         total_loss = loss_spec
-    if calculated == 'family':
+    elif calculated == 'family':
         total_loss = loss_fam
-    if calculated == 'genus':
+    elif calculated == 'genus':
         total_loss = loss_gen
-    if calculated == 'fam_gen':
+    elif calculated == 'fam_gen':
         total_loss = loss_gen + loss_fam
     else:
         total_loss = loss_spec + loss_gen + loss_fam
-    print(total_loss, loss_spec, loss_gen, loss_fam)
+#     print(f" total loss {total_loss.item()}, total spec loss {loss_spec.item()}, genus loss {loss_gen.item()}, family loss {loss_fam.item()}")
     total_loss.backward()
     optimizer.step()
     return total_loss, loss_spec, loss_gen, loss_fam
@@ -425,18 +436,19 @@ def forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, sp
     (specs, gens, fams) = net(batch.float()) 
     loss_spec = spec_loss(specs, specs_lab) 
     loss_gen = gen_loss(gens, gens_lab) 
-    loss_fam = fam_loss(fams, fams_lab)       
+    loss_fam = fam_loss(fams, fams_lab)
+#     print(f"calculated is {calculated}")
     if calculated == 'species':
         total_loss = loss_spec
-    if calculated == 'family':
+    elif calculated == 'family':
         total_loss = loss_fam
-    if calculated == 'genus':
+    elif calculated == 'genus':
         total_loss = loss_gen
-    if calculated == 'fam_gen':
+    elif calculated == 'fam_gen':
         total_loss = loss_gen + loss_fam
     else:
         total_loss = loss_spec + loss_gen + loss_fam
-    print(total_loss, loss_spec, loss_gen, loss_fam)
+#     print(f" total loss {total_loss.item()}, total spec loss {loss_spec.item()}, genus loss {loss_gen.item()}, family loss {loss_fam.item()}")
     total_loss.backward()
     optimizer.step()
     return total_loss, loss_spec, loss_gen, loss_fam
@@ -468,9 +480,9 @@ def train_model(ARGS, params):
     print("torch version {}".format(torch.__version__))
 #     print(params.params.device, ARGS.device, " hello3")
     print("number of devices visible: {dev}".format(dev=torch.cuda.device_count()))
-    device = torch.device("cuda:{dev}".format(dev=params.params.device) if params.params.device is not None else "cpu")
+    device = torch.device("cuda:{dev}".format(dev=params.params.device) if params.params.device  > 0 else "cpu")
     print('using device: {device}'.format(device=device))
-    if params.params.device is not None:
+    if params.params.device > 0:
         print("current device: {dev} current device name: {name}".format(dev=torch.cuda.current_device(), name=torch.cuda.get_device_name(torch.cuda.current_device())))
     print("current host: {host}".format(host=socket.gethostname()))
     batch_size=ARGS.batch_size
@@ -494,7 +506,7 @@ def train_model(ARGS, params):
     global num_gens
     num_gens = train_dataset.num_gens    
     num_channels = train_dataset.channels
-    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or model == 'MixFullNet' else None
+    num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or ARGS.model == 'MixFullNet' else None
     start_epoch = None
     net_path = params.get_recent_model(ARGS.base_dir)
     
@@ -503,6 +515,7 @@ def train_model(ARGS, params):
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
         net.to(device)
         start_epoch = 0
+        step = 0 
     else:
         model = torch.load(net_path, map_location=device)
         net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels, num_rasters)
@@ -510,6 +523,7 @@ def train_model(ARGS, params):
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
+        start_step = model['step']
         net.to(device)
 #         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
@@ -529,9 +543,9 @@ def train_model(ARGS, params):
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
 #     import pdb; pdb.set_trace()
-    print("model size is ", num_rasters)
-    for tens in next(iter(train_loader)):
-        print(tens.shape)
+#     print("model size is ", num_rasters)
+#     for tens in next(iter(train_loader)):
+#         print(tens.shape)
 #     print("model size is ", num_rasters, "data size is ", next(iter(train_loader)) )
 #     exit(1)
     num_batches = math.ceil(len(train_dataset) / batch_size)
@@ -541,18 +555,23 @@ def train_model(ARGS, params):
     all_time_sp_loss = []
     all_time_gen_loss = []
     all_time_fam_loss = []  
-    step = 0
+#     step = 0
+    if ARGS.cumulative or ARGS.sequential:
+        tot_epoch = n_epochs
+        n_epochs = n_epochs*3
+    else:
+        tot_epoch = n_epochs
     epoch = start_epoch
     while epoch < n_epochs:
         print("starting training for epoch {}".format(epoch))
         clean_gpu(device)
-        if params.params.device is not None:
-            torch.cuda.synchronize()
+        #if params.params.device is not None:
+            #torch.cuda.synchronize()
         tick = time.time()
         net.train()
         if ARGS.dynamic_batch:
             try:
-                tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, ARGS.species_only, ARGS.sequential, ARGS.cumulative, n_epochs, epoch)
+                tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, ARGS.species_only, ARGS.sequential, ARGS.cumulative, tot_epoch, epoch)
             except RuntimeError: # CUDA: Out of memory is a generic RTE
                 batch_size -= 1
                 if batch_size < 0:
@@ -567,7 +586,7 @@ def train_model(ARGS, params):
                     print(check_mem())
                     continue
         else:
-            tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, ARGS.species_only, ARGS.sequential, ARGS.cumulative, n_epochs, epoch)
+            tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, ARGS.species_only, ARGS.sequential, ARGS.cumulative, tot_epoch, epoch)
         if not ARGS.toy_dataset:
             all_time_loss.append(np.stack(tot_loss_meter))
             all_time_sp_loss.append(np.stack(spec_loss_meter))
@@ -579,7 +598,8 @@ def train_model(ARGS, params):
         torch.save({
                     'epoch': epoch,
                     'model_state_dict': net.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict()
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'step' : step
                     }, nets_path)        
         
         clean_gpu(device)
@@ -611,13 +631,13 @@ def train_model(ARGS, params):
         diff = ( tock-tick)/60
         print ("one epoch took {} minutes".format(diff))
         epoch += 1
-        print("epoch is {}".format(epoch))
+#         print("epoch is {}".format(epoch))
     if not ARGS.toy_dataset:
         tb_writer.close()
 
 if __name__ == "__main__":
     args = ['lr', 'epoch', 'device', 'toy_dataset', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'GeoCLEF_validate', 'observation', 'batch_size', 'model', 'from_scratch', 'dynamic_batch', 'normalize', 'species_only', 'sequential', 'cumulative']
-    print("main ", args)
+#     print("main ", args)
     ARGS = config.parse_known_args(args)
     # TODO: fix!
     if ARGS.species_only:
