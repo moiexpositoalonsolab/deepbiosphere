@@ -102,7 +102,7 @@ def setup_GeoCLEF_dataloaders(train_dataset, base_dir, region, observation, batc
     if ARGS.dynamic_batch:
         batch_size, train_loader = check_batch_size(observation, train_dataset, processes, train_loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, train_samp, device)
     test_dataset = Dataset.GEOCELF_Test_Dataset_Full(base_dir) if region == 'us_fr' else Dataset.GEOCELF_Test_Dataset(base_dir, region)
-    test_loader = DataLoader(test_dataset, batch_size, shuffle=True, pin_memory=True, num_workers=processes)       
+    test_loader = DataLoader(test_dataset, batch_size, shuffle=True, pin_memory=False, num_workers=processes)       
     return train_loader, test_loader, batch_size
 
 def setup_dataloader(dataset, observation, batch_size, processes, sampler, model):
@@ -112,7 +112,7 @@ def setup_dataloader(dataset, observation, batch_size, processes, sampler, model
         collate_fn = joint_collate_fn
     elif observation == 'single':
         collate_fn = single_collate_fn
-    dataloader = DataLoader(dataset, batch_size, pin_memory=True, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
+    dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
 
     return dataloader
 
@@ -325,7 +325,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
         
         for i, ret in enumerate(train_loader):     
             if model == 'MixNet' or model == 'MixFullNet':
-                (specs_lab, gens_lab, fams_lab, images, env_rasters) = ret
+                (specs_lab, gens_lab, fams_lab, batch, rasters) = ret
                 if species_only:
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 elif sequential or cumulative:
@@ -340,7 +340,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen') if cumulative else forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
                     else:
                         # all 3 / spec only
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 else:
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, images, env_rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')               
 
@@ -362,7 +362,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen') if cumulative else forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
                     else:
                         # all 3 / spec only
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all') if cumulative else forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 else:
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, images, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')               
 
@@ -545,8 +545,8 @@ def train_model(ARGS, params):
     while epoch < n_epochs:
         print("starting training for epoch {}".format(epoch))
         clean_gpu(device)
-        if params.params.device is not None:
-            torch.cuda.synchronize()
+        #if params.params.device is not None:
+            #torch.cuda.synchronize()
         tick = time.time()
         net.train()
         if ARGS.dynamic_batch:
