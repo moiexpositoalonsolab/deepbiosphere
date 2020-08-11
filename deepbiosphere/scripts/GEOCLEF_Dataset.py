@@ -532,6 +532,7 @@ class Joint_Toy_Dataset(Dataset):
         self.spec_idx_2_id = inv_spec
         self.gen_idx_2_id = inv_gen
         self.fam_idx_2_id = inv_fam        
+        print(type(self.spec_idx_2_id))
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(obs.species_id.unique())
         self.num_fams = len(obs.family.unique())
@@ -779,17 +780,15 @@ class GEOCELF_Dataset_Joint_BioClim(Dataset):
         env_rasters = self.rasters[:,x,y]
         assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} for obs index {} value is {} and nan is {}".format(lat_lon, id_, env_rasters, nan)
         
-#         if self.normalize:
-        lat_norm = utils.normalize_latlon(self.obs[idx, 5], self.lat_min, self.lat_scale)
-        lon_norm = utils.normalize_latlon(self.obs[idx, 6], self.lon_min, self.lon_scale)
-        env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
-#             env_rasters = np.append(env_rasters, )
+        if self.normalize:
+            lat_norm = utils.normalize_latlon(self.obs[idx, 5], self.lat_min, self.lat_scale)
+            lon_norm = utils.normalize_latlon(self.obs[idx, 6], self.lon_min, self.lon_scale)
+            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
                 
-#         else:
+        else:
             # add lat lon data unnormalized
-#             np.append(env_rasters, [self.obs[idx, 5], self.obs[idx, 6]])
+            env_rasters = np.append(env_rasters, [self.obs[idx, 5], self.obs[idx, 6]])
         # get labels
-#         import pdb; pdb.set_trace()
         assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]

@@ -13,7 +13,6 @@ def cnn_output_size(in_size, kernel_size, stride, padding):
 
 
 def num_corr_matches(output, target):
-    """Computes the precision@k for the specified values of k"""
     tot_acc = []
     acc_acc = []
     for obs, trg in zip(output, target):

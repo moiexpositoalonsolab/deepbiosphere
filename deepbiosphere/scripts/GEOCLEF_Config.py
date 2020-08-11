@@ -48,7 +48,10 @@ arguments = {
    'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches', 'action':'store_true'},
     'save_splits': {'dest':'save_splits', 'help': 'if you want to save the train/test split for future inference, set this', 'action':'store_true'},
     'normalize': {'dest':'normalize', 'help': 'whether to normalize environmental rasters', 'action':'store_true'},
-    'latlon': {'dest':'latlon', 'help': 'whether to include lat lon in environmental data', 'action':'store_true'}        
+    'latlon': {'dest':'latlon', 'help': 'whether to include lat lon in environmental data', 'action':'store_true'},
+    'species_only': {'dest':'species_only', 'help': 'propagate loss just on species predictions', 'action':'store_true'} ,
+    'sequential': {'dest':'sequential', 'help': 'classify on family, then genus, then species loss', 'action':'store_true'},
+    'cumulative': {'dest':'cumulative', 'help': 'propagate loss family, then also genus, then also species', 'action':'store_true'}      
 }
 
 def setup_main_dirs(base_dir):
