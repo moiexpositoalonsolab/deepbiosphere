@@ -3,6 +3,7 @@ import math
 import pandas as pd
 import glob
 import torch
+import matplotlib.pyplot as plt
 # adding this to check github integration on slack
 # TODO: move general methods into here
 
@@ -10,8 +11,17 @@ def cnn_output_size(in_size, kernel_size, stride, padding):
     output = int((in_size - kernel_size + 2*(padding)) / stride) + 1
     return(output)
 
-
-
+def plot_image(base_dir, id_, figsize=(10,10), transpose=False):
+    imgs = image_from_id(id_, base_dir)
+    fig, axs = plt.subplots(3, figsize=figsize) if transpose else plt.subplots(1, 3, figsize=figsize)
+    axs[0].imshow(np.transpose(imgs[1:4,:,:], [1,2,0]))
+    axs[0].set_title("rgb ")
+    axs[1].imshow(imgs[0,:,:].squeeze())
+    axs[1].set_title("altitude")
+    axs[2].imshow(imgs[4:5,:,:].squeeze())
+    axs[2].set_title("infrared")
+    return fig
+    
 def num_corr_matches(output, target):
     tot_acc = []
     acc_acc = []
@@ -39,6 +49,33 @@ def topk_acc(output, target, topk=(1,), device=None):
         res.append(correct_k.mul_(100.0 / batch_size))
     del targ, pred, target
     return res
+
+def image_from_id(id_, base_dir):
+    # make sure image and path are for same region
+    cdd, ab, cd = id_2_file(id_)
+    subpath = "patches_{}/{}/{}/".format('fr', cd, ab) if id_ >= 10000000 else "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
+    return subpath_2_img(base_dir, subpath, id_)
+
+def subpath_2_img(pth, subpath, id_):
+    alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
+    rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
+    # Necessary because some data corrupted...
+    try:
+        np_al = np.load(alt)
+        np_img = np.load(rgbd)
+    except KeyboardInterrupt:
+        print("operation cancelled")
+        exit(1)
+    except:
+        print("trouble loading file {}, faking data :(".format(rgbd))
+        # magic numbers 173 and 10000000 are first files in both us and fr datasets
+        channels, height, width = get_shapes(173, pth) if id_ < 10000000 else get_shapes(10000000, pth)
+        np_al = np.zeros([height, width], dtype='uint8') 
+        np_img = np.zeros([channels-1, height, width], dtype='uint8')
+        np_img = np.transpose(np_img, (1,2,0))
+    np_al = np.expand_dims(np_al, 2)
+    np_all = np.concatenate((np_al, np_img), axis=2)
+    return np.transpose(np_all,(2, 0, 1))
 
 def id_2_subdir(id_):
     return id_2_subdir_fr(id_) if id_ >=  10000000 else id_2_subdir_us(id_)
