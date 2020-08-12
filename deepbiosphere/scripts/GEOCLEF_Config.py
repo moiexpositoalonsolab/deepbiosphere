@@ -148,6 +148,8 @@ class Run_Params():
             return None
         else:
             most_recent = sorted(all_models, reverse=True,key= lambda x: (int(x.split('_e')[1].split('.pkl')[0])))[0]
+            
+            print("most recent file is {}".format(most_recent))
             with open(most_recent, 'rb') as f:
                 des = pickle.load(f)
             return des
