@@ -524,7 +524,7 @@ def train_model(ARGS, params):
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
-        start_step = model['step']
+        step = model['step']
         net.to(device)
 #         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
