@@ -3,7 +3,7 @@ import pandas as pd
 import argparse
 import time
 #from IPython.core.debugger import set_trace
-import deepdish as dd
+#import deepdish as dd
 import numpy as np
 import socket
 import torch
@@ -510,7 +510,7 @@ def train_model(ARGS, params):
     num_rasters = train_dataset.num_rasters if ARGS.model == 'MixNet' or ARGS.model == 'MixFullNet' else None
     start_epoch = None
     net_path = params.get_recent_model(ARGS.base_dir)
-    
+    step = None 
     if net_path is None or ARGS.from_scratch:
         net = setup_model(params.params.model, num_specs, num_fams, num_gens, num_channels, num_rasters)
         optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
@@ -524,7 +524,7 @@ def train_model(ARGS, params):
         net.load_state_dict(model['model_state_dict'])
         optimizer.load_state_dict(model['optimizer_state_dict'])
         start_epoch = model['epoch']
-        start_step = model['step']
+        step = model['step']
         net.to(device)
 #         optimizer.to(device)
         print("loading model from epoch {}".format(start_epoch))
@@ -650,4 +650,5 @@ if __name__ == "__main__":
     config.setup_main_dirs(ARGS.base_dir)
     params = config.Run_Params(ARGS)
     params.setup_run_dirs(ARGS.base_dir)
+    print(ARGS)
     train_model(ARGS, params)
