@@ -73,14 +73,31 @@ def build_hyperparams_path(base_dir, exp_id):
 
 
 class Run_Params():
-    def __init__(self, ARGS):
-        cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.exp_id)
-        if os.path.exists(cfg_path) and not ARGS.from_scratch:
+    def __init__(self, ARGS=None, abs_path=None, base_dir=None, device='cpu'):
+        
+        if abs_path is not None and base_dir is None:
+            raise RuntimeError("need both a path and a base directory to open params")
+        if ARGS is None and abs_path is None:
+            raise RuntimeError("need to specify either command line args or a path to a config file!")
+        if abs_path is not None:
+            abs_path = "{}configs/{}".format(base_dir, abs_path)
+        cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.exp_id) if abs_path is None else abs_path
+        
+        if abs_path is not None:
+            print("loading param configs from {}".format(cfg_path))
+            with open(cfg_path) as fp:
+                params = json.load(fp)
+                params['device'] = device                
+                self.params = SimpleNamespace(**params)
+                self.base_dir = base_dir
+        
+        elif os.path.exists(cfg_path) and not ARGS.from_scratch:
             print("loading param configs from {}".format(cfg_path))
             with open(cfg_path) as fp:
                 params = json.load(fp)
                 params['device'] = ARGS.device                
                 self.params = SimpleNamespace(**params)
+                self.base_dir = ARGS.base_dir                
         else:
             params = {
                 'lr': ARGS.lr,
@@ -97,7 +114,8 @@ class Run_Params():
                 json.dump(params, fp)
             params['device'] = ARGS.device
             self.params = SimpleNamespace(**params)
-            print(self.params.device, ARGS.device, " hello")
+            self.base_dir = ARGS.base_dir
+#             print(self.params.device, ARGS.device, " hello")
             self.setup_run_dirs(ARGS.base_dir)
 
     def build_abs_nets_path(self, base_dir, epoch):
@@ -108,14 +126,19 @@ class Run_Params():
     def build_datum_path(self, base_dir, datum):
         return "{}{}/{}/{}/{}/{}/".format(base_dir, datum, self.params.observation, self.params.organism, self.params.region, self.params.model)
 
-    def get_recent_model(self, base_dir):
-        model_paths = self.build_datum_path(base_dir, 'nets')
+    def get_recent_model(self, epoch=None):
+        model_paths = self.build_datum_path(self.base_dir, 'nets')
         all_models = glob.glob(model_paths + "{}_lr{}_e*".format(self.params.exp_id, self.params.lr))
+        if epoch is not None:
+            assert epoch <= len(all_models), "incorrect epoch for this model!"
         if len(all_models) <= 0:
+            print("no models for this config on disk")
             return None
-        else:
-            most_recent = sorted(all_models, reverse=True)[0]
+        if epoch is None:
+            most_recent = sorted(all_models, reverse=True, key= lambda x: (int(x.split('_e')[1].split('.tar')[0])))[0]
             return most_recent
+        else:
+            return sorted(all_models, reverse=True, key= lambda x: int(x.split('_e')[1].split('.tar')))[epoch]
         
     def get_split(self, base_dir):
         model_paths = self.build_datum_path(base_dir, 'nets')
@@ -127,7 +150,7 @@ class Run_Params():
             most_recent = sorted(all_models, reverse=True)[0]
             with open(most_recent, 'rb') as f:
                 des = pickle.load(f)
-            return des['splits']
+            return des['splits']['train'], des['splits']['test']
 
     def setup_run_dirs(self, base_dir):
         nets_path = self.build_datum_path(base_dir, 'nets') 
