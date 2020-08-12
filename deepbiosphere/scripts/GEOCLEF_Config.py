@@ -129,30 +129,37 @@ class Run_Params():
     def get_recent_model(self, epoch=None):
         model_paths = self.build_datum_path(self.base_dir, 'nets')
         all_models = glob.glob(model_paths + "{}_lr{}_e*".format(self.params.exp_id, self.params.lr))
-        if epoch is not None:
-            assert epoch <= len(all_models), "incorrect epoch for this model!"
+#         if epoch is not None:
+#             assert epoch <= len(all_models), "incorrect epoch for this model!"
         if len(all_models) <= 0:
             print("no models for this config on disk")
             return None
+        all_mods = sorted(all_models,key= lambda x: (int(x.split('_e')[1].split('.tar')[0])))
         if epoch is None:
-            most_recent = sorted(all_models, reverse=True, key= lambda x: (int(x.split('_e')[1].split('.tar')[0])))[0]
+            most_recent = all_mods[-1]
             return most_recent
         else:
-            return sorted(all_models, reverse=True, key= lambda x: int(x.split('_e')[1].split('.tar')))[epoch]
+            print("grabbing model at {}".format(epoch))
+            return all_mods
 
-    def get_most_recent_des(self, base_dir):
+    def get_most_recent_des(self, base_dir, epoch=None):
         model_paths = self.build_datum_path(base_dir, 'nets')
         des_path = "{}{}/{}/{}/{}/{}/{}_lr{}_e*.pkl".format(base_dir, 'desiderata', self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr)
         all_models = glob.glob(des_path)
+#         if epoch is not None:
+#             assert epoch <= len(all_models), "incorrect epoch for this model!"
+        
         if len(all_models) <= 0:
+            print("no models for this config on disk")
             return None
-        else:
-            most_recent = sorted(all_models, reverse=True,key= lambda x: (int(x.split('_e')[1].split('.pkl')[0])))[0]
-            
-            print("most recent file is {}".format(most_recent))
-            with open(most_recent, 'rb') as f:
-                des = pickle.load(f)
-            return des
+        all_mods = sorted(all_models,key= lambda x: (int(x.split('_e')[1].split('.pkl')[0])))
+        if epoch is None:
+            most_recent = all_mods[-1]
+        else: 
+            most_recent = all_mods[epoch]
+        with open(most_recent, 'rb') as f:
+            des = pickle.load(f)
+        return des
         
     def get_split(self, base_dir):
         model_paths = self.build_datum_path(base_dir, 'nets')
@@ -161,7 +168,7 @@ class Run_Params():
         if len(all_models) <= 0:
             return None
         else:
-            most_recent = sorted(all_models, reverse=True,key= lambda x: (int(x.split('_e')[1].split('.tar')[0])))[0]
+            most_recent = sorted(all_models, reverse=True,key= lambda x: (int(x.split('_e')[1].split('.pkl')[0])))[0]
             with open(most_recent, 'rb') as f:
                 des = pickle.load(f)
             return des['splits']['train'], des['splits']['test']
