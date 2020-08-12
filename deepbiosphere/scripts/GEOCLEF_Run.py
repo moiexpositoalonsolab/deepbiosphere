@@ -422,7 +422,7 @@ def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, o
         total_loss = loss_gen + loss_fam
     else:
         total_loss = loss_spec + loss_gen + loss_fam
-    print(" total loss {}, total spec loss {}, genus loss {}, family loss {}".format(total_loss.item(), loss_spec.item(), loss_gen.item(), loss_fam.item()))
+    #print(" total loss {}, total spec loss {}, genus loss {}, family loss {}".format(total_loss.item(), loss_spec.item(), loss_gen.item(), loss_fam.item()))
     total_loss.backward()
     optimizer.step()
     return total_loss, loss_spec, loss_gen, loss_fam
