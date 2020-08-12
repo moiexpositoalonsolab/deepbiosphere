@@ -480,9 +480,9 @@ def train_model(ARGS, params):
     print("torch version {}".format(torch.__version__))
 #     print(params.params.device, ARGS.device, " hello3")
     print("number of devices visible: {dev}".format(dev=torch.cuda.device_count()))
-    device = torch.device("cuda:{dev}".format(dev=params.params.device) if params.params.device  > 0 else "cpu")
+    device = torch.device("cuda:{dev}".format(dev=params.params.device) if params.params.device  >= 0 else "cpu")
     print('using device: {device}'.format(device=device))
-    if params.params.device > 0:
+    if params.params.device >= 0:
         print("current device: {dev} current device name: {name}".format(dev=torch.cuda.current_device(), name=torch.cuda.get_device_name(torch.cuda.current_device())))
     print("current host: {host}".format(host=socket.gethostname()))
     batch_size=ARGS.batch_size
