@@ -25,7 +25,7 @@ choices = {
     'region': ['us', 'fr', 'us_fr', 'cali'],
     'organism': ['plant', 'animal', 'plantanimal'],
     'observation': ['single', 'joint'],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet']    
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet', 'SpecOnly']    
 }
 choices = SimpleNamespace(**choices)
 
@@ -46,7 +46,6 @@ arguments = {
     'from_scratch':{'dest':"from_scratch", 'help':"start training model from scratch or latest checkpoint", 'action':'store_true'},
     'toy_dataset': {'dest':'toy_dataset', 'help': 'to use a small subset of data, set this option', 'action':'store_true'},
    'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches', 'action':'store_true'},
-    'save_splits': {'dest':'save_splits', 'help': 'if you want to save the train/test split for future inference, set this', 'action':'store_true'},
     'normalize': {'dest':'normalize', 'help': 'whether to normalize environmental rasters', 'action':'store_true'},
     'latlon': {'dest':'latlon', 'help': 'whether to include lat lon in environmental data', 'action':'store_true'},
     'species_only': {'dest':'species_only', 'help': 'propagate loss just on species predictions', 'action':'store_true'} ,
@@ -143,6 +142,7 @@ class Run_Params():
             return all_mods
 
     def get_most_recent_des(self, base_dir, epoch=None):
+        print("hello?")
         model_paths = self.build_datum_path(base_dir, 'nets')
         des_path = "{}{}/{}/{}/{}/{}/{}_lr{}_e*.pkl".format(base_dir, 'desiderata', self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.exp_id, self.params.lr)
         all_models = glob.glob(des_path)
@@ -157,6 +157,7 @@ class Run_Params():
             most_recent = all_mods[-1]
         else: 
             most_recent = all_mods[epoch]
+        print("loading file {}".format(most_recent))
         with open(most_recent, 'rb') as f:
             des = pickle.load(f)
         return des

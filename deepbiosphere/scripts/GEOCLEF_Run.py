@@ -89,6 +89,8 @@ def setup_model(model, num_specs, num_fams, num_gens, num_channels, num_rasters=
         return cnn.MixFullNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels, env_rasters=num_rasters)
     elif model == 'SkipFullFamNet':
         return cnn.SkipFullFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=num_channels)
+    elif model == 'SpecOnly':
+        return cnn.SpecOnly(species=num_specs, num_channels=num_channels)
     else: 
         exit(1), "if you reach this, you got a real problem bucko"
 
@@ -198,6 +200,8 @@ def joint_raster_collate_fn(batch):
 def test_batch(test_loader, tb_writer, device, net, observation, epoch, model):
     if model == 'MixNet' or model == 'MixFullNet':
         return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
+    elif model == 'SpecOnly':
+        return test_single_specs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'joint':
         return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'single':
@@ -258,8 +262,8 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
             else:
                 break
             all_accs.append(totspec_accs)
-            mean_accs.append(specaccs)
-            means.append(specaccs.mean()) 
+            mean_accs.append(totgen_accs)
+            means.append(totfam_accs)
     prog.close()
     return means, all_accs, mean_accs
 def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
@@ -283,8 +287,28 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
                 tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
             all_accs.append(totspec_accs)
+            mean_accs.append(totgen_accs)
+            means.append(totfam_accs)
+    prog.close()
+    return means, all_accs, mean_accs
+
+def test_single_specs_batch(test_loader, tb_writer, device, net, epoch):
+    with tqdm(total=len(test_loader), unit="batch") as prog:
+        means = []
+        all_accs = []
+        mean_accs = []
+        for i, (specs_label, _, _, loaded_imgs) in enumerate(test_loader):
+            batch = loaded_imgs.to(device)
+            specs_lab = specs_label.to(device)                                     
+            outputs = net(batch.float()) 
+            specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
+            prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
+            prog.update(1)          
+            if tb_writer is not None:
+                tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
+            all_accs.append(totspec_accs)
             mean_accs.append(specaccs)
-            means.append(specaccs.mean()) 
+            means.append(specaccs.mean())
     prog.close()
     return means, all_accs, mean_accs
 
@@ -324,7 +348,11 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
     with tqdm(total=len(train_loader), unit="batch") as prog:
         
         for i, ret in enumerate(train_loader):     
-            if model == 'MixNet' or model == 'MixFullNet':
+            
+            if model == 'SpecOnly':
+                (specs_lab, _, _, batch) = ret
+                tot_loss, loss_spec = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
+            elif model == 'MixNet' or model == 'MixFullNet':
                 (specs_lab, gens_lab, fams_lab, batch, rasters) = ret
                 if species_only:
 #                     print("species only loss")
@@ -385,16 +413,26 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                 tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species') if species_only else forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
 #             tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
             if tb_writer is not None:
-                tb_writer.add_scalar("train/tot_loss", tot_loss, step)
-                tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
-                tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
-                tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)
+                if model == 'SpecOnly':
+                    tb_writer.add_scalar("train/tot_loss", tot_loss, step)
+                    tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
+                else:
+                    tb_writer.add_scalar("train/tot_loss", tot_loss, step)
+                    tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
+                    tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
+                    tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)
             else:
                 break
-            tot_loss_meter.append(tot_loss.item())                
-            spec_loss_meter.append(loss_spec.item())
-            gen_loss_meter.append(loss_gen.item())
-            fam_loss_meter.append(loss_fam.item()) 
+            if model == 'SpecOnly':
+                tot_loss_meter.append(tot_loss.item())                
+                spec_loss_meter.append(loss_spec.item())
+                gen_loss_meter = [ ]
+                fam_loss_meter = [ ]                
+            else: 
+                tot_loss_meter.append(tot_loss.item())                
+                spec_loss_meter.append(loss_spec.item())
+                gen_loss_meter.append(loss_gen.item())
+                fam_loss_meter.append(loss_fam.item()) 
             prog.set_description("loss: {tot_loss}".format(tot_loss=tot_loss))
             prog.update(1)                
             step += 1
@@ -426,6 +464,18 @@ def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, o
     total_loss.backward()
     optimizer.step()
     return total_loss, loss_spec, loss_gen, loss_fam
+
+def forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device):
+    batch = batch.to(device)
+    specs_lab = specs_lab.to(device)                                     
+    optimizer.zero_grad()
+    specs = net(batch.float()) 
+    loss_spec = spec_loss(specs, specs_lab) 
+    total_loss = loss_spec
+    total_loss.backward()
+    optimizer.step()
+    return total_loss, loss_spec
+
 
 def forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, calculated):
     batch = batch.to(device)
@@ -589,10 +639,16 @@ def train_model(ARGS, params):
         else:
             tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, ARGS.species_only, ARGS.sequential, ARGS.cumulative, tot_epoch, epoch)
         if not ARGS.toy_dataset:
-            all_time_loss.append(np.stack(tot_loss_meter))
-            all_time_sp_loss.append(np.stack(spec_loss_meter))
-            all_time_gen_loss.append(np.stack(gen_loss_meter))
-            all_time_fam_loss.append(np.stack(fam_loss_meter))        
+            if params.params.model == 'SpecOnly':
+                all_time_loss.append(np.stack(tot_loss_meter))
+                all_time_sp_loss.append(np.stack(spec_loss_meter))
+                all_time_gen_loss = []
+                all_time_fam_loss = []
+            else:
+                all_time_loss.append(np.stack(tot_loss_meter))
+                all_time_sp_loss.append(np.stack(spec_loss_meter))
+                all_time_gen_loss.append(np.stack(gen_loss_meter))
+                all_time_fam_loss.append(np.stack(fam_loss_meter))        
         
         # save model 
         nets_path=params.build_abs_nets_path(ARGS.base_dir, epoch)
@@ -622,7 +678,8 @@ def train_model(ARGS, params):
             'means': means,
             'all_accs': all_accs,
             'mean_accs': mean_accs,
-            'splits' : idxs
+            'splits' : idxs,
+            'batch_size': batch_size,
         }
         desiderata_path = params.build_abs_desider_path(ARGS.base_dir, epoch)
         #dd.io.save(desiderata_path, desiderata, compression=True)
