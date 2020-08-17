@@ -101,6 +101,13 @@ def id_2_file_fr(id_):
     return None, ab, cd
     
 
+    
+def sort_by_epoch(paths, reversed=False):    
+    sorted(paths, reverse=reversed,key= lambda x: (int(x.split('_e')[1].split('.')[0])))
+
+def strip_to_epoch(filepaths):    
+    return  [int(f.split('_e')[-1].split('.')[0]) for f in filepaths] 
+    
 '''files are default assumed to be ';' separator '''
 def check_gbif_files(occ_paths, img_path, sep=';'):
     occs = []
@@ -143,3 +150,26 @@ def key_for_value(d, value):
 
 def normalize_latlon(latlon, min_, scale):
     return (latlon - min_)/scale
+
+
+def check_batch_size(observation, dataset, processes, loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, sampler, device):
+    if batch_size < 1:
+        exit(1), "non-memory error present!"
+    for ret in loader:
+        if observation == 'single':
+            labels, batch = ret
+            specs_lab = labels[:,0]
+            gens_lab = labels[:,1]
+            fams_lab = labels[:,2]
+        elif observation == 'joint':
+            specs_lab, gens_lab, fams_lab, batch = ret
+        try:
+            forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device)
+        except RuntimeError:
+            batch_size -= 1
+            print("decreasing batch size to {}".format(batch_size))
+            loader = setup_dataloader(dataset, observation, batch_size, processes, sampler)
+            check_batch_size(observation, dataset, processes, loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, sampler, device)
+        break
+    return batch_size, loader
+    

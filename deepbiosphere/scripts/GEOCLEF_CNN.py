@@ -185,7 +185,55 @@ class SkipFullFamNet(nn.Module):
         gen = F.relu(self.genfc(torch.cat([fam, x] ,1)))
         spec = self.specfc(torch.cat([x, gen, fam], 1))
         return(spec, gen, fam)
+
     
+class MLP_Family(nn.Module):
+    """
+    Checking - it requires more training time, 1 layer more 
+    """
+    def __init__(self, families, env_rasters):
+    #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
+        super(MLP_Family, self).__init__()
+        self.families = families
+        self.env_rasters = env_rasters
+        self.mlp_choke1 = 64
+        self.mlp_choke2 = 128
+        self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
+        self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
+        self.mlpout = nn.Linear(self.mlp_choke2, self.families)        
+        
+    def forward(self, rasters):
+        # pass images through CNN
+        x = F.relu(self.mlp1(rasters))
+        x = F.relu(self.mlp2(x))
+        fam = self.mlpout(x)
+        return fam
+    
+    
+class MLP_Family_Genus(nn.Module):
+    """
+    Checking - it requires more training time, 1 layer more 
+    """
+    def __init__(self, families, genuses, env_rasters):
+    #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
+        super(MLP_Family_Genus, self).__init__()
+        self.families = families
+        self.genuses = genuses
+        self.env_rasters = env_rasters
+        self.mlp_choke1 = 64
+        self.mlp_choke2 = 128
+        self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
+        self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
+        self.mlp_fam = nn.Linear(self.mlp_choke2, self.families)
+        self.mlpout = nn.linear(self.families, self.genuses)
+        
+    def forward(self, rasters):
+        # pass images through CNN
+        x = F.relu(self.mlp1(rasters))
+        x = F.relu(self.mlp2(x))
+        fam = self.mlp_fam(F.relu(x))
+        gen = self.mlpout(fam)        
+        return fam, gen
 
 class MixNet(nn.Module):
     """
