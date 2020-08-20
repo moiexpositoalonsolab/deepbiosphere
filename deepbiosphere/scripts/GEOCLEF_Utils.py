@@ -11,6 +11,11 @@ def cnn_output_size(in_size, kernel_size, stride, padding):
     output = int((in_size - kernel_size + 2*(padding)) / stride) + 1
     return(output)
 
+def scale(x, out_range=(-1, 1)):
+    min_, max_ = np.min(x), np.max(x)
+    y = (x - (max_ + min_) / 2) / (max_ - min_)
+    return y * (out_range[1] - out_range[0]) + (out_range[1] + out_range[0]) / 2
+
 def plot_image(base_dir, id_, figsize=(10,10), transpose=False):
     imgs = image_from_id(id_, base_dir)
     fig, axs = plt.subplots(3, figsize=figsize) if transpose else plt.subplots(1, 3, figsize=figsize)
@@ -21,7 +26,51 @@ def plot_image(base_dir, id_, figsize=(10,10), transpose=False):
     axs[2].imshow(imgs[4:5,:,:].squeeze())
     axs[2].set_title("infrared")
     return fig
+
+def plot_env_rasters(rasters, figsize=(10,10)):
+    fig, axs = plt.subplots(5,5, figsize=figsize)
+    for ras, i in zip(axs.ravel(), range(len(rasters))):
+        ras.imshow(rasters[i,:,:].squeeze())
+    return fig
+
+
+
+
+def norm_rank(curr, stop):
+    if curr == stop:
+        return 1/stop
+    else:
+        ncur = curr +1
+        return norm_rank(ncur, stop) + 1/curr
+
+def mean_reciprocal_rank(lab, guess, total=True, norm=True):  
     
+    # sort 
+    pred, idxs = torch.topk(guess, guess.shape[-1])
+    pnp = idxs.tolist()[0]
+    all_right = []
+
+    for i in range(len(lab)):
+        all_right.append(pnp.index(lab[i]))
+    all_right = np.array(all_right)
+    all_right += 1
+    if total:
+        if norm:
+            normed = normed_rank[len(lab)]
+            return ((1 / all_right).sum()) / normed
+        else:
+            
+            return (1 / all_right).sum()
+
+    else:
+        # just want the first correct index reciprocal rank
+        if norm:
+            normed = normed_rank[len(lab)]
+            return (1/all_right.min())/normed
+        else:
+            return 1/all_right.min()    
+
+
 def num_corr_matches(output, target):
     tot_acc = []
     acc_acc = []
@@ -103,7 +152,7 @@ def id_2_file_fr(id_):
 
     
 def sort_by_epoch(paths, reversed=False):    
-    sorted(paths, reverse=reversed,key= lambda x: (int(x.split('_e')[1].split('.')[0])))
+    return sorted(paths, reverse=reversed,key= lambda x: (int(x.split('_e')[1].split('.')[0])))
 
 def strip_to_epoch(filepaths):    
     return  [int(f.split('_e')[-1].split('.')[0]) for f in filepaths] 
