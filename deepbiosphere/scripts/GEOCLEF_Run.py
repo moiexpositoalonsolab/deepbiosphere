@@ -61,7 +61,7 @@ def setup_train_dataset(observation, base_dir, organism, region, normalize, mode
             return Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region, altitude)
     elif observation == 'joint_image_env':
         raise NotImplementedError
-    elif observation == 'joint_env_pt':
+    elif observation == 'joint_image_pt':
         if region != 'cali':
             raise NotImplementedError
         else:
@@ -116,7 +116,7 @@ def setup_model(model, train_dataset):
 
         
 def setup_dataloader(dataset, observation, batch_size, processes, sampler, model):
-    if observation == 'joint_env_pt':
+    if observation == 'joint_image_pt':
         collate_fn = joint_raster_collate_fn
     elif observation == 'joint_image':
         collate_fn = joint_collate_fn
@@ -262,7 +262,7 @@ def joint_rasteronly_collate_fn(batch):
 def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss):
     print("in test batch")
     print( observation, epoch, loss)
-    if observation == 'joint_env_pt':
+    if observation == 'joint_image_pt':
         return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'joint_pt':
         if loss == 'just_fam':
@@ -270,19 +270,17 @@ def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss):
         elif loss == 'fam_gen':
             return test_joint_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch)
         else:
-            raise NotImplemented
-    elif observation == 'joint_image':
+            raise NotImplementedError
+    elif observation == 'joint_image' or observation == 'joint_env_cnn':
         return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'single':
         return test_single_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'joint_image_env':
-        raise NotImplemented
-    elif observation == 'joint_image_cnn':
-        raise NotImplemented
+        raise NotImplementedError
     elif loss == 'spec_only':
         return test_single_specs_batch(test_loader, tb_writer, device, net, epoch)
     else:
-        raise NotImplemented
+        raise NotImplementedError
 
 def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
      with tqdm(total=len(test_loader), unit="batch") as prog:
@@ -560,7 +558,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                     raise NotImplemented
 
             # mixed data model MLP of environmental rasters + cnn of satellite imagery data
-            elif observation == 'joint_env_pt':
+            elif observation == 'joint_image_pt':
                 (specs_lab, gens_lab, fams_lab, batch, rasters) = ret
                 if loss == 'all':
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
@@ -820,9 +818,9 @@ def train_model(ARGS, params):
         clean_gpu(device)
         tick = time.time()
         net.train()
-
+        print("before batch")
         tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, tot_epoch, epoch, params.params.loss)
-        
+        print('after batch')
         if not ARGS.toy_dataset:
 
             if params.params.loss == 'spec_only':
@@ -866,21 +864,22 @@ def train_model(ARGS, params):
         print("testing model")
         with torch.no_grad():
             means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss)   
-        clean_gpu(device)        
-        desiderata = {
-            'all_loss': all_time_loss,
-            'spec_loss': all_time_sp_loss,
-            'gen_loss': all_time_gen_loss,
-            'fam_loss': all_time_fam_loss,
-            'means': means,
-            'all_accs': all_accs,
-            'mean_accs': mean_accs,
-            'splits' : idxs,
-            'batch_size': batch_size,
-        }
-        desiderata_path = params.build_abs_desider_path(epoch)
-        with open(desiderata_path, 'wb') as f:
-            pickle.dump(desiderata, f, protocol=pickle.HIGHEST_PROTOCOL)
+        clean_gpu(device)
+        if not ARGS.toy_dataset:
+            desiderata = {
+                'all_loss': all_time_loss,
+                'spec_loss': all_time_sp_loss,
+                'gen_loss': all_time_gen_loss,
+                'fam_loss': all_time_fam_loss,
+                'means': means,
+                'all_accs': all_accs,
+                'mean_accs': mean_accs,
+                'splits' : idxs,
+                'batch_size': batch_size,
+            }
+            desiderata_path = params.build_abs_desider_path(epoch)
+            with open(desiderata_path, 'wb') as f:
+                pickle.dump(desiderata, f, protocol=pickle.HIGHEST_PROTOCOL)
         tock = time.time()
         diff = ( tock-tick)/60
         print ("epoch {} took {} minutes".format(epoch, diff))

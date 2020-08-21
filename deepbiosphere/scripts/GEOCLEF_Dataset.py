@@ -764,6 +764,7 @@ class GEOCELF_Dataset_BioClim_Only(Dataset):
         self.base_dir = base_dir
         self.country = country
         self.organism = organism
+        self.channels = None
         obs = get_gbif_rasters_data(self.base_dir, country, organism)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)

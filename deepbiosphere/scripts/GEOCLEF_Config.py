@@ -25,7 +25,10 @@ choices = {
     'base_dir': ['DBS_DIR', 'MNT_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'],
     'region': ['us', 'fr', 'us_fr', 'cali'],
     'organism': ['plant', 'animal', 'plantanimal'],
-    'observation': ['single', 'joint_image', 'joint_image_env', 'joint_env_pt', 'joint_env_cnn', 'joint_pt'],
+    # single: single obs, joint_image is just trained on the rgbd image, joint_image_env is trained on rgbd image + env cnn rasters, 
+    # joint_image_pt is trained on rgbd image + env rasters pointwise, joint_env_cnn is trained on just environmental rasters as a cnn
+    # joint_pt is trained as just the pointwise env rasters for a given observation
+    'observation': ['single', 'joint_image', 'joint_image_env', 'joint_image_pt', 'joint_env_cnn', 'joint_pt'],
     'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'spec_only', 'spec_loss'],
     'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus'],
     'normalize' : ['normalize', 'min_max', 'none']
