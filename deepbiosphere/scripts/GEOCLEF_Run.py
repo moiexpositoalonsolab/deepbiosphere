@@ -860,7 +860,7 @@ def train_model(ARGS, params):
     epoch = start_epoch
     while epoch < n_epochs:
         print("starting training for epoch {}".format(epoch))
-        clean_gpu(device)
+        #clean_gpu(device)
         tick = time.time()
         net.train()
         print("before batch")
@@ -900,7 +900,7 @@ def train_model(ARGS, params):
                     'step' : step
                     }, nets_path)        
         
-        clean_gpu(device)
+        #clean_gpu(device)
         
         
         # test
@@ -909,7 +909,6 @@ def train_model(ARGS, params):
         print("testing model")
         with torch.no_grad():
             means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss)   
-        clean_gpu(device)
         if not ARGS.toy_dataset:
             desiderata = {
                 'all_loss': all_time_loss,
