@@ -129,7 +129,11 @@ def raster_cnn_image(rasters, xmin, xmax, ymin, ymax, nan):
         # and append the two
         env_rasters = np.concatenate([extra, inc_rasters], axis=2)
     # if the range of the rasters in other dimensions is out of bounds, then it's a dataset error and return
+    
     elif xmin < 0 or xmax > rasters.shape[1] or ymax > rasters.shape[2]:
+        print("riperoni")
+        print(xmin, xmax, ymin, ymax, rasters.shape)
+        import pdb; pdb.set_trace()
         exit(1), "{} is outside bounds of env raster image!".format(lat_lon)
     else: 
         env_rasters = rasters[:,xmin:xmax,ymin:ymax]
@@ -144,7 +148,7 @@ def raster_filter_2_cali(base_dir, obs):
     filt_obs = filter_to_bioclim(obs, src, geoms, nan)
     return  filt_obs
 
-def get_bioclim_rasters(base_dir, region, normalized, obs, big=False):
+def get_bioclim_rasters(base_dir, region, normalized, obs, big=True):
     
     if region ==  'cali':
         geoms = get_cali_shape(base_dir) if not big else get_big_cali_shape(base_dir)
@@ -838,7 +842,7 @@ class GEOCELF_Dataset_BioClim_Only(Dataset):
 
         # x, y = eniffa * (get_item_from_obs(obs,1)[1], get_item_from_obs(obs,1)[0])
 class GEOCELF_Dataset_BioClim_CNN(Dataset):
-    def __init__(self, base_dir, organism, country='cali', transform=None, normalize='none', pix_res=256, big=False):
+    def __init__(self, base_dir, organism, country='cali', transform=None, normalize='none', pix_res=256, big=True):
         self.base_dir = base_dir
         self.country = country
         self.organism = organism
@@ -884,7 +888,8 @@ class GEOCELF_Dataset_BioClim_CNN(Dataset):
         xmin, xmax, ymin, ymax = xy_2_range_center(self.pix_res, x, y)
         # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
         # observations to account for this fact and still be able to use observations for these points
-        env_rasters = raster_cnn_image(raster, xmin, xmax, ymin, ymax, self.nan)
+        
+        env_rasters = raster_cnn_image(self.rasters, xmin, xmax, ymin, ymax, self.nan)
         # get labels
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]
@@ -898,7 +903,7 @@ class GEOCELF_Dataset_Joint_BioClim_LowRes(Dataset):
         self.organism = organism
         obs = get_gbif_rasters_data(self.base_dir, country, organism)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs, True)
         self.altitude = altitude
         obs.fillna('nan', inplace=True)        
         obs, inv_spec = prep_joint_data(obs)
@@ -948,12 +953,11 @@ class GEOCELF_Dataset_Joint_BioClim_LowRes(Dataset):
         xmin, xmax, ymin, ymax = xy_2_range_center(self.pix_res, x, y)
         # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
         # observations to account for this fact and still be able to use observations for these points
+        
         env_rasters = raster_cnn_image(self.rasters, xmin, xmax, ymin, ymax, self.nan)
-        print("ind ata loader")
-        print(len(env_rasters), self.num_rasters)
         # get labels
         assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
-        import pdb; pdb.set_trace()
+#         import pdb; pdb.set_trace()
         all_imgs = np.concatenate([images, env_rasters], axis=0)
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]
