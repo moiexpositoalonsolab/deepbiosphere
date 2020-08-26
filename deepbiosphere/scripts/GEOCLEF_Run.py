@@ -60,15 +60,21 @@ def setup_train_dataset(observation, base_dir, organism, region, normalize, mode
         else:
             return Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region, altitude)
     elif observation == 'joint_image_env':
-        raise NotImplementedError
+        return Dataset.GEOCELF_Dataset_Joint_BioClim_LowRes(base_dir, organism, altitude, normalize, country=region)
     elif observation == 'joint_image_pt':
         if region != 'cali':
             raise NotImplementedError
         else:
             return Dataset.GEOCELF_Dataset_Joint_BioClim(base_dir, organism, region, normalize=normalize, altitude=altitude) 
+    elif observation == 'joint_image_cnn':
+        if region != 'cali':
+            raise NotImplementedError
+        else:
+            #  def __init__(self, base_dir, organism, altitude, normalize, country='us', transform=None):
+            return Dataset.GEOCELF_Dataset_Joint_BioClim_Sheet(base_dir, organism, altitude=altitude, normalize=normalize, country=region)
     elif observation == 'joint_env_cnn':
         if region != 'cali':
-            raise NotImplemented
+            raise NotImplementedError
         else:
             return Dataset.GEOCELF_Dataset_BioClim_CNN(base_dir, organism, region, normalize=normalize,big=True)
     
@@ -125,9 +131,11 @@ def setup_dataloader(dataset, observation, batch_size, processes, sampler, model
     elif observation == 'single':
         collate_fn = single_collate_fn
     elif observation == 'joint_image_env':
-        raise NotImplementedError
+        collate_fn = joint_collate_fn
     elif observation == 'joint_env_cnn':
         collate_fn = joint_collate_fn
+    elif observation == 'joint_image_cnn':
+        collate_fn = joint_collate_fn        
     elif observation == 'joint_pt':
         collate_fn = joint_rasteronly_collate_fn
     dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
@@ -262,8 +270,6 @@ def joint_rasteronly_collate_fn(batch):
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(rasters))
 
 def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss):
-    print("in test batch")
-    print( observation, epoch, loss)
     if observation == 'joint_image_pt':
         return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'joint_pt':
@@ -275,12 +281,12 @@ def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss):
             return test_joint_obs_rastersonly_all(test_loader, tb_writer, device, net, epoch)
         else:
             raise NotImplementedError
-    elif observation == 'joint_image' or observation == 'joint_env_cnn':
+    elif observation == 'joint_image' or observation == 'joint_env_cnn' or observation == 'joint_image_cnn':
         return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'single':
         return test_single_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif observation == 'joint_image_env':
-        raise NotImplementedError
+        return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
     elif loss == 'spec_only':
         return test_single_specs_batch(test_loader, tb_writer, device, net, epoch)
     else:
@@ -348,7 +354,6 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
     return allfam, allgen, allspec
 
 def test_joint_obs_rastersonly_fam(test_loader, tb_writer, device, net, epoch):
-    print("in test forward")
     with tqdm(total=len(test_loader), unit="batch") as prog:
         means = []
         all_accs = []
@@ -477,20 +482,16 @@ def test_single_specs_batch(test_loader, tb_writer, device, net, epoch):
 
 
 def train_batch(observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, model, nepoch, epoch, loss):
-    
     tot_loss_meter = []
     spec_loss_meter = []
     gen_loss_meter = []
     fam_loss_meter = []  
 
     with tqdm(total=len(train_loader), unit="batch") as prog:
-        
         for i, ret in enumerate(train_loader):     
-
             specophs = nepoch
             genpoch = nepoch * 2
             fampoch = nepoch 
-
             # cnn of satellite imagery data only            
             if observation == 'single':
                 (labels, batch) = ret
@@ -533,7 +534,7 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                 else: # loss is none
                     raise NotImplemented
             # cnn of satellite imagery data only
-            elif (observation == 'joint_image' or observation == 'joint_env_cnn'):
+            elif (observation == 'joint_image' or observation == 'joint_env_cnn' or observation == 'joint_image_cnn' or observation == 'joint_image_env'):
                 (specs_lab, gens_lab, fams_lab, batch) = ret                
                 if loss == 'all':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
@@ -572,24 +573,24 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                     raise NotImplemented
 
             # mixed data model cnn of environmental rasters + cnn of satellite imagery data                
-            elif observation == 'joint_image_env':
-                (specs_lab, gens_lab, fams_lab, batch) = ret
-                if loss == 'all':
-                    raise NotImplemented
-                elif loss == 'cumulative':
-                    raise NotImplemented
-                elif loss == 'sequential':
-                    raise NotImplemented
-                elif loss == 'just_fam':
-                    raise NotImplemented
-                elif loss == 'fam_gen':
-                    raise NotImplemented
-                elif loss == 'spec_only':
-                    raise NotImplemented
-                elif loss == 'spec_loss':
-                    raise NotImplemented
-                else: # loss is none
-                    raise NotImplemented
+#             elif observation == '‘‘':
+#                 (specs_lab, gens_lab, fams_lab, batch) = ret
+#                 if loss == 'all':
+#                     raise NotImplemented
+#                 elif loss == 'cumulative':
+#                     raise NotImplemented
+#                 elif loss == 'sequential':
+#                     raise NotImplemented
+#                 elif loss == 'just_fam':
+#                     raise NotImplemented
+#                 elif loss == 'fam_gen':
+#                     raise NotImplemented
+#                 elif loss == 'spec_only':
+#                     raise NotImplemented
+#                 elif loss == 'spec_loss':
+#                     raise NotImplemented
+#                 else: # loss is none
+#                     raise NotImplemented
 
             # mixed data model MLP of environmental rasters + cnn of satellite imagery data
             elif observation == 'joint_image_pt':

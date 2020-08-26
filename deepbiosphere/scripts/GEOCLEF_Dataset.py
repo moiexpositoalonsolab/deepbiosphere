@@ -118,6 +118,23 @@ def latlon_2_index(affine, latlon):
     y, x =  ~affine * (latlon[1], latlon[0])
     return int(round(x)), int(round(y))
 
+def raster_cnn_image(rasters, xmin, xmax, ymin, ymax, nan):
+    if ymin < 0:
+        # find how many ocean nans are missing
+        diff = xmax-xmin
+        # recreate the missing westernmost part of image
+        extra = np.full((rasters.shape[0],diff, -ymin), nan)
+        # get the parts of the raster that do exist
+        inc_rasters = rasters[:,xmin:xmax,0:ymax]
+        # and append the two
+        env_rasters = np.concatenate([extra, inc_rasters], axis=2)
+    # if the range of the rasters in other dimensions is out of bounds, then it's a dataset error and return
+    elif xmin < 0 or xmax > rasters.shape[1] or ymax > rasters.shape[2]:
+        exit(1), "{} is outside bounds of env raster image!".format(lat_lon)
+    else: 
+        env_rasters = rasters[:,xmin:xmax,ymin:ymax]
+    return env_rasters
+
 def raster_filter_2_cali(base_dir, obs):
     
     geoms = get_cali_shape(base_dir)
@@ -640,7 +657,7 @@ class Single_Toy_Dataset(Dataset):
     
     
 class GEOCELF_Dataset_Joint_Scalar_Raster(Dataset):
-    def __init__(self, base_dir, organism, country='us', transform=None, normalize=True):
+    def __init__(self, base_dir, organism, altitude, country='us', transform=None, normalize=True):
         self.base_dir = base_dir
         self.country = country
         self.organism = organism
@@ -688,6 +705,7 @@ class GEOCELF_Dataset_Joint_Scalar_Raster(Dataset):
         if self.transform:
             images = self.transform(images)
         return (specs_label, gens_label, fams_label, images, env_rasters)        
+
 
     
 class GEOCELF_Dataset_Joint_Scalar_Raster_LatLon(Dataset):
@@ -856,6 +874,7 @@ class GEOCELF_Dataset_BioClim_CNN(Dataset):
     
     
 
+
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
@@ -865,26 +884,81 @@ class GEOCELF_Dataset_BioClim_CNN(Dataset):
         xmin, xmax, ymin, ymax = xy_2_range_center(self.pix_res, x, y)
         # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
         # observations to account for this fact and still be able to use observations for these points
-        if ymin < 0:
-            # find how many ocean nans are missing
-            diff = xmax-xmin
-            # recreate the missing westernmost part of image
-            extra = np.full((self.rasters.shape[0],diff, -ymin), self.nan)
-            # get the parts of the raster that do exist
-            inc_rasters = self.rasters[:,xmin:xmax,0:ymax]
-            # and append the two
-            env_rasters = np.concatenate([extra, inc_rasters], axis=2)
-        # if the range of the rasters in other dimensions is out of bounds, then it's a dataset error and return
-        elif xmin < 0 or xmax > self.rasters.shape[1] or ymax > self.rasters.shape[2]:
-            sys.exit("{} is outside bounds of env raster image!".format(lat_lon))
-        else: 
-            env_rasters = self.rasters[:,xmin:xmax,ymin:ymax]
-
+        env_rasters = raster_cnn_image(raster, xmin, xmax, ymin, ymax, self.nan)
         # get labels
         specs_label = self.obs[idx, 1]
         gens_label = self.obs[idx, 3]
         fams_label = self.obs[idx, 2]
         return (specs_label, gens_label, fams_label, env_rasters)
+
+class GEOCELF_Dataset_Joint_BioClim_LowRes(Dataset):
+    def __init__(self, base_dir, organism, altitude, normalize, country='us', transform=None):
+        self.base_dir = base_dir
+        self.country = country
+        self.organism = organism
+        obs = get_gbif_rasters_data(self.base_dir, country, organism)
+        rasterpath = "{}rasters".format(self.base_dir)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.altitude = altitude
+        obs.fillna('nan', inplace=True)        
+        obs, inv_spec = prep_joint_data(obs)
+        self.idx_2_id = inv_spec
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family.unique())
+        self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()                
+        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
+        self.normalize = normalize
+        self.transform = transform
+        self.lat_scale = obs.lat.max()-obs.lat.min()
+        self.lon_scale = obs.lon.max()-obs.lon.min()
+        self.lat_min = obs.lat.min()
+        self.lon_min = obs.lon.min()
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        self.pix_res = width
+        assert width == height, "the width and height of input images dont match!"
+        self.num_rasters = len(self.rasters) 
+        self.channels = channels + self.num_rasters
+        self.width = width
+        self.height = height
+ 
+    def __len__(self):
+        return len(self.obs)
+    
+    def latlon_2_index(self, latlon):
+        y, x =  ~self.affine * (latlon[1], latlon[0])
+        return int(round(x)), int(round(y))
+
+    
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # get images
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, 0]
+        images = image_from_id(id_, self.base_dir, self.altitude)     
+        if self.transform:
+            images = self.transform(images)
+        # get raster data
+        lat_lon = self.obs[idx, 4]
+        x, y = self.latlon_2_index(lat_lon)
+        xmin, xmax, ymin, ymax = xy_2_range_center(self.pix_res, x, y)
+        # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
+        # observations to account for this fact and still be able to use observations for these points
+        env_rasters = raster_cnn_image(self.rasters, xmin, xmax, ymin, ymax, self.nan)
+        print("ind ata loader")
+        print(len(env_rasters), self.num_rasters)
+        # get labels
+        assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
+        import pdb; pdb.set_trace()
+        all_imgs = np.concatenate([images, env_rasters], axis=0)
+        specs_label = self.obs[idx, 1]
+        gens_label = self.obs[idx, 3]
+        fams_label = self.obs[idx, 2]        
+        return (specs_label, gens_label, fams_label, all_imgs)    
     
 class GEOCELF_Dataset_Joint_BioClim(Dataset):
         
@@ -956,3 +1030,78 @@ class GEOCELF_Dataset_Joint_BioClim(Dataset):
         if self.transform:
             images = self.transform(images)
         return (specs_label, gens_label, fams_label, images, env_rasters)
+    
+class GEOCELF_Dataset_Joint_BioClim_Sheet(Dataset):
+    def __init__(self, base_dir, organism, altitude, normalize, country='us', transform=None):
+        self.base_dir = base_dir
+        self.country = country
+        self.organism = organism
+        obs = get_gbif_rasters_data(self.base_dir, country, organism)
+        rasterpath = "{}rasters".format(self.base_dir)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.altitude = altitude
+        obs.fillna('nan', inplace=True)        
+        obs, inv_spec = prep_joint_data(obs)
+        self.idx_2_id = inv_spec
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family.unique())
+        self.num_gens = len(obs.genus.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus.value_counts().to_dict()
+        self.fam_freqs = obs.family.value_counts().to_dict()                
+        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
+        self.normalize = normalize
+        self.transform = transform
+        self.lat_scale = obs.lat.max()-obs.lat.min()
+        self.lon_scale = obs.lon.max()-obs.lon.min()
+        self.lat_min = obs.lat.min()
+        self.lon_min = obs.lon.min()
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        self.num_rasters = len(self.rasters) + 2
+        self.channels = channels + self.num_rasters
+        self.width = width
+        self.height = height
+ 
+    def __len__(self):
+        return len(self.obs)
+    
+    def latlon_2_index(self, latlon):
+        y, x =  ~self.affine * (latlon[1], latlon[0])
+        return int(round(x)), int(round(y))
+
+    
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # get images
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, 0]
+        images = image_from_id(id_, self.base_dir, self.altitude)     
+        if self.transform:
+            images = self.transform(images)
+        # get raster data
+        lat_lon = self.obs[idx, 4]
+        x, y = self.latlon_2_index(lat_lon)
+        env_rasters = self.rasters[:,x,y]
+        assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} for obs index {} value is {} and nan is {}".format(lat_lon, id_, env_rasters, nan)
+        
+        if self.normalize == 'min_max':
+            lat_norm = utils.normalize_latlon(self.obs[idx, 5], self.lat_min, self.lat_scale)
+            lon_norm = utils.normalize_latlon(self.obs[idx, 6], self.lon_min, self.lon_scale)
+            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
+                
+        elif self.normalize == 'normalize':
+            raise NotImplementedError
+        else:
+            # add lat lon data unnormalized
+            env_rasters = np.append(env_rasters, [self.obs[idx, 5], self.obs[idx, 6]])
+        # get labels
+        assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
+        ras_cnn = [np.full((self.width, self.height),  val) for val in env_rasters]
+        ras_cnn = np.stack(ras_cnn)
+        all_imgs = np.concatenate([images, ras_cnn], axis=0)
+        specs_label = self.obs[idx, 1]
+        gens_label = self.obs[idx, 3]
+        fams_label = self.obs[idx, 2]        
+        return (specs_label, gens_label, fams_label, all_imgs)
