@@ -35,11 +35,12 @@ def nmea_2_meters(lat1, lon1, lat2, lon2):
     return d
 
 
-def add_taxon_metadata(base_dir, obs, observation):
+def add_taxon_metadata(base_dir, obs, organism):
     
     ## getting family, genus, species ids for each observation
     # get all relevant files
-    print("adding taxon information")    
+    print("adding taxon information")   
+    print("columns ", obs.columns)
     gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(base_dir), sep=";")    
     present_specs = obs.species_id.unique()    
     # get all the gbif species ids for all the species in the us sample
@@ -65,9 +66,9 @@ def add_taxon_metadata(base_dir, obs, observation):
     obs['phylum'] = obs['gbif_id'].map(gbif_2_phy)
     obs['kingdom'] = obs['gbif_id'].map(gbif_2_king)
     obs['species'] = obs['gbif_id'].map(gbif_2_spec)
-    if observation == 'plant':
+    if organism == 'plant':
         obs = obs[obs.kingdom == 'Plantae']
-    elif observation == 'animal':
+    elif organism == 'animal':
         obs = obs[obs.kingdom == 'Animalia']
     else: #plantanimal
         pass

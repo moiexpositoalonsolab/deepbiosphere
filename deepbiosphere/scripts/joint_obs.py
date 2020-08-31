@@ -98,7 +98,7 @@ def main():
         exit(1)
     us_train_pth = "{}occurrences/single_obs_cali_plant_census.csv".format(pth) if ARGS.census else "{pth}occurrences/single_obs_{country}_{org}_train.csv".format(pth=pth, country=ARGS.region, org=ARGS.organism)
     us_train = pd.read_csv(us_train_pth, sep=';')
-    us_train = utils.add_taxon_metadata(pth, us_train, ARGS.observation)
+    us_train = utils.add_taxon_metadata(pth, us_train, ARGS.organism)
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
     # convert to list for faster extraction
