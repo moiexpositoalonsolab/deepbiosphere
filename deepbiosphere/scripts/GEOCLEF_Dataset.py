@@ -370,6 +370,7 @@ def prep_data(obs, observation):
         fam_dict = map_unq_2_index(obs, 'all_fams')
         gen_dict = map_unq_2_index(obs, 'all_gens')
     # also map all species / genus / family in joint observation to 0-num
+#     import pdb; pdb.set_trace()
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
     obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])
@@ -427,7 +428,8 @@ class HighRes_Satellie_Images_Only(Dataset):
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation)
         obs.fillna('nan', inplace=True)
-        obs = add_genus_family_data(self.base_dir, obs)
+        if 'species' not in obs.columns:
+            obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
         
         obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
@@ -481,7 +483,9 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
-        obs = add_genus_family_data(self.base_dir, obs)
+        if 'species' not in obs.columns:
+            obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
+
         obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
@@ -551,7 +555,9 @@ class Bioclim_Rasters_Point(Dataset):
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
-        obs = add_genus_family_data(self.base_dir, obs)
+        if 'species' not in obs.columns:
+            obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
+
         obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
@@ -610,7 +616,9 @@ class Bioclim_Rasters_Image(Dataset):
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
-        obs = add_genus_family_data(self.base_dir, obs)
+        if 'species' not in obs.columns:
+            obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
+
         obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
@@ -666,7 +674,9 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
-        obs = add_genus_family_data(self.base_dir, obs)
+        if 'species' not in obs.columns:
+            obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
+
         obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
@@ -735,7 +745,9 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
-        obs = add_genus_family_data(self.base_dir, obs)
+        if 'species' not in obs.columns:
+            obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
+
         obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment

@@ -94,6 +94,8 @@ def setup_model(model, train_dataset):
         return cnn.MixFullNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels, env_rasters=train_dataset.num_rasters)
     elif model == 'SkipFullFamNet':
         return cnn.SkipFullFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)
+    elif model == 'FlatNet':
+        return cnn.FlatNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)
     elif model == 'MLP_Family':
         return cnn.MLP_Family(families=num_fams, env_rasters=train_dataset.num_rasters)
     elif model == 'MLP_Family_Genus':
