@@ -53,16 +53,16 @@ def setup_train_dataset(observation, base_dir, organism, region, normalize, alti
         return Dataset.HighRes_Satellie_Images_Only(base_dir, organism, region, observation, altitude)
         
     elif dataset == 'satellite_rasters_image':
-        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize)
+        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation)
     elif dataset == 'satellite_rasters_point':
         return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize)
     elif dataset == 'rasters_image':
-        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, pix_res=256)
+        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, pix_res=256)
     elif dataset == 'rasters_point':
         return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation)
         
     elif dataset == 'satellite_rasters_sheet':
-        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize)
+        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation)
     else: 
         raise NotImplementedError
 
@@ -106,8 +106,8 @@ def setup_model(model, train_dataset):
         exit(1), "if you reach this, you got a real problem bucko"
 
         
-def setup_dataloader(dataset, batch_size, processes, sampler, model):
-    if dataset == 'satellite_rasters_point':
+def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model):
+    if dtype == 'satellite_rasters_point':
         collate_fn = joint_raster_collate_fn
     else:
         collate_fn = joint_collate_fn
@@ -624,12 +624,15 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                 else: # loss is none, random forest baseline
                     raise NotImplemented
             elif model == 'SpecOnly':
+                (specs_lab, gens_lab, fams_lab, batch) = ret
                 tot_loss, loss_spec = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
                 loss_fam, loss_gen = None, None
             elif model == 'MLP_Family':
+                (specs_lab, gens_lab, fams_lab, batch) = ret
                 tot_loss, loss_fam = forward_one_example_speconly(fams_lab, batch, optimizer, net, fam_loss, device)
                 loss_spec, loss_gen = None, None
             elif model == 'MLP_Family_Genus':
+                (specs_lab, gens_lab, fams_lab, batch) = ret
                 tot_loss, loss_gen, loss_fam = forward_one_example_speconly(fams_lab, batch, optimizer, net, fam_loss, device)
                 loss_spec =  None
             #if dataset != 'satellite_rasters_point:
@@ -831,8 +834,8 @@ def train_model(ARGS, params):
     spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, params.params.loss, params.params.unweighted, device) 
     
     train_samp, test_samp, idxs = split_train_test(train_dataset, val_split) 
-    train_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, train_samp, ARGS.model)
-    test_loader = setup_dataloader(train_dataset, params.params.observation, batch_size, ARGS.processes, test_samp, ARGS.model)
+    train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model)
+    test_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, test_samp, ARGS.model)
     datock = time.time()
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
