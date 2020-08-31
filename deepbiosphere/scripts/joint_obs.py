@@ -68,7 +68,7 @@ def get_single_joint_from_group(group_df):
     group_df['all_specs'] = extra_specs
     group_df['all_fams'] = extra_fams
     group_df['all_gens'] = extra_gens
-    
+
     # take out duplicates
     bad_ids = []
     sorted_ids = sorted(extra_ids, reverse=True, key=lambda x: len(x[1]))
@@ -77,7 +77,7 @@ def get_single_joint_from_group(group_df):
             continue
         else:
             bad_ids = bad_ids + list(ids)
-
+#     import pdb; pdb.set_trace()
     group_df = group_df[~group_df.id.isin(bad_ids)]
     tock = time.time()
     diff = tock - tick
@@ -99,7 +99,6 @@ def main():
     us_train_pth = "{}occurrences/single_obs_cali_plant_census.csv".format(pth) if ARGS.census else "{pth}occurrences/single_obs_{country}_{org}_train.csv".format(pth=pth, country=ARGS.region, org=ARGS.organism)
     us_train = pd.read_csv(us_train_pth, sep=';')
     us_train = utils.add_taxon_metadata(pth, us_train, ARGS.observation)
-    
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
     # convert to list for faster extraction

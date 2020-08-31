@@ -1,3 +1,4 @@
+from collections import Counter
 from deepbiosphere.scripts.GEOCLEF_Config import paths
 import glob
 from rasterio.mask import mask
@@ -330,6 +331,16 @@ def map_key_2_index(df, key, new_key=None):
         df[new_key] = df[key].map(key_2_id)
     return df, key_2_id
 
+def map_unq_2_index(df, key):
+    all_itm = df[key]
+    unq = set()
+    for itm in all_itm:
+        unq.update(itm)
+    name_2_id = {
+        k:v for k, v in zip(unq, np.arange(len(unq)))
+    }
+    return name_2_id
+
 def dict_key_2_index(df, key):
     return {
         k:v for k, v in 
@@ -347,19 +358,24 @@ def dict_key_2_index(df, key):
 #     return obs, inv_spec    
     
 # TODO: assumes that species_id, genus, family columns contain all possible values contained in extra_obs    
-def prep_data(obs):
+def prep_data(obs, observation):
     
     # map all species ids to 0-num_species, same for family and genus
-    obs, spec_dict = map_key_2_index(obs, 'species_id')
+    obs, spec_dict = map_key_2_index(obs, 'species', 'species_id')
     inv_spec = {v: k for k, v in spec_dict.items()}
     obs, gen_dict = map_key_2_index(obs, 'genus', 'genus_id')
     obs, fam_dict = map_key_2_index(obs, 'family', 'family_id')
+    if observation == 'joint_single':
+        spec_dict = map_unq_2_index(obs, 'all_specs')
+        inv_spec = {v: k for k, v in spec_dict.items()}        
+        fam_dict = map_unq_2_index(obs, 'all_fams')
+        gen_dict = map_unq_2_index(obs, 'all_gens')
     # also map all species / genus / family in joint observation to 0-num
-    import pdb; pdb.set_trace()
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
-    obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])    
-    return obs, inv_spec      
+    obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])
+        
+    return obs, inv_spec, spec_dict, gen_dict, fam_dict
 
 def get_labels(observation, obs, idx):
         if observation == 'single':
@@ -400,6 +416,8 @@ all_fam_idx = 5
 lat_lon_idx = 7
 
 
+
+
 # just the high resolution satellite imagery
 class HighRes_Satellie_Images_Only(Dataset):
     def __init__(self, base_dir, organism, region, observation, altitude):
@@ -411,15 +429,25 @@ class HighRes_Satellie_Images_Only(Dataset):
         obs = get_gbif_observations(base_dir,organism, region, observation)
         obs.fillna('nan', inplace=True)
         obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
+        
+        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family_id.unique())
-        self.num_gens = len(obs.genus_id.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus_id.value_counts().to_dict()
-        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.num_specs = len(spec_dict)
+        self.num_fams = len(fam_dict)
+        self.num_gens = len(gen_dict)
+        if observation == 'joint_single':
+            all_sps = [sp for ob in obs.all_specs for sp in ob]
+            all_gen = [sp for ob in obs.all_gens for sp in ob]
+            all_fam = [sp for ob in obs.all_fams for sp in ob]
+            self.spec_freqs =Counter(all_sps) 
+            self.gen_freqs = Counter(all_gen)
+            self.fam_freqs = Counter(all_fam)
+
+        else:
+            self.spec_freqs = obs.species_id.value_counts().to_dict()
+            self.gen_freqs = obs.genus_id.value_counts().to_dict()
+            self.fam_freqs = obs.family_id.value_counts().to_dict()                
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens']].values
 
@@ -455,15 +483,24 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
+        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family_id.unique())
-        self.num_gens = len(obs.genus_id.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus_id.value_counts().to_dict()
-        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.num_specs = len(spec_dict)
+        self.num_fams = len(fam_dict)
+        self.num_gens = len(gen_dict)
+        if observation == 'joint_single':
+            all_sps = [sp for ob in obs.all_specs for sp in ob]
+            all_gen = [sp for ob in obs.all_gens for sp in ob]
+            all_fam = [sp for ob in obs.all_fams for sp in ob]
+            self.spec_freqs =Counter(all_sps) 
+            self.gen_freqs = Counter(all_gen)
+            self.fam_freqs = Counter(all_fam)
+
+        else:
+            self.spec_freqs = obs.species_id.value_counts().to_dict()
+            self.gen_freqs = obs.genus_id.value_counts().to_dict()
+            self.fam_freqs = obs.family_id.value_counts().to_dict()
         self.lat_max = obs.lat.max()
         self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
@@ -516,15 +553,24 @@ class Bioclim_Rasters_Point(Dataset):
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
+        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family_id.unique())
-        self.num_gens = len(obs.genus_id.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus_id.value_counts().to_dict()
-        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.num_specs = len(spec_dict)
+        self.num_fams = len(fam_dict)
+        self.num_gens = len(gen_dict)
+        if observation == 'joint_single':
+            all_sps = [sp for ob in obs.all_specs for sp in ob]
+            all_gen = [sp for ob in obs.all_gens for sp in ob]
+            all_fam = [sp for ob in obs.all_fams for sp in ob]
+            self.spec_freqs =Counter(all_sps) 
+            self.gen_freqs = Counter(all_gen)
+            self.fam_freqs = Counter(all_fam)
+
+        else:
+            self.spec_freqs = obs.species_id.value_counts().to_dict()
+            self.gen_freqs = obs.genus_id.value_counts().to_dict()
+            self.fam_freqs = obs.family_id.value_counts().to_dict()
         self.lat_max = obs.lat.max()
         self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
@@ -566,15 +612,24 @@ class Bioclim_Rasters_Image(Dataset):
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
+        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family_id.unique())
-        self.num_gens = len(obs.genus_id.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus_id.value_counts().to_dict()
-        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.num_specs = len(spec_dict)
+        self.num_fams = len(fam_dict)
+        self.num_gens = len(gen_dict)
+        if observation == 'joint_single':
+            all_sps = [sp for ob in obs.all_specs for sp in ob]
+            all_gen = [sp for ob in obs.all_gens for sp in ob]
+            all_fam = [sp for ob in obs.all_fams for sp in ob]
+            self.spec_freqs =Counter(all_sps) 
+            self.gen_freqs = Counter(all_gen)
+            self.fam_freqs = Counter(all_fam)
+
+        else:
+            self.spec_freqs = obs.species_id.value_counts().to_dict()
+            self.gen_freqs = obs.genus_id.value_counts().to_dict()
+            self.fam_freqs = obs.family_id.value_counts().to_dict()
         self.lat_max = obs.lat.max()
         self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
@@ -616,15 +671,25 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
+        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family_id.unique())
-        self.num_gens = len(obs.genus_id.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus_id.value_counts().to_dict()
-        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.num_specs = len(spec_dict)
+        self.num_fams = len(fam_dict)
+        self.num_gens = len(gen_dict)
+        if observation == 'joint_single':
+            all_sps = [sp for ob in obs.all_specs for sp in ob]
+            all_gen = [sp for ob in obs.all_gens for sp in ob]
+            all_fam = [sp for ob in obs.all_fams for sp in ob]
+            self.spec_freqs =Counter(all_sps) 
+            self.gen_freqs = Counter(all_gen)
+            self.fam_freqs = Counter(all_fam)
+
+        else:
+            self.spec_freqs = obs.species_id.value_counts().to_dict()
+            self.gen_freqs = obs.genus_id.value_counts().to_dict()
+            self.fam_freqs = obs.family_id.value_counts().to_dict()
+            
         self.lat_max = obs.lat.max()
         self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
@@ -679,15 +744,25 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
+        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family_id.unique())
-        self.num_gens = len(obs.genus_id.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus_id.value_counts().to_dict()
-        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.num_specs = len(spec_dict)
+        self.num_fams = len(fam_dict)
+        self.num_gens = len(gen_dict)
+        if observation == 'joint_single':
+            all_sps = [sp for ob in obs.all_specs for sp in ob]
+            all_gen = [sp for ob in obs.all_gens for sp in ob]
+            all_fam = [sp for ob in obs.all_fams for sp in ob]
+            self.spec_freqs =Counter(all_sps) 
+            self.gen_freqs = Counter(all_gen)
+            self.fam_freqs = Counter(all_fam)
+
+        else:
+            self.spec_freqs = obs.species_id.value_counts().to_dict()
+            self.gen_freqs = obs.genus_id.value_counts().to_dict()
+            self.fam_freqs = obs.family_id.value_counts().to_dict()
+            
         self.lat_max = obs.lat.max()
         self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()

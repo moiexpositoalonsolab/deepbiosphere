@@ -49,7 +49,7 @@ def add_taxon_metadata(base_dir, obs, observation):
     spec_2_gbif = dict(zip(conversion.species_id, conversion.GBIF_species_id))
     obs['gbif_id'] = obs['species_id'].map(spec_2_gbif)    
     taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(base_dir), sep="\t")
-    taxa = taxons[taxons['taxonID'].isin(present_specs)]
+    taxa = taxons[taxons['taxonID'].isin(gbif_specs)]
     phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'canonicalName']]
     gbif_2_king = dict(zip(phylogeny.taxonID, phylogeny.kingdom))
     gbif_2_phy = dict(zip(phylogeny.taxonID, phylogeny.phylum))
