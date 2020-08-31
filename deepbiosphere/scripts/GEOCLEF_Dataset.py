@@ -121,14 +121,14 @@ def open_raster(raster):
 def coord_2_index(affine, lat, lon):
     x, y =  ~affine * (lon, lat)
     return int(round(x)), int(round(y))
-def latlon_2_index(affine, latlon):
+def latlon_2_idx(affine, latlon):
     y, x =  ~affine * (latlon[1], latlon[0])
     return int(round(x)), int(round(y))
 
         # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
         # observations to account for this fact and still be able to use observations for these points
-def get_raster_image_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, pix_res):
-    x, y = latlon_2_idx(lat_lon)
+def get_raster_image_obs(lat_lon, affine, rasters, nan, normalize, pix_res):
+    x, y = latlon_2_idx(affine, lat_lon)
     xmin, xmax, ymin, ymax = xy_2_range_center(pix_res, x, y)    
     if ymin < 0:
         # find how many ocean nans are missing
@@ -147,10 +147,9 @@ def get_raster_image_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, pix_res
         exit(1), "{} is outside bounds of env raster image!".format(lat_lon)
     else: 
         env_rasters = rasters[:,xmin:xmax,ymin:ymax]
-    assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
     return env_rasters
-def get_raster_point_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max):
-    x, y = latlon_2_idx(lat_lon)
+def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max):
+    x, y = latlon_2_idx(affine, lat_lon)
     env_rasters = rasters[:,x,y]
     assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
     if normalize == 'min_max':
@@ -164,8 +163,8 @@ def get_raster_point_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, lat_min
         env_rasters = np.append(env_rasters, [lat_lon[0], lat_lon[1]])    
     return env_rasters
 
-def get_raster_sheet_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max, width, height):
-    x, y = latlon_2_idx(lat_lon)
+def get_raster_sheet_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max, width, height):
+    x, y = latlon_2_idx(affine, lat_lon)
     env_rasters = rasters[:,x,y]
     assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
     if normalize == 'min_max':
@@ -250,7 +249,7 @@ def filter_to_bioclim(obs, src, geoms, nan):
     masked, affine = mask(src, geoms, nodata=nan, filled=True, crop=False, pad=True, all_touched=True)
     masked = np.squeeze(masked)
     for i, ob in obs.iterrows():
-        x, y = latlon_2_index(affine, ob.lat_lon)
+        x, y = latlon_2_idx(affine, ob.lat_lon)
 #         print("x y: ", x, y, ob.lat_lon)
         if x >= masked.shape[0] or y >= masked.shape[1] or x < 0 or y < 0:
             bad_ids.append(ob.id)
@@ -518,7 +517,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
     def __len__(self):
         return len(self.obs)
     # assumes the latlon format from gbif observation building
-    def latlon_2_index(self, latlon):
+    def latlon_2_idx(self, latlon):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
     
@@ -530,7 +529,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         images = image_from_id(id_, self.base_dir, self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_point_obs(lat_lon, self.latlon_2_index, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
+        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, images, env_rasters)
@@ -584,7 +583,7 @@ class Bioclim_Rasters_Point(Dataset):
     def __len__(self):
         return len(self.obs)
     # assumes the latlon format from gbif observation building
-    def latlon_2_index(self, latlon):
+    def latlon_2_idx(self, latlon):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
     
@@ -593,7 +592,7 @@ class Bioclim_Rasters_Point(Dataset):
             idx = idx.tolist()
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_point_obs(lat_lon, self.latlon_2_index, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
+        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, env_rasters)
@@ -630,10 +629,6 @@ class Bioclim_Rasters_Image(Dataset):
             self.spec_freqs = obs.species_id.value_counts().to_dict()
             self.gen_freqs = obs.genus_id.value_counts().to_dict()
             self.fam_freqs = obs.family_id.value_counts().to_dict()
-        self.lat_max = obs.lat.max()
-        self.lon_max = obs.lon.max()
-        self.lat_min = obs.lat.min()
-        self.lon_min = obs.lon.min()        
         self.num_rasters = self.rasters.shape[0]
         print("num rasters is ", self.num_rasters)
         self.channels = self.num_rasters
@@ -643,7 +638,7 @@ class Bioclim_Rasters_Image(Dataset):
     def __len__(self):
         return len(self.obs)
     # assumes the latlon format from gbif observation building
-    def latlon_2_index(self, latlon):
+    def latlon_2_idx(self, latlon):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
     
@@ -652,17 +647,18 @@ class Bioclim_Rasters_Image(Dataset):
             idx = idx.tolist()
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_image_obs(lat_lon, self.latlon_2_idx, self.rasters, self.nan, self.normalize, self.pix_res)
+        env_rasters = get_raster_image_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.pix_res)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, env_rasters)
     
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation):
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
+        self.altitude = altitude
         self.channels = None
         self.normalize = normalize
         self.observation = observation
@@ -690,11 +686,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
             self.gen_freqs = obs.genus_id.value_counts().to_dict()
             self.fam_freqs = obs.family_id.value_counts().to_dict()
             
-        self.lat_max = obs.lat.max()
-        self.lon_max = obs.lon.max()
-        self.lat_min = obs.lat.min()
-        self.lon_min = obs.lon.min()        
-        self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
+        self.num_rasters = self.rasters.shape[0] # plus two because including the lat lon
         print("num rasters is ", self.num_rasters)
 
         # convert to numpy
@@ -710,7 +702,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
     def __len__(self):
         return len(self.obs)
     # assumes the latlon format from gbif observation building
-    def latlon_2_index(self, latlon):
+    def latlon_2_idx(self, latlon):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
     def __getitem__(self, idx):
@@ -721,9 +713,8 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         images = image_from_id(id_, self.base_dir, self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_image_obs(lat_lon, self.latlon_2_idx, self.rasters, self.nan, self.normalize, self.width)
+        env_rasters = get_raster_image_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.width)
         # concatenate together
-        assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
         all_imgs = np.concatenate([images, env_rasters], axis=0)
         
         # get labels
@@ -732,12 +723,13 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
 
 
 class HighRes_Satellite_Rasters_Sheet(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation):
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
         self.channels = None
         self.normalize = normalize
+        self.altitude = altitude
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
@@ -783,7 +775,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
     def __len__(self):
         return len(self.obs)
     # assumes the latlon format from gbif observation building
-    def latlon_2_index(self, latlon):
+    def latlon_2_idx(self, latlon):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
     def __getitem__(self, idx):
@@ -794,13 +786,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         images = image_from_id(id_, self.base_dir, self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_image_obs(lat_lon, self.latlon_2_idx, self.rasters, self.nan, self.normalize, self.width)
-        # concatenate together
-        assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
-        all_imgs = np.concatenate([images, env_rasters], axis=0)
-        # get raster data
-        lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_sheet_obs(lat_lon, self.latlon_2_index, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.width, self.height)
+        env_rasters = get_raster_sheet_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.width, self.height)
         all_imgs = np.concatenate([images, env_rasters], axis=0)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)

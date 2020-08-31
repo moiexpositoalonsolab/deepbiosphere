@@ -53,7 +53,7 @@ def setup_train_dataset(observation, base_dir, organism, region, normalize, alti
         return Dataset.HighRes_Satellie_Images_Only(base_dir, organism, region, observation, altitude)
         
     elif dataset == 'satellite_rasters_image':
-        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation)
+        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude)
     elif dataset == 'satellite_rasters_point':
         return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize)
     elif dataset == 'rasters_image':
@@ -62,7 +62,7 @@ def setup_train_dataset(observation, base_dir, organism, region, normalize, alti
         return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation)
         
     elif dataset == 'satellite_rasters_sheet':
-        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation)
+        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation, altitude)
     else: 
         raise NotImplementedError
 
@@ -237,7 +237,7 @@ def joint_raster_collate_fn(batch):
                                                        
                                                        
                                                        
-def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss):
+def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss, model, dataset):
     if model == 'SpecOnly':
         if observation == 'single':
             return test_single_speconly_batch(test_loader, tb_writer, device, net, epoch)
@@ -901,7 +901,7 @@ def train_model(ARGS, params):
         all_accs = []
         print("testing model")
         with torch.no_grad():
-            means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss)   
+            means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss, params.params.model, params.params.dataset)   
         if not ARGS.toy_dataset:
             desiderata = {
                 'all_loss': all_time_loss,
