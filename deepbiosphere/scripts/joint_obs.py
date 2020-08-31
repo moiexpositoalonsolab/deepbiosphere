@@ -1,43 +1,18 @@
-from random import randrange
+import warnings
 import pandas as pd
-import argparse
 import time
-import numpy as np
-import socket
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
-from torch.utils.data.sampler import SubsetRandomSampler
-import random
 import math 
 import reverse_geocoder as rg
-from tqdm import tqdm
-from deepbiosphere.scripts import GEOCLEF_CNN as cnn
-from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
+import glob
+import os
+from deepbiosphere.scripts import GEOCLEF_Utils as utils
+from deepbiosphere.scripts import GEOCLEF_Config as config
 from deepbiosphere.scripts.GEOCLEF_Config import paths
 
-# https://www.movable-type.co.uk/scripts/latlong.html
-def nmea_2_meters(lat1, lon1, lat2, lon2):
-    
-    R = 6371009 #; // metres
-    r1 = lat1 * math.pi/180 #; // φ, λ in radians
-    r2 = lat2 * math.pi/180;
-    dr = (lat2-lat1) * math.pi/180;
-    dl = (lon2-lon1) * math.pi/180;
-
-    a = math.sin(dr/2) * math.sin(dr/2) + \
-              math.cos(r1) * math.cos(r2) * \
-              math.sin(dl/2) * math.sin(dl/2);
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a));
-
-    d = R * c #; // in metres
-    return d
 
 
 
-def get_joint_from_group(group_df):
+def get_multiple_joint_from_group(group_df):
     df_np = group_df[['lat', 'lon', 'species_id', 'gbif_id', 'family', 'genus']].values #.to_numpy()
     extra_specs = [{df_np[i,2]} for i in range(len(df_np))]
     extra_fams = [{df_np[i,4]} for i in range(len(df_np))] 
@@ -48,7 +23,7 @@ def get_joint_from_group(group_df):
     for i in range(len(df_np)):
         for j in range(len(df_np)):
             if i != j:
-                dist = nmea_2_meters(df_np[i,0], df_np[i,1], df_np[j,0], df_np[j,1])
+                dist = utils.nmea_2_meters(df_np[i,0], df_np[i,1], df_np[j,0], df_np[j,1])
                 if dist <= 256:
                     extra_specs[i].add(df_np[j,2])
                     extra_fams[i].add(df_np[j,4])
@@ -57,38 +32,68 @@ def get_joint_from_group(group_df):
     diff = tock - tick
     # ((diff / len(bb_np)) * len(filtered))/(60*60)
     print("took {diff} seconds".format(diff=diff))
+
+
     group_df['all_specs'] = extra_specs
     group_df['all_fams'] = extra_fams
     group_df['all_gens'] = extra_gens    
     return group_df
 
 
+def get_single_joint_from_group(group_df):
+    
+    df_np = group_df[['lat', 'lon', 'species_id', 'gbif_id', 'family', 'genus', 'id']].values #.to_numpy()
+    # create a set with each single observation in it
+    extra_specs = [{df_np[i,2]} for i in range(len(df_np))]
+    extra_fams = [{df_np[i,4]} for i in range(len(df_np))] 
+    extra_gens = [{df_np[i,5]} for i in range(len(df_np))]
+    
+    tick = time.time()
+    # def nmea_2_meters(lat1, lon1, lat2, lon2):
+    i_ids = set()
+    j_ids = set()
+    for i in range(len(df_np)):
+        for j in range(len(df_np)):
+            if i != j:
+                dist = utils.nmea_2_meters(df_np[i,0], df_np[i,1], df_np[j,0], df_np[j,1])
+                if dist <= 256:
+                    i_id = df_np[i, 6]
+                    j_id = df_np[j,6]
+                    # if we haven't seen this cluster of obs before, save one of the obs
+                    if i_id not in j_ids:
+                        i_ids.add(i_id)
+                    j_ids.add(j_id)
+                    extra_specs[i].add(df_np[j,2])
+                    extra_fams[i].add(df_np[j,4])
+                    extra_gens[i].add(df_np[j,5])
+
+    group_df['all_specs'] = extra_specs
+    group_df['all_fams'] = extra_fams
+    group_df['all_gens'] = extra_gens
+    bad_ids = j_ids - i_ids
+    # take out duplicates
+    group_df = group_df[~group_df.id.isin(bad_ids)]
+    tock = time.time()
+    diff = tock - tick
+    print("took {diff} seconds".format(diff=diff))
+    return group_df
+
+
+
+
 def main():
+    
+    warnings.filterwarnings("ignore")
     print("grab data")
     pth = ARGS.base_dir
     us_train = None
-#     train = 'plants' if ARGS.plants else 'train'
-    us_train_pth = "{}occurrences/occurrences_cali_plant_raster.csv".format(pth) if ARGS.rasters else "{pth}occurrences/occurrences_{country}_{org}_train.csv".format(pth=pth, country=ARGS.country, org=ARGS.organism)
+    if ARGS.observation == 'single':
+        print("why are you doing this?")
+        exit(1)
+    us_train_pth = "{}occurrences/single_obs_cali_plant_census.csv".format(pth) if ARGS.census else "{pth}occurrences/single_obs_{country}_{org}_train.csv".format(pth=pth, country=ARGS.region, org=ARGS.organism)
     us_train = pd.read_csv(us_train_pth, sep=';')
     if 'genus' not in us_train.columns.tolist():
-        gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
-        taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(pth), sep="\t")
-        us_train.fillna('nan', inplace = True)
-        us_celf_spec = us_train.species_id.unique()
-        # get all the gbif species ids for all the species in the us sample
-        conversion = gbif_meta[gbif_meta['species_id'].isin(us_celf_spec)]
-        gbif_specs = conversion.GBIF_species_id.unique()
-        # get dict that maps CELF id to GBIF id
-        spec_2_gbif = dict(zip(conversion.species_id, conversion.GBIF_species_id))
-        us_train['gbif_id'] = us_train['species_id'].map(spec_2_gbif)
-        # grab all the taxonomy mappings from the gbif taxons file for all the given species
-        # GBIF id == taxonID
-        taxa = taxons[taxons['taxonID'].isin(gbif_specs)]
-        phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus']]
-        gbif_2_fam = dict(zip(phylogeny.taxonID, phylogeny.family))
-        gbif_2_gen = dict(zip(phylogeny.taxonID, phylogeny.genus))
-        us_train['family'] = us_train['gbif_id'].map(gbif_2_fam)
-        us_train['genus'] = us_train['gbif_id'].map(gbif_2_gen)
+        us_train = utils.add_taxon_metadata(pth, us_train, ARGS.observation)
     
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
@@ -96,7 +101,6 @@ def main():
     us_latlon = us_train['lat_lon'].tolist()
     # grab location data for the lat lon
     res = rg.search(us_latlon)
-    # add env filtering here
 
     
     # grab necessary info from the results
@@ -109,38 +113,41 @@ def main():
     us_train['city'] = cities
     # group data into smaller, more manageable chunks
     grouped = us_train.groupby(['city', 'state', 'region'])
-    all_datframes = []
+    write_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
+    if not os.path.exists(write_pth):
+        os.makedirs(write_pth)
+#     import pdb; pdb.set_trace()
     for (grouping, df) in grouped:
         print("grouping {grouping}".format(grouping=grouping))
-        joint_df = get_joint_from_group(df)
+        if ARGS.observation == 'joint_multiple':
+            joint_df = get_multiple_joint_from_group(df)
+        elif ARGS.observation == 'joint_single':
+            joint_df = get_single_joint_from_group(df)
+        else:
+            pass
 
-        if not ARGS.plants:
-            write_pth = "{pth}joint_obs/".format(pth=pth)
-            city = grouping[0].replace(" ", "")
-            region = grouping[2].replace(" ", "")
-            state = grouping[1].replace(" ", "")
-            pth_pth = "{write_pth}{country}_{city}_{region}_{state}.csv".format(write_pth=write_pth, country=ARGS.country, city=city, region=region, state=state)
-#             print(f"saving to {pth_pth}")
-            joint_df.to_csv(pth_pth)
-        else:     
-            all_datframes.append(joint_df)
 
-    if ARGS.plants:
-        joint_obs = pd.concat(all_datframes)
-        print("save data")
-        plant = 'plant' if ARGS.plants else "plantanimal"
-        pth = "{pth}/occurrences/joint_obs_{region}_{plant}_train_rasters.csv".format(pth=pth, region=ARGS.country, plant=plant) if ARGS.rasters else "{pth}/occurrences/joint_obs_{region}_{plant}_{train}.csv".format(pth=pth, region=ARGS.country, plant=plant,train=train)
-        joint_obs.to_csv(pth)
+        city = grouping[0].replace(" ", "")
+        region = grouping[2].replace(" ", "")
+        state = grouping[1].replace(" ", "")
+        pth_pth = "{write_pth}{country}_{city}_{region}_{state}.csv".format(write_pth=write_pth, country=ARGS.region, city=city, region=region, state=state)
+        joint_df.to_csv(pth_pth)
+
+    # now clean memory and go regrab that data and append
+    del us_train, grouped
+    glob_pth = "{pth}joint_obs/{obs}/{region}*".format(pth=pth, obs=ARGS.observation, region=ARGS.region)
+    all_grouped = glob.glob(glob_pth)
+    all_dat = pd.read_csv(all_grouped[0])
+    for path in all_grouped[1:]:
+        new_dat = pd.read_csv(path)
+        all_dat = pd.concat([all_dat, new_dat])
+    # and save data 
+    pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_train_census.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism) if ARGS.census else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train=train)
+    all_dat.to_csv(pth)
     
     
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--country", type=str, help="which country's images to read", default='us', required=True, choices=['us', 'fr', 'cali'])
-    parser.add_argument("--base_dir", type=str, help="what folder to read images from",choices=['DBS_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'], required=True)
-    parser.add_argument('--organism', type=str, choices=['plant', 'animal', 'plantanimal'], required=True)
-    parser.add_argument('--plants', dest='plants', help="if using cali plant-only data", action='store_true')
-    parser.add_argument("--rasters", dest='rasters', action='store_true')
-    ARGS, _ = parser.parse_known_args()
-    ARGS.base_dir = eval("paths.{}".format(ARGS.base_dir))
-    print("using base directory {}".format(ARGS.base_dir))
+    
+    args = ['base_dir', 'organism', 'census', 'region', 'observation']
+    ARGS = config.parse_known_args(args)
     main()

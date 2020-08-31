@@ -24,13 +24,16 @@ paths = SimpleNamespace(**paths)
 choices = {
     'base_dir': ['DBS_DIR', 'MNT_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'],
     'region': ['us', 'fr', 'us_fr', 'cali'],
+    'observation': ['single', 'joint_multiple', 'joint_single'],
     'organism': ['plant', 'animal', 'plantanimal'],
     # single: single obs, joint_image is just trained on the rgbd image, joint_image_env is trained on rgbd image + env cnn rasters, 
     # joint_image_pt is trained on rgbd image + env rasters pointwise, joint_env_cnn is trained on just environmental rasters as a cnn
     # joint_pt is trained as just the pointwise env rasters for a given observation
-    'observation': ['single', 'joint_image', 'joint_image_env', 'joint_image_pt', 'joint_env_cnn', 'joint_pt', 'joint_image_cnn'],
-    'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'spec_only', 'spec_loss'],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species'],
+    # old: joint_image', 'joint_image_env', 'joint_image_pt', 'joint_env_cnn', 'joint_pt', 'joint_image_cnn', 'single_image_cnn', 'single_env_cnn'],
+    # new: satellite_only, satellite_rasters_lowres, satellite_rasters_point, rasters_lowres, rasters_point, satellite_rasters_sheet, 
+    'dataset': [ 'satellite_only', 'satellite_rasters_image', 'satellite_rasters_point', 'rasters_image', 'rasters_point', 'satellite_rasters_sheet'],
+    'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec'],
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet'],
     'normalize' : ['normalize', 'min_max', 'none']
     
 }
@@ -51,6 +54,7 @@ arguments = {
     'exp_id': {'type':str, 'help':"experiment id of this run", 'required':('--load_from_config' not in sys.argv)},
     'batch_size': {'type':int, 'help':"size of batches to use",'required': ('--load_from_config' not in sys.argv)}, 
     'observation': {'choices':choices.observation, 'required': ('--load_from_config' not in sys.argv)},
+    'dataset': {'choices':choices.dataset, 'required': ('--load_from_config' not in sys.argv)},    
     'model':{'choices':choices.model, 'required': ('--load_from_config' not in sys.argv)},
     'loss': {'choices':choices.loss, 'required': ('--load_from_config' not in sys.argv)},
     # optional arguments
@@ -61,7 +65,8 @@ arguments = {
     'normalize': {'choices': choices.normalize, 'help': 'whether to normalize environmental rasters'},
     'unweighted': {'dest':'unweighted', 'help': 'whether to weight loss by frequency of the observation', 'action':'store_true'},    
     'no_alt': {'dest':'no_alt', 'help': 'set to not include altitude layer, dont set to include', 'action':'store_false'},        
-    'from_scratch': {'dest':'from_scratch', 'help': 'if you want to restart training from scratch and rebuild everything, set this flag', 'action':'store_true'},    
+    'from_scratch': {'dest':'from_scratch', 'help': 'if you want to restart training from scratch and rebuild everything, set this flag', 'action':'store_true'},
+    'census' : {'dest':'census', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'}
 }
 
 def setup_main_dirs(base_dir):
@@ -73,8 +78,8 @@ def setup_main_dirs(base_dir):
     if not os.path.exists("{}desiderata/".format(base_dir)):
         os.makedirs("{}desiderata/".format(base_dir))  
 
-def build_params_path(base_dir, observation, organism, region, model, loss, exp_id):
-    return "{}configs/{}_{}_{}_{}_{}_{}.json".format(base_dir, observation, organism, region, model, loss, exp_id)
+def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id):
+    return "{}configs/{}_{}_{}_{}_{}_{}_{}.json".format(base_dir, observation, organism, region, model, loss, dataset, exp_id)
 
 def build_hyperparams_path(base_dir, exp_id):
     if not os.path.exists("{}desiderata/hyperparams/".format(base_dir)):
@@ -107,7 +112,7 @@ class Run_Params():
             self.params = load_parameters(abs_path)
             self.base_dir = ARGS.base_dir
         else:
-            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.loss, ARGS.exp_id) 
+            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.loss, ARGS.dataset, ARGS.exp_id) 
             params = {
                 'lr': ARGS.lr,
                 'observation': ARGS.observation,
@@ -120,7 +125,8 @@ class Run_Params():
                 'loss' : ARGS.loss,
                 'normalize' : ARGS.normalize,
                 'unweighted' : ARGS.unweighted,
-                'no_altitude' : ARGS.no_alt
+                'no_altitude' : ARGS.no_alt,
+                'dataset' : ARGS.dataset,
             }
 
             with open(cfg_path, 'w') as fp:
@@ -130,7 +136,7 @@ class Run_Params():
             self.setup_run_dirs(ARGS.base_dir)
 
     def build_rel_path(self, base_dir, name):
-        return "{}{}/{}/{}/{}/{}/{}/".format(base_dir, name, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.loss)
+        return "{}{}/{}/{}/{}/{}/{}/{}/".format(base_dir, name, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.loss, self.params.dataset)
 
     def build_abs_nets_path(self, epoch):
         return "{}{}_lr{}_e{}.tar".format(self.build_rel_path(self.base_dir, 'nets'), self.params.exp_id, self.params.lr, epoch)

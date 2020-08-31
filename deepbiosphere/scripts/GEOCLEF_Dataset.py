@@ -44,6 +44,12 @@ def get_joint_gbif_data(pth, country, organism):
     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
     return joint_obs
+
+
+
+
+
+
 def xy_2_range_center(pix_res, x, y):
     half = pix_res /2
     xmin, xmax = x-half, x+half
@@ -118,7 +124,11 @@ def latlon_2_index(affine, latlon):
     y, x =  ~affine * (latlon[1], latlon[0])
     return int(round(x)), int(round(y))
 
-def raster_cnn_image(rasters, xmin, xmax, ymin, ymax, nan):
+        # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
+        # observations to account for this fact and still be able to use observations for these points
+def get_raster_image_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, pix_res):
+    x, y = latlon_2_idx(lat_lon)
+    xmin, xmax, ymin, ymax = xy_2_range_center(pix_res, x, y)    
     if ymin < 0:
         # find how many ocean nans are missing
         diff = xmax-xmin
@@ -131,14 +141,44 @@ def raster_cnn_image(rasters, xmin, xmax, ymin, ymax, nan):
     # if the range of the rasters in other dimensions is out of bounds, then it's a dataset error and return
     
     elif xmin < 0 or xmax > rasters.shape[1] or ymax > rasters.shape[2]:
-        print("riperoni")
+        print("riperoni out of bounds")
         print(xmin, xmax, ymin, ymax, rasters.shape)
-        import pdb; pdb.set_trace()
         exit(1), "{} is outside bounds of env raster image!".format(lat_lon)
     else: 
         env_rasters = rasters[:,xmin:xmax,ymin:ymax]
+    assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
+    return env_rasters
+def get_raster_point_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max):
+    x, y = latlon_2_idx(lat_lon)
+    env_rasters = rasters[:,x,y]
+    assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
+    if normalize == 'min_max':
+        lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
+        lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
+        env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
+
+    elif  normalize == 'normalize':
+        raise NotImplementedError
+    else:
+        env_rasters = np.append(env_rasters, [lat_lon[0], lat_lon[1]])    
     return env_rasters
 
+def get_raster_sheet_obs(lat_lon, latlon_2_idx, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max, width, height):
+    x, y = latlon_2_idx(lat_lon)
+    env_rasters = rasters[:,x,y]
+    assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
+    if normalize == 'min_max':
+        lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
+        lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
+        env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
+
+    elif  normalize == 'normalize':
+        raise NotImplementedError
+    else:
+        env_rasters = np.append(env_rasters, [lat_lon[0], lat_lon[1]])    
+    ras_cnn = [np.full((width, height),  val) for val in env_rasters]
+    ras_cnn = np.stack(ras_cnn)
+    return ras_cnn
 def raster_filter_2_cali(base_dir, obs):
     
     geoms = get_cali_shape(base_dir)
@@ -148,10 +188,12 @@ def raster_filter_2_cali(base_dir, obs):
     filt_obs = filter_to_bioclim(obs, src, geoms, nan)
     return  filt_obs
 
-def get_bioclim_rasters(base_dir, region, normalized, obs, big=True):
+def get_bioclim_rasters(base_dir, region, normalized, obs):
     
     if region ==  'cali':
-        geoms = get_cali_shape(base_dir) if not big else get_big_cali_shape(base_dir)
+        # grab the raster of cali shape with buffer
+        # has a ~100 km radius around the cali border for any observation that sits right on the edge
+        geoms = get_big_cali_shape(base_dir) # old:  get_cali_shape(base_dir) if not big else 
         ras_paths = get_us_bioclim(base_dir)
     else:
         raise NotImplementedError
@@ -178,29 +220,17 @@ def get_bioclim_rasters(base_dir, region, normalized, obs, big=True):
         # this method relies on all affine transformations being the same, need to change that for more environmental rasters
         aff_agg.append(affine)        
     # filter down the dataset to only in-range observations
+    # this shape of cali is the us-census designated shape
+    geoms = get_cali_shape(base_dir)
     filt_obs = filter_to_bioclim(obs, src, geoms, nan)
     # make sure rasters in same affine 
     # replace nan value with something more reasonable
-    if normalized == 'normalize':
-
-        mins = [r.min() for r in ras_agg]
-        maxs = [r.max() for r in ras_agg]
-        min_ = max(maxs) - min(mins) * 2
-        min_ = -min_
-#         print('normalizing to ', -min_, max(maxs), min(mins))
-        ras_agg = [r.filled(min_) for r in ras_agg]
-        
-    elif normalized == 'min_max':
-#         print('min maxing')
-        mins = [r.min() for r in ras_agg]
-        maxs = [r.max() for r in ras_agg]
-        min_ = max(maxs) - min(mins) * 2
-        min_ = -min_
-#         print('min maxing to ', -min_, max(maxs), min(mins))
-        ras_agg = [r.filled(min_) for r in ras_agg]
-    else:
-        min_ = min([r.data.min() for r in ras_agg])
-        ras_agg = [r.filled(min_) for r in ras_agg]
+    # nan is 2x more negative than most smallest value across all rasters
+    mins = [r.min() for r in ras_agg]
+    maxs = [r.max() for r in ras_agg]
+    min_ = max(maxs) - min(mins) * 2
+    min_ = -min_
+    ras_agg = [r.filled(min_) for r in ras_agg]
     
     for i in range(len(aff_agg)):
         for j in range(len(aff_agg)):
@@ -260,7 +290,7 @@ def freq_from_dict(f_dict):
 
 def get_shapes(id_, pth, altitude):
     tens = image_from_id(id_, pth, altitude)
-    # channels, alt_shape, rgbd_shape    
+    # channels, width, height
     return tens.shape[0], tens.shape[1], tens.shape[2]
 
 
@@ -289,13 +319,16 @@ def add_genus_family_data(pth, train):
     return train
 
 
-def map_key_2_index(df, key):
+def map_key_2_index(df, key, new_key=None):
     key_2_id = {
         k:v for k, v in 
         zip(df[key].unique(), np.arange(len(df[key].unique())))
     }
-    df[key] = df[key].map(key_2_id)
-    return df
+    if new_key == None:
+        df[key] = df[key].map(key_2_id)
+    else:
+        df[new_key] = df[key].map(key_2_id)
+    return df, key_2_id
 
 def dict_key_2_index(df, key):
     return {
@@ -304,511 +337,139 @@ def dict_key_2_index(df, key):
     }
 
 
-def prep_data(obs):
+# def prep_data(obs):
 
-    spec_dict = dict_key_2_index(obs, 'species_id')
-    inv_spec = {v: k for k, v in spec_dict.items()}
-    obs = map_key_2_index(obs, 'species_id')
-    obs = map_key_2_index(obs, 'genus')
-    obs = map_key_2_index(obs, 'family')
+#     obs, spec_dict = map_key_2_index(obs, 'species_id')
+#     inv_spec = {v: k for k, v in spec_dict.items()}
+#     obs, _ = map_key_2_index(obs, 'genus', 'genus_id')
+#     obs, _ = map_key_2_index(obs, 'family', 'family_id')
 
-    return obs, inv_spec    
+#     return obs, inv_spec    
     
 # TODO: assumes that species_id, genus, family columns contain all possible values contained in extra_obs    
-def prep_joint_data(obs):
-    spec_dict = dict_key_2_index(obs, 'species_id')
-    gen_dict = dict_key_2_index(obs, 'genus')
-    fam_dict = dict_key_2_index(obs, 'family')
+def prep_data(obs):
+    
+    # map all species ids to 0-num_species, same for family and genus
+    obs, spec_dict = map_key_2_index(obs, 'species_id')
     inv_spec = {v: k for k, v in spec_dict.items()}
-    # for each set in
+    obs, gen_dict = map_key_2_index(obs, 'genus', 'genus_id')
+    obs, fam_dict = map_key_2_index(obs, 'family', 'family_id')
+    # also map all species / genus / family in joint observation to 0-num
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
     obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])    
     return obs, inv_spec      
 
-def prep_joint_data_toy(obs):
-    spec_dict = dict_key_2_index(obs, 'species_id')
-    gen_dict = dict_key_2_index(obs, 'genus')
-    fam_dict = dict_key_2_index(obs, 'family')
-    inv_spec = {v: k for k, v in spec_dict.items()}
-    inv_gen = {v: k for k, v in gen_dict.items()}
-    inv_fam = {v: k for k, v in fam_dict.items()}    
-    # for each set in
-    obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
-    obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
-    obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])    
-    return obs, inv_spec, inv_gen, inv_fam
-
-#TODO: normalize dataset range to gaussian distribution
-def normalize_dataset():
-    pass
-
-class GEOCELF_Dataset(Dataset):
-    def __init__(self, base_dir, organism, country='us', altitude=True, transform=None):
-
-        self.base_dir = base_dir
-        self.country = country
-        self.organism = organism
-        self.split = 'train'
-        self.altitude = altitude
-        obs = get_gbif_data(self.base_dir, self.split, country, organism)
-        obs.fillna('nan', inplace=True)
-        obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        # convert to numpy
-        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-
-
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)
-        composite_label = self.obs[idx, 1:] # get genus, family as well
-        if self.transform:
-            images = self.transform(images)
-        return (composite_label, images)
-
-
-class GEOCELF_Dataset_Full(Dataset):
-    def __init__(self, base_dir, organism, altitude=True, transform=None):
-
-        self.base_dir = base_dir
-        self.split = 'train'
-        us_obs = get_gbif_data(self.base_dir, self.split, 'us', organism)
-        fr_obs = get_gbif_data(self.base_dir, self.split, 'fr', organism)
-        self.altitude = altitude
-        obs = pd.concat([us_obs, fr_obs])
-    
-        
-        obs.fillna('nan', inplace=True)
-        obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # obs is of shape [id, species_id, genus, family]    
-        id_, label = self.obs[idx, 0], self.obs[idx, 1]
-        images = image_from_id(id_, self.base_dir, self.altitude)
-        composite_label = self.obs[idx, 1:] # get genus, family as well
-        if self.transform:
-            images = self.transform(images)
-        return (composite_label, images)    
-    
-class GEOCELF_Test_Dataset(Dataset):
-    def __init__(self, base_dir, organism, country='us', transform=None):
-        
-        self.base_dir = base_dir
-        self.country = country
-        self.split = 'test'
-        self.altitude = altitude        
-        obs = get_gbif_data(self.base_dir, self.split, country, organism)
-        self.obs = obs[['id']].values
-        _, alt_shape, rgbd_shape = get_shapes(self.obs[0, 0], self.base_dir, self.altitude)
-        self.rgbd_shape = rgbd_shape
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx,0]
-        images = image_from_id(id_, self.base_dir, self.altitude)        
-        if self.transform:
-            images = self.transform(images)
-        return (images, id_)    
-
-class GEOCELF_Test_Dataset_Full(Dataset):
-    def __init__(self, base_dir, organism, transform=None):
-        
-        self.base_dir = base_dir
-        self.split = 'test'
-        us_obs = get_gbif_data(self.base_dir, self.split, 'us', organism)
-        fr_obs = get_gbif_data(self.base_dir, self.split, 'fr', organism)
-        obs = pd.concat([us_obs, fr_obs])
-        self.altitude = altitude        
-        self.obs = obs[['id']].values
-        _, alt_shape, rgbd_shape = get_shapes(self.obs[0, 0], self.base_dir, self.altitude)
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-        self.transform = transform
-#        self.obs = obs[['id']].to_numpy()
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx,0]
-        images = image_from_id(id_, self.base_dir, self.altitude)               
-        if self.transform:
-            images = self.transform(images)
-        return (images, id_)    
-    
-    
-class GEOCELF_Dataset_Joint(Dataset):
-    def __init__(self, base_dir, organism, country='us', altitude=True, transform=None):
-        self.base_dir = base_dir
-        self.country = country
-        self.altitude = altitude        
-        self.organism = organism
-        obs = get_joint_gbif_data(self.base_dir, country, organism)
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)                    
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-        if self.transform:
-            images = self.transform(images)
-        return (specs_label, gens_label, fams_label, images)    
-    
-
-class GEOCELF_Dataset_Joint_Full(Dataset):
-    def __init__(self, base_dir, organism, altitude=True, transform=None):
-        
-        self.base_dir = base_dir
-        self.split = 'train'
-        self.organism = organism
-        self.altitude = altitude        
-        us_obs = get_joint_gbif_data(self.base_dir, 'us', organism)
-        fr_obs = get_joint_gbif_data(self.base_dir, 'fr', organism)
-        obs = pd.concat([us_obs, fr_obs])
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        id_ = self.obs[idx, 0]            
-        # obs is of shape [id, species_id, genus, family]    
-        id_, label = self.obs[idx, 0], self.obs[idx, 1]
-        images = image_from_id(id_, self.base_dir, self.altitude)            
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-        if self.transform:
-            images = self.transform(images)
-        return (specs_label, gens_label, fams_label, images)  
-
-    
-class Joint_Toy_Dataset(Dataset):
-    def __init__(self, base_dir, organism, country='us', transform=None):
-        self.base_dir = base_dir
-        self.country = country
-        self.organism = organism
-        self.altitude = altitude        
-        obs = get_joint_gbif_data(self.base_dir, country, organism)
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec, inv_gen, inv_fam = prep_joint_data_toy(obs)
-        self.spec_idx_2_id = inv_spec
-        self.gen_idx_2_id = inv_gen
-        self.fam_idx_2_id = inv_fam        
-        print(type(self.spec_idx_2_id))
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()  
-        obs = obs[:500]
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-        
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)                    
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-        if self.transform:
-            images = self.transform(images)
-        return (specs_label, gens_label, fams_label, images)   
-    
-    
-class Single_Toy_Dataset(Dataset):
-    def __init__(self, base_dir, organism, country='us', transform=None):
-
-        self.base_dir = base_dir
-        self.country = country
-        self.organism = organism
-        self.split = 'train'
-        obs = get_gbif_data(self.base_dir, self.split, country, organism)
-        obs.fillna('nan', inplace=True)
-        obs = add_genus_family_data(self.base_dir, obs)
-        obs, inv_spec  = prep_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        # convert to numpy
-        obs = obs[:500]        
-        self.obs = obs[['id', 'species_id', 'genus', 'family']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)
-        composite_label = self.obs[idx, 1:] # get genus, family as well
-        if self.transform:
-            images = self.transform(images)
-        return (composite_label, images)
-    
-    
-class GEOCELF_Dataset_Joint_Scalar_Raster(Dataset):
-    def __init__(self, base_dir, organism, altitude, country='us', transform=None, normalize=True):
-        self.base_dir = base_dir
-        self.country = country
-        self.organism = organism
-        obs = get_joint_gbif_data(self.base_dir, country, organism)
-        rasterpath = "{}rasters".format(self.base_dir)
-        rasters  = PatchExtractor(rasterpath, size = 1)
-        rasters.add_all(normalized=normalize)
-        self.rasters = rasters
-        self.altitude = altitude
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.num_rasters = len(rasters) 
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # get images
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)     
-        # get raster data
-        lat_lon = self.obs[idx, 4]
-        env_rasters = self.rasters[lat_lon]
-        # get labels
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-
-        if self.transform:
-            images = self.transform(images)
-        return (specs_label, gens_label, fams_label, images, env_rasters)        
-
-
-    
-class GEOCELF_Dataset_Joint_Scalar_Raster_LatLon(Dataset):
-    def __init__(self, base_dir, organism, country='us', transform=None, normalize=True):
-        self.base_dir = base_dir
-        self.country = country
-        self.organism = organism
-        obs = get_joint_gbif_data(self.base_dir, country, organism)
-        rasterpath = "{}rasters".format(self.base_dir)
-        rasters  = PatchExtractor(rasterpath, size = 1)
-        rasters.add_all(normalized=normalize)
-        self.rasters = rasters
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()    
-        self.altitude = altitude        
-        self.lat_scale = obs.lat.max()-obs.lat.min()
-        self.lon_scale = obs.lon.max()-obs.lon.min()
-        self.lat_min = obs.lat.min()
-        self.lon_min = obs.lon.min()        
-        self.normalize = normalize
-        
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-        self.num_rasters = len(rasters)+ 2 # plus two because including the lat lon
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
-    def __len__(self):
-        return len(self.obs)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # get images
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)     
-        # get raster data
-        lat_lon = self.obs[idx, 4]
-        env_rasters = self.rasters[lat_lon]
-        if self.normalize:
-            
-            env_rasters.append(utils.normalize(self.obs[idx, 5], self.lat_min, self.lat_scale))
-            env_rasters.append(utils.normalize(self.obs[idx, 6], self.lon_min, self.lon_scale))
-                
+def get_labels(observation, obs, idx):
+        if observation == 'single':
+            specs_label = obs(idx, sp_idx)
+            gens_label = obs(idx, gen_idx)
+            fams_label = obs(idx, fam_idx)            
         else:
-            # add lat lon data unnormalized
-            env_rasters.append(self.obs[idx, 5])
-            env_rasters.append(self.obs[idx, 6])            
-        # get labels
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-
-        if self.transform:
-            images = self.transform(images)
-        return (specs_label, gens_label, fams_label, images, env_rasters)        
+            specs_label = obs(idx, all_sp_idx)
+            gens_label = obs(idx,  all_gen_idx)
+            fams_label = obs(idx,  all_fam_idx)
+        return specs_label, gens_label, fams_label
 
 
+    
+    
+def get_gbif_observations(base_dir, organism, region, observation):
+    #TODO: grab the right gbif dataset depending on what region, what observation type, what organism
+    # even for single observation, go ahead and grab the joint dataset, will just choose to not use joint data later on when grabbing observation
+    # include get_gbif_rasters_data!!
+    obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
+    return pd.read_csv(obs_pth, sep=';')
+        
+    
+id_idx = 0
+sp_idx = 1
+gen_idx = 2
+fam_idx = 3
+all_sp_idx = 4
+all_gen_idx = 6
+all_fam_idx = 5
+lat_lon_idx = 7
 
 
-    # x, y = eniffa * (get_item_from_obs(obs,1)[1], get_item_from_obs(obs,1)[0])
-class GEOCELF_Dataset_BioClim_Only(Dataset):
-    def __init__(self, base_dir, organism, country='cali', transform=None, normalize='none'):
+# just the high resolution satellite imagery
+class HighRes_Satellie_Images_Only(Dataset):
+    def __init__(self, base_dir, organism, region, observation, altitude):
         self.base_dir = base_dir
-        self.country = country
+        self.region = region
         self.organism = organism
-        self.channels = None
-        obs = get_gbif_rasters_data(self.base_dir, country, organism)
+        self.altitude = altitude
+        self.observation = observation
+        obs = get_gbif_observations(base_dir,organism, region, observation)
+        obs.fillna('nan', inplace=True)
+        obs = add_genus_family_data(self.base_dir, obs)
+        obs, inv_spec  = prep_data(obs)
+        self.idx_2_id = inv_spec
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family_id.unique())
+        self.num_gens = len(obs.genus_id.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus_id.value_counts().to_dict()
+        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        # convert to numpy
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens']].values
+
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        self.channels = channels
+        self.width = width
+        self.height = height
+
+    def __len__(self):
+        return len(self.obs)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
+
+        specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, images)
+
+    # the high resolution satellite imagery + the pointwise observation environmental rasters
+class HighRes_Satellite_Rasters_Point(Dataset):
+    def __init__(self, base_dir, organism, region, observation, altitude, normalize):
+        self.base_dir = base_dir
+        self.region = region
+        self.organism = organism
+        self.altitude = altitude
+        self.normalize = normalize
+        self.observation = observation
+        obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
+        obs.fillna('nan', inplace=True)               
+        obs = add_genus_family_data(self.base_dir, obs)
+        obs, inv_spec  = prep_data(obs)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
+        self.num_fams = len(obs.family_id.unique())
+        self.num_gens = len(obs.genus_id.unique())
         self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()        
-        self.lat_scale = obs.lat.max()-obs.lat.min()
-        self.lon_scale = obs.lon.max()-obs.lon.min()
+        self.gen_freqs = obs.genus_id.value_counts().to_dict()
+        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.lat_max = obs.lat.max()
+        self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
         self.lon_min = obs.lon.min()        
-        self.normalize = normalize
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
         self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
         print("num rasters is ", self.num_rasters)
 
+        # convert to numpy
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
+
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        self.channels = channels
+        self.width = width
+        self.height = height
     def __len__(self):
         return len(self.obs)
     # assumes the latlon format from gbif observation building
@@ -819,55 +480,52 @@ class GEOCELF_Dataset_BioClim_Only(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
+        # get images  
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
         # get raster data
-        lat_lon = self.obs[idx, 4]
-        x, y = self.latlon_2_index(lat_lon)
-        env_rasters = self.rasters[:,x,y]
-        assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} for obs index {} value is {} and nan is {}".format(lat_lon, id_, env_rasters, nan)
-        
-        if self.normalize:
-            lat_norm = utils.normalize_latlon(self.obs[idx, 5], self.lat_min, self.lat_scale)
-            lon_norm = utils.normalize_latlon(self.obs[idx, 6], self.lon_min, self.lon_scale)
-            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
-                
-        else:
-            # add lat lon data unnormalized
-            env_rasters = np.append(env_rasters, [self.obs[idx, 5], self.obs[idx, 6]])
+        lat_lon = self.obs[idx, lat_lon_idx]
+        env_rasters = get_raster_point_obs(lat_lon, self.latlon_2_index, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
         # get labels
-        assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-        return (specs_label, gens_label, fams_label, env_rasters)
+        specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, images, env_rasters)
 
-        # x, y = eniffa * (get_item_from_obs(obs,1)[1], get_item_from_obs(obs,1)[0])
-class GEOCELF_Dataset_BioClim_CNN(Dataset):
-    def __init__(self, base_dir, organism, country='cali', transform=None, normalize='none', pix_res=256, big=True):
+    
+    
+    
+    # x, y = eniffa * (get_item_from_obs(obs,1)[1], 
+    # just the environmental raster point value at a location
+class Bioclim_Rasters_Point(Dataset):
+    def __init__(self, base_dir, organism, region, normalize, observation):
         self.base_dir = base_dir
-        self.country = country
+        self.region = region
         self.organism = organism
-        self.pix_res = pix_res
-        obs = get_gbif_rasters_data(self.base_dir, country, organism)
+        self.channels = None
+        self.normalize = normalize
+        self.observation = observation
+        obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs, big)
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        obs.fillna('nan', inplace=True)               
+        obs = add_genus_family_data(self.base_dir, obs)
+        obs, inv_spec  = prep_data(obs)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
+        self.num_fams = len(obs.family_id.unique())
+        self.num_gens = len(obs.genus_id.unique())
         self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()        
-        self.lat_scale = obs.lat.max()-obs.lat.min()
-        self.lon_scale = obs.lon.max()-obs.lon.min()
+        self.gen_freqs = obs.genus_id.value_counts().to_dict()
+        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.lat_max = obs.lat.max()
+        self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
         self.lon_min = obs.lon.min()        
-        self.normalize = normalize
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
-        self.channels = self.rasters.shape[0]
-        print("num rasters is ", self.channels)
+        self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
+        print("num rasters is ", self.num_rasters)
+
+        # convert to numpy
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
 
     def __len__(self):
         return len(self.obs)
@@ -876,236 +534,191 @@ class GEOCELF_Dataset_BioClim_CNN(Dataset):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
     
-    
-
-
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         # get raster data
-        lat_lon = self.obs[idx, 4]
-        x, y = self.latlon_2_index(lat_lon)
-        xmin, xmax, ymin, ymax = xy_2_range_center(self.pix_res, x, y)
-        # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
-        # observations to account for this fact and still be able to use observations for these points
-        
-        env_rasters = raster_cnn_image(self.rasters, xmin, xmax, ymin, ymax, self.nan)
+        lat_lon = self.obs[idx, lat_lon_idx]
+        env_rasters = get_raster_point_obs(lat_lon, self.latlon_2_index, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
         # get labels
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]
+        specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, env_rasters)
-
-class GEOCELF_Dataset_Joint_BioClim_LowRes(Dataset):
-    def __init__(self, base_dir, organism, altitude, normalize, country='us', transform=None):
+    
+    # just the environmental rasters as an image
+class Bioclim_Rasters_Image(Dataset):
+    def __init__(self, base_dir, organism, region, normalize, pix_res=256):
         self.base_dir = base_dir
-        self.country = country
+        self.region = region
         self.organism = organism
-        obs = get_gbif_rasters_data(self.base_dir, country, organism)
+        self.normalize = normalize
+        self.pix_res = pix_res
+        self.observation = observation
+        obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs, True)
-        self.altitude = altitude
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        obs.fillna('nan', inplace=True)               
+        obs = add_genus_family_data(self.base_dir, obs)
+        obs, inv_spec  = prep_data(obs)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
+        self.num_fams = len(obs.family_id.unique())
+        self.num_gens = len(obs.genus_id.unique())
         self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
-        self.normalize = normalize
-        self.transform = transform
-        self.lat_scale = obs.lat.max()-obs.lat.min()
-        self.lon_scale = obs.lon.max()-obs.lon.min()
+        self.gen_freqs = obs.genus_id.value_counts().to_dict()
+        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.lat_max = obs.lat.max()
+        self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
-        self.lon_min = obs.lon.min()
+        self.lon_min = obs.lon.min()        
+        self.num_rasters = self.rasters.shape[0]
+        print("num rasters is ", self.num_rasters)
+        self.channels = self.num_rasters
+        # convert to numpy
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
+
+    def __len__(self):
+        return len(self.obs)
+    # assumes the latlon format from gbif observation building
+    def latlon_2_index(self, latlon):
+        y, x =  ~self.affine * (latlon[1], latlon[0])
+        return int(round(x)), int(round(y))
+    
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # get raster data
+        lat_lon = self.obs[idx, lat_lon_idx]
+        env_rasters = get_raster_image_obs(lat_lon, self.latlon_2_idx, self.rasters, self.nan, self.normalize, self.pix_res)
+        # get labels
+        specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, env_rasters)
+    
+    
+class HighRes_Satellite_Rasters_LowRes(Dataset):
+    def __init__(self, base_dir, organism, region, normalize):
+        self.base_dir = base_dir
+        self.region = region
+        self.organism = organism
+        self.channels = None
+        self.normalize = normalize
+        self.observation = observation
+        obs = get_gbif_observations(base_dir,organism, region, observation)
+        rasterpath = "{}rasters".format(self.base_dir)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        obs.fillna('nan', inplace=True)               
+        obs = add_genus_family_data(self.base_dir, obs)
+        obs, inv_spec  = prep_data(obs)
+        self.idx_2_id = inv_spec
+        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
+        self.num_specs = len(obs.species_id.unique())
+        self.num_fams = len(obs.family_id.unique())
+        self.num_gens = len(obs.genus_id.unique())
+        self.spec_freqs = obs.species_id.value_counts().to_dict()
+        self.gen_freqs = obs.genus_id.value_counts().to_dict()
+        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.lat_max = obs.lat.max()
+        self.lon_max = obs.lon.max()
+        self.lat_min = obs.lat.min()
+        self.lon_min = obs.lon.min()        
+        self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
+        print("num rasters is ", self.num_rasters)
+
+        # convert to numpy
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
         channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
         self.pix_res = width
         assert width == height, "the width and height of input images dont match!"
-        self.num_rasters = len(self.rasters) 
         self.channels = channels + self.num_rasters
         self.width = width
         self.height = height
- 
-    def __len__(self):
-        return len(self.obs)
-    
-    def latlon_2_index(self, latlon):
-        y, x =  ~self.affine * (latlon[1], latlon[0])
-        return int(round(x)), int(round(y))
 
-    
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        # get images
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)     
-        if self.transform:
-            images = self.transform(images)
-        # get raster data
-        lat_lon = self.obs[idx, 4]
-        x, y = self.latlon_2_index(lat_lon)
-        xmin, xmax, ymin, ymax = xy_2_range_center(self.pix_res, x, y)
-        # the bioclim rasters don't extend a full 100 km off the western coast of cali, so need to impute nan for westernmost
-        # observations to account for this fact and still be able to use observations for these points
         
-        env_rasters = raster_cnn_image(self.rasters, xmin, xmax, ymin, ymax, self.nan)
-        # get labels
-        assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
-#         import pdb; pdb.set_trace()
-        all_imgs = np.concatenate([images, env_rasters], axis=0)
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-        return (specs_label, gens_label, fams_label, all_imgs)    
-    
-class GEOCELF_Dataset_Joint_BioClim(Dataset):
-        
-    def __init__(self, base_dir, organism, country='cali', altitude=True, transform=None, normalize='none'):
-        self.base_dir = base_dir
-        self.country = country
-        self.organism = organism
-        obs = get_gbif_rasters_data(self.base_dir, country, organism)
-        rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
-        self.idx_2_id = inv_spec
-        # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
-        self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()        
-        self.lat_scale = obs.lat.max()-obs.lat.min()
-        self.lon_scale = obs.lon.max()-obs.lon.min()
-        self.lat_min = obs.lat.min()
-        self.lon_min = obs.lon.min()        
-        self.normalize = normalize
-        self.altitude = altitude
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
-        self.transform = transform
-        channels, alt_shape, rgbd_shape = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.channels = channels
-
-        self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
-        print("num rasters is ", self.num_rasters)
-        self.alt_shape = alt_shape
-        self.rgbd_shape = rgbd_shape
     def __len__(self):
         return len(self.obs)
     # assumes the latlon format from gbif observation building
     def latlon_2_index(self, latlon):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
-    
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        # get images
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)     
+        # get images  
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
         # get raster data
-        lat_lon = self.obs[idx, 4]
-        x, y = self.latlon_2_index(lat_lon)
-        env_rasters = self.rasters[:,x,y]
-        assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} for obs index {} value is {} and nan is {}".format(lat_lon, id_, env_rasters, nan)
-        
-        if self.normalize:
-            lat_norm = utils.normalize_latlon(self.obs[idx, 5], self.lat_min, self.lat_scale)
-            lon_norm = utils.normalize_latlon(self.obs[idx, 6], self.lon_min, self.lon_scale)
-            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
-                
-        else:
-            # add lat lon data unnormalized
-            env_rasters = np.append(env_rasters, [self.obs[idx, 5], self.obs[idx, 6]])
-        # get labels
+        lat_lon = self.obs[idx, lat_lon_idx]
+        env_rasters = get_raster_image_obs(lat_lon, self.latlon_2_idx, self.rasters, self.nan, self.normalize, self.width)
+        # concatenate together
         assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
-        if self.transform:
-            images = self.transform(images)
-        return (specs_label, gens_label, fams_label, images, env_rasters)
-    
-class GEOCELF_Dataset_Joint_BioClim_Sheet(Dataset):
-    def __init__(self, base_dir, organism, altitude, normalize, country='us', transform=None):
+        all_imgs = np.concatenate([images, env_rasters], axis=0)
+        
+        # get labels
+        specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, all_imgs)
+
+
+class HighRes_Satellite_Rasters_Sheet(Dataset):
+    def __init__(self, base_dir, organism, region, normalize):
         self.base_dir = base_dir
-        self.country = country
+        self.region = region
         self.organism = organism
-        obs = get_gbif_rasters_data(self.base_dir, country, organism)
+        self.channels = None
+        self.normalize = normalize
+        self.observation = observation
+        obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
-        self.altitude = altitude
-        obs.fillna('nan', inplace=True)        
-        obs, inv_spec = prep_joint_data(obs)
+        obs.fillna('nan', inplace=True)               
+        obs = add_genus_family_data(self.base_dir, obs)
+        obs, inv_spec  = prep_data(obs)
         self.idx_2_id = inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(obs.species_id.unique())
-        self.num_fams = len(obs.family.unique())
-        self.num_gens = len(obs.genus.unique())
+        self.num_fams = len(obs.family_id.unique())
+        self.num_gens = len(obs.genus_id.unique())
         self.spec_freqs = obs.species_id.value_counts().to_dict()
-        self.gen_freqs = obs.genus.value_counts().to_dict()
-        self.fam_freqs = obs.family.value_counts().to_dict()                
-        self.obs = obs[['id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon', 'lat', 'lon']].values
-        self.normalize = normalize
-        self.transform = transform
-        self.lat_scale = obs.lat.max()-obs.lat.min()
-        self.lon_scale = obs.lon.max()-obs.lon.min()
+        self.gen_freqs = obs.genus_id.value_counts().to_dict()
+        self.fam_freqs = obs.family_id.value_counts().to_dict()                
+        self.lat_max = obs.lat.max()
+        self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
-        self.lon_min = obs.lon.min()
+        self.lon_min = obs.lon.min()        
+        self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
+        print("num rasters is ", self.num_rasters)
+
+        # convert to numpy
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
         channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
-        self.num_rasters = len(self.rasters) + 2
+        self.pix_res = width
+        assert width == height, "the width and height of input images dont match!"
         self.channels = channels + self.num_rasters
         self.width = width
         self.height = height
- 
+
+        
     def __len__(self):
         return len(self.obs)
-    
+    # assumes the latlon format from gbif observation building
     def latlon_2_index(self, latlon):
         y, x =  ~self.affine * (latlon[1], latlon[0])
         return int(round(x)), int(round(y))
-
-    
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        # get images
-        # obs is of shape [id, species_id, genus, family]    
-        id_ = self.obs[idx, 0]
-        images = image_from_id(id_, self.base_dir, self.altitude)     
-        if self.transform:
-            images = self.transform(images)
+        # get images  
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
         # get raster data
-        lat_lon = self.obs[idx, 4]
-        x, y = self.latlon_2_index(lat_lon)
-        env_rasters = self.rasters[:,x,y]
-        assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} for obs index {} value is {} and nan is {}".format(lat_lon, id_, env_rasters, nan)
-        
-        if self.normalize == 'min_max':
-            lat_norm = utils.normalize_latlon(self.obs[idx, 5], self.lat_min, self.lat_scale)
-            lon_norm = utils.normalize_latlon(self.obs[idx, 6], self.lon_min, self.lon_scale)
-            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
-                
-        elif self.normalize == 'normalize':
-            raise NotImplementedError
-        else:
-            # add lat lon data unnormalized
-            env_rasters = np.append(env_rasters, [self.obs[idx, 5], self.obs[idx, 6]])
-        # get labels
+        lat_lon = self.obs[idx, lat_lon_idx]
+        env_rasters = get_raster_image_obs(lat_lon, self.latlon_2_idx, self.rasters, self.nan, self.normalize, self.width)
+        # concatenate together
         assert len(env_rasters) == self.num_rasters, "raster sizes don't match"
-        ras_cnn = [np.full((self.width, self.height),  val) for val in env_rasters]
-        ras_cnn = np.stack(ras_cnn)
-        all_imgs = np.concatenate([images, ras_cnn], axis=0)
-        specs_label = self.obs[idx, 1]
-        gens_label = self.obs[idx, 3]
-        fams_label = self.obs[idx, 2]        
+        all_imgs = np.concatenate([images, env_rasters], axis=0)
+        # get raster data
+        lat_lon = self.obs[idx, lat_lon_idx]
+        env_rasters = get_raster_sheet_obs(lat_lon, self.latlon_2_index, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.width, self.height)
+        all_imgs = np.concatenate([images, env_rasters], axis=0)
+        # get labels
+        specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, all_imgs)

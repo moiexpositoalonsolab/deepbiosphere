@@ -46,43 +46,26 @@ def check_mem():
 
 
 
-def setup_train_dataset(observation, base_dir, organism, region, normalize, model, altitude):
+def setup_train_dataset(observation, base_dir, organism, region, normalize, altitude, dataset):
     '''grab and setup train dataset'''
+    
+    if dataset == 'satellite_only':
+        return Dataset.HighRes_Satellie_Images_Only(base_dir, organism, region, observation, altitude)
+        
+    elif dataset == 'satellite_rasters_image':
+        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize)
+    elif dataset == 'satellite_rasters_point':
+        return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize)
+    elif dataset == 'rasters_image':
+        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, pix_res=256)
+    elif dataset == 'rasters_point':
+        return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation)
+        
+    elif dataset == 'satellite_rasters_sheet':
+        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize)
+    else: 
+        raise NotImplementedError
 
-    if observation == 'single':
-        if region == 'both':
-            return Dataset.GEOCELF_Dataset_Full(base_dir, organism, altitude)
-        else:
-            return Dataset.GEOCELF_Dataset(base_dir, organism, region, altitude)
-    elif observation == 'joint_image':
-        if region == 'both':
-            return Dataset.GEOCELF_Dataset_Joint_Full(base_dir, organism, altitude)
-        else:
-            return Dataset.GEOCELF_Dataset_Joint(base_dir, organism, region, altitude)
-    elif observation == 'joint_image_env':
-        return Dataset.GEOCELF_Dataset_Joint_BioClim_LowRes(base_dir, organism, altitude, normalize, country=region)
-    elif observation == 'joint_image_pt':
-        if region != 'cali':
-            raise NotImplementedError
-        else:
-            return Dataset.GEOCELF_Dataset_Joint_BioClim(base_dir, organism, region, normalize=normalize, altitude=altitude) 
-    elif observation == 'joint_image_cnn':
-        if region != 'cali':
-            raise NotImplementedError
-        else:
-            #  def __init__(self, base_dir, organism, altitude, normalize, country='us', transform=None):
-            return Dataset.GEOCELF_Dataset_Joint_BioClim_Sheet(base_dir, organism, altitude=altitude, normalize=normalize, country=region)
-    elif observation == 'joint_env_cnn':
-        if region != 'cali':
-            raise NotImplementedError
-        else:
-            return Dataset.GEOCELF_Dataset_BioClim_CNN(base_dir, organism, region, normalize=normalize,big=True)
-    
-    elif observation == 'joint_pt':
-        return Dataset.GEOCELF_Dataset_BioClim_Only(base_dir, organism, region, normalize=normalize)
-    
-    else:
-        exit(1), "should never reach this..."
         
 def setup_model(model, train_dataset):
     
@@ -123,21 +106,11 @@ def setup_model(model, train_dataset):
         exit(1), "if you reach this, you got a real problem bucko"
 
         
-def setup_dataloader(dataset, observation, batch_size, processes, sampler, model):
-    if observation == 'joint_image_pt':
+def setup_dataloader(dataset, batch_size, processes, sampler, model):
+    if dataset == 'satellite_rasters_point':
         collate_fn = joint_raster_collate_fn
-    elif observation == 'joint_image':
+    else:
         collate_fn = joint_collate_fn
-    elif observation == 'single':
-        collate_fn = single_collate_fn
-    elif observation == 'joint_image_env':
-        collate_fn = joint_collate_fn
-    elif observation == 'joint_env_cnn':
-        collate_fn = joint_collate_fn
-    elif observation == 'joint_image_cnn':
-        collate_fn = joint_collate_fn        
-    elif observation == 'joint_pt':
-        collate_fn = joint_rasteronly_collate_fn
     dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
 
     return dataloader
@@ -157,23 +130,13 @@ def setup_loss(observation, dataset, loss, unweighted, device):
         spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
         gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
         fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
-        if observation == 'single':
-            spec_loss = torch.nn.CrossEntropyLoss(spec_freq)
-            gen_loss = torch.nn.CrossEntropyLoss(gen_freq)
-            fam_loss = torch.nn.CrossEntropyLoss(fam_freq)
-        else:
-            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq)
-            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq)
-            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq)
+        spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq)
+        gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq)
+        fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq)
     else:
-        if observation == 'single':
-            spec_loss = torch.nn.CrossEntropyLoss()
-            gen_loss = torch.nn.CrossEntropyLoss()
-            fam_loss = torch.nn.CrossEntropyLoss()
-        else:
-            spec_loss = torch.nn.BCEWithLogitsLoss()
-            gen_loss = torch.nn.BCEWithLogitsLoss()
-            fam_loss = torch.nn.BCEWithLogitsLoss()
+        spec_loss = torch.nn.BCEWithLogitsLoss()
+        gen_loss = torch.nn.BCEWithLogitsLoss()
+        fam_loss = torch.nn.BCEWithLogitsLoss()
     if loss == 'just_fam':
         gen_loss = None
         spec_loss = None
@@ -192,13 +155,15 @@ def clean_gpu(device):
         print("cleaning gpu")            
         torch.cuda.empty_cache()
         
-def single_collate_fn(batch): 
-    # batch is a list of tuples of (composite_label <np array [3]>, images <np array [6, 256, 256]>)   
-    labs, img = zip(*batch) 
-    lbs = [torch.tensor(l, dtype=torch.long) for l in labs]      
-    img = [i.astype(np.uint8, copy=False) for i in img]
-    imgs = [torch.from_numpy(i) for i in img]
-    return torch.stack(lbs), torch.stack(imgs)  
+# def single_collate_fn(batch): 
+#     # batch is a list of tuples of (composite_label <np array [3]>, images <np array [6, 256, 256]>)   
+#     labs, img = zip(*batch) 
+#     print(labs[0][0], labs[0], labs)
+#     lbs = [torch.tensor(l[0], dtype=torch.long) for l in labs]      
+#     img = [i.astype(np.uint8, copy=False) for i in img]
+#     imgs = [torch.from_numpy(i) for i in img]
+#     print(torch.stack(lbs).shape)
+#     return torch.stack(lbs), torch.stack(imgs)  
 
 def joint_collate_fn(batch):
     # batch is a list of tuples of (specs_label, gens_label, fams_label, images)  
@@ -247,64 +212,76 @@ def joint_raster_collate_fn(batch):
         rasters.append(raster)
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs)), torch.from_numpy(np.stack(rasters))
 
-def joint_rasteronly_collate_fn(batch):
-    # batch is a list of tuples of (specs_label, gens_label, fams_label, images, env_rasters)  
-    all_specs = []
-    all_gens = []
-    all_fams = []
-    rasters = []
-    #(specs_label, gens_label, fams_label, images, env_rasters)  
-    for (spec, gen, fam, raster) in batch:
-        specs_tens = torch.zeros(num_specs)
-        specs_tens[spec] += 1
-        all_specs.append(specs_tens)
+# def joint_rasteronly_collate_fn(batch):
+#     # batch is a list of tuples of (specs_label, gens_label, fams_label, images, env_rasters)  
+#     all_specs = []
+#     all_gens = []
+#     all_fams = []
+#     rasters = []
+#     #(specs_label, gens_label, fams_label, images, env_rasters)  
+#     for (spec, gen, fam, raster) in batch:
+#         specs_tens = torch.zeros(num_specs)
+#         specs_tens[spec] += 1
+#         all_specs.append(specs_tens)
 
-        gens_tens = torch.zeros(num_gens)
-        gens_tens[gen] += 1
-        all_gens.append(gens_tens)
+#         gens_tens = torch.zeros(num_gens)
+#         gens_tens[gen] += 1
+#         all_gens.append(gens_tens)
 
-        fams_tens = torch.zeros(num_fams)
-        fams_tens[fam] += 1
-        all_fams.append(fams_tens)
-        rasters.append(raster)
-    return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(rasters))
+#         fams_tens = torch.zeros(num_fams)
+#         fams_tens[fam] += 1
+#         all_fams.append(fams_tens)
+#         rasters.append(raster)
+#     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(rasters))
 
+                                                       
+                                                       
+                                                       
 def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss):
-    if observation == 'joint_image_pt':
-        return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
-    elif observation == 'joint_pt':
-        if loss == 'just_fam':
-            return test_joint_obs_rastersonly_fam(test_loader, tb_writer, device, net, epoch)        
-        elif loss == 'fam_gen':
-            return test_joint_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch)
-        elif loss == 'all':
-            return test_joint_obs_rastersonly_all(test_loader, tb_writer, device, net, epoch)
+    if model == 'SpecOnly':
+        if observation == 'single':
+            return test_single_speconly_batch(test_loader, tb_writer, device, net, epoch)
         else:
-            raise NotImplementedError
-    elif observation == 'joint_image' or observation == 'joint_env_cnn' or observation == 'joint_image_cnn':
-        return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
-    elif observation == 'single':
-        return test_single_obs_batch(test_loader, tb_writer, device, net, epoch)
-    elif observation == 'joint_image_env':
-        return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
-    elif loss == 'spec_only':
-        return test_single_specs_batch(test_loader, tb_writer, device, net, epoch)
-    else:
-        raise NotImplementedError
+            return test_joint_speconly_batch(test_loader, tb_writer, device, net, epoch)
+    elif model == 'MLP_Family':
+        if observation == 'single':
+            return test_single_obs_fam(test_loader, tb_writer, device, net, epoch)
+        else:
+            return test_joint_obs_fam(test_loader, tb_writer, device, net, epoch)
+    elif model == 'MLP_Family_Genus':
+        if observation == 'single':
+            return test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch)
+        else:
+            return test_joint_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch)
 
+    elif dataset == 'satellite_rasters_point':
+        if observation == 'single':
+            return test_single_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
+        else:
+            return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
+    else:
+        if observation == 'single':
+            return test_single_obs_batch(test_loader, tb_writer, device, net, epoch)
+        else:
+            return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
+                                 
+                                                       
 def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
      with tqdm(total=len(test_loader), unit="batch") as prog:
         all_accs = []
         all_spec = []
         all_gen = []
         all_fam = []
-        for i, (labels, batch) in enumerate(test_loader):
-            labels = labels.to(device)
+        for i, (specs_label, gens_label, fams_label, loaded_imgs) in enumerate(test_loader):
+
+            specs_label = specs_label.to(device)
+            gens_label = gens_label.to(device)
+            fams_label = fams_label.to(device)
             batch = batch.to(device)
             (outputs, genus, family) = net(batch.float())
-            spec_accs = utils.topk_acc(outputs, labels[:,0], topk=(30,1), device=device) # magic no from CELF2020
-            gens_accs = utils.topk_acc(genus, labels[:,1], topk=(30,1), device=device) # magic no from CELF2020
-            fam_accs = utils.topk_acc(family, labels[:,2], topk=(30,1), device=device) # magic no from CELF2020
+            spec_accs = utils.topk_acc(outputs, specs_label, topk=(30,1), device=device) # magic no from CELF2020
+            gens_accs = utils.topk_acc(genus, gens_label, topk=(30,1), device=device) # magic no from CELF2020
+            fam_accs = utils.topk_acc(family, fams_label, topk=(30,1), device=device) # magic no from CELF2020
             prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
             all_spec.append(spec_accs)
             all_gen.append(gens_accs)
@@ -317,7 +294,9 @@ def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
                 tb_writer.add_scalar("test/1_gen_accuracy", gens_accs[1], epoch)  
 
                 tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
-                tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)                          
+                tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)   
+            else:
+                break
 
             prog.update(1)
         prog.close()
@@ -352,8 +331,45 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
             allfam.append(totfam_accs)
     prog.close()
     return allfam, allgen, allspec
+                                                       
+                                                       
+def test_single_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
+    with tqdm(total=len(test_loader), unit="batch") as prog:
+        allspec = []
+        allgen = []
+        allfam = []
+        for i, (specs_label, gens_label, fams_label, imgs, env_rasters) in enumerate(test_loader):
+            imgs = imgs.to(device)
+            env_rasters = env_rasters.to(device)
+            specs_lab = specs_label.to(device)                                     
+            gens_label = gens_label.to(device)
+            fams_label = fams_label.to(device)
+            (outputs, gens, fams) = net(imgs.float(), env_rasters.float()) 
+            spec_accs = utils.topk_acc(outputs, specs_label, topk=(30,1), device=device) # magic no from CELF2020
+            gens_accs = utils.topk_acc(genus, gens_label, topk=(30,1), device=device) # magic no from CELF2020
+            fam_accs = utils.topk_acc(family, fams_label, topk=(30,1), device=device) # magic no from CELF2020
+            prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
+            all_spec.append(spec_accs)
+            all_gen.append(gens_accs)
+            all_fam.append(fam_accs)
+            if tb_writer is not None:
+                tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
+                tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch)  
 
-def test_joint_obs_rastersonly_fam(test_loader, tb_writer, device, net, epoch):
+                tb_writer.add_scalar("test/30_gen_accuracy", gens_accs[0], epoch)
+                tb_writer.add_scalar("test/1_gen_accuracy", gens_accs[1], epoch)  
+
+                tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
+                tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)                          
+            else:
+                break
+        allspec.append(totspec_accs)
+        allgen.append(totgen_accs)
+        allfam.append(totfam_accs)
+    prog.close()
+    return allfam, allgen, allspec
+
+def test_joint_obs_fam(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
         means = []
         all_accs = []
@@ -376,6 +392,28 @@ def test_joint_obs_rastersonly_fam(test_loader, tb_writer, device, net, epoch):
     prog.close()
     return means, all_accs, mean_accs
 
+def test_single_obs_fam(test_loader, tb_writer, device, net, epoch):
+    with tqdm(total=len(test_loader), unit="batch") as prog:
+        means = []
+        all_accs = []
+        mean_accs = []
+        for i, (_, _, fams_label, env_rasters) in enumerate(test_loader):
+            env_rasters = env_rasters.to(device)
+            fams_label = fams_label.to(device)
+            fams = net(env_rasters.float()) 
+            fam_accs = utils.topk_acc(family, fams_label, topk=(30,1), device=device) # magic no from CELF2020
+            prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=fam_accs[0], acc1=fam_accs[1]))
+            prog.update(1)          
+            if tb_writer is not None:
+                tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
+                tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)   
+            else:
+                break
+            all_accs.append(fam_accs)
+            mean_accs.append(fam_accs)
+            means.append(fam_accs.mean())
+    prog.close()
+    return means, all_accs, mean_accs
 
 def test_joint_obs_rastersonly_all(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
@@ -431,6 +469,37 @@ def test_joint_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch
             means.append(genaccs.mean())
     prog.close()
     return means, all_accs, mean_accs
+                                                       
+def test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch):
+    with tqdm(total=len(test_loader), unit="batch") as prog:
+        means = []
+        all_accs = []
+        mean_accs = []
+        for i, (_, gens_label, fams_label, env_rasters) in enumerate(test_loader):
+            env_rasters = env_rasters.to(device)
+            fams_label = fams_label.to(device)
+            gens_label = gens_label.to(device)
+            fams, gens = net(env_rasters.float()) 
+            gens_accs = utils.topk_acc(genus, gens_label, topk=(30,1), device=device) # magic no from CELF2020
+            fam_accs = utils.topk_acc(family, fams_label, topk=(30,1), device=device) # magic no from CELF2020
+
+            prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=gens_accs[0], acc1=gens_accs[1]))
+
+            prog.update(1)          
+            if tb_writer is not None:
+
+                tb_writer.add_scalar("test/30_gen_accuracy", gens_accs[0], epoch)
+                tb_writer.add_scalar("test/1_gen_accuracy", gens_accs[1], epoch)  
+
+                tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
+                tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)   
+            else:
+                break
+            all_accs.append(fam_accs)
+            mean_accs.append(gens_accs)
+            means.append(gens_accs.mean())
+    prog.close()
+    return means, all_accs, mean_accs
 
 def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
@@ -442,7 +511,7 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
             specs_lab = specs_label.to(device)                                     
             gens_label = gens_label.to(device)
             fams_label = fams_label.to(device)
-            (outputs, gens, fams) = net(batch.float()) 
+            (outputs, gens, fams) = net(batch.float())
             specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
             genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                        
             famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020     
@@ -459,7 +528,7 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
     prog.close()
     return allfam, allgen, allspec
 
-def test_single_specs_batch(test_loader, tb_writer, device, net, epoch):
+def test_joint_speconly_batch(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
         means = []
         all_accs = []
@@ -478,10 +547,33 @@ def test_single_specs_batch(test_loader, tb_writer, device, net, epoch):
             means.append(specaccs.mean())
     prog.close()
     return means, all_accs, mean_accs
+                                                       
+def test_single_speconly_batch(test_loader, tb_writer, device, net, epoch):
+    with tqdm(total=len(test_loader), unit="batch") as prog:
+        means = []
+        all_accs = []
+        mean_accs = []
+        for i, (specs_label, _, _, loaded_imgs) in enumerate(test_loader):
+            batch = loaded_imgs.to(device)
+            specs_lab = specs_label.to(device)                                     
+            outputs = net(batch.float()) 
+            spec_accs = utils.topk_acc(outputs, specs_label, topk=(30,1), device=device) # magic no from CELF2020
+            prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
+
+            prog.update(1)          
+            if tb_writer is not None:
+                tb_writer.add_scalar("test/30_spec_accuracy", spec_accs[0], epoch)
+                tb_writer.add_scalar("test/1_spec_accuracy", spec_accs[1], epoch)  
+
+            all_accs.append(spec_accs)
+            mean_accs.append(spec_accs)
+            means.append(spec_accs.mean())
+    prog.close()
+    return means, all_accs, mean_accs
 
 
 
-def train_batch(observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, model, nepoch, epoch, loss):
+def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, model, nepoch, epoch, loss):
     tot_loss_meter = []
     spec_loss_meter = []
     gen_loss_meter = []
@@ -492,108 +584,12 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
             specophs = nepoch
             genpoch = nepoch * 2
             fampoch = nepoch 
-            # cnn of satellite imagery data only            
-            if observation == 'single':
-                (labels, batch) = ret
-                specs_lab = labels[:,0]
-                gens_lab = labels[:,1]
-                fams_lab = labels[:,2]
-                if loss == 'all':
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
-                elif loss == 'cumulative':
-                    if epoch < fampoch:
-                        # family only
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
-                    elif epoch >= fampoch and epoch < genpoch:
-                        # family and genus
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
-                    else:
-                        # all 3 
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
-                
-                elif loss == 'sequential':
-                    if epoch < fampoch:
-                        # family only
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
-                    elif epoch >= fampoch and epoch < genpoch:
-                        # family and genus
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
-                    else:
-                        # all 3 
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
+            # 
 
-                    raise NotImplemented
-                elif loss == 'just_fam':
-                    raise NotImplemented
-                elif loss == 'fam_gen':
-                    raise NotImplemented
-                elif loss == 'spec_only':
-                    raise NotImplemented
-                elif loss == 'spec_loss':
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
-                else: # loss is none
-                    raise NotImplemented
-            # cnn of satellite imagery data only
-            elif (observation == 'joint_image' or observation == 'joint_env_cnn' or observation == 'joint_image_cnn' or observation == 'joint_image_env'):
-                (specs_lab, gens_lab, fams_lab, batch) = ret                
-                if loss == 'all':
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
-                elif loss == 'cumulative':
-                    if epoch < fampoch:
-                        # family only
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
-                    elif epoch >= fampoch and epoch < genpoch:
-                        # family and genus
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
-                    else:
-                        # all 3 
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
-                
-                elif loss == 'sequential':
-                    if epoch < fampoch:
-                        # family only
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
-                    elif epoch >= fampoch and epoch < genpoch:
-                        # family and genus
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
-                    else:
-                        # all 3 
-                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
-                
-                elif loss == 'just_fam':
-                    raise NotImplemented
-                elif loss == 'fam_gen':
-                    raise NotImplemented
-                elif loss == 'spec_only':
-                    tot_loss, loss_spec = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
-                    loss_gen, loss_fam = None, None
-                elif loss == 'spec_loss':
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
-                else: # loss is none
-                    raise NotImplemented
 
-            # mixed data model cnn of environmental rasters + cnn of satellite imagery data                
-#             elif observation == '‘‘':
-#                 (specs_lab, gens_lab, fams_lab, batch) = ret
-#                 if loss == 'all':
-#                     raise NotImplemented
-#                 elif loss == 'cumulative':
-#                     raise NotImplemented
-#                 elif loss == 'sequential':
-#                     raise NotImplemented
-#                 elif loss == 'just_fam':
-#                     raise NotImplemented
-#                 elif loss == 'fam_gen':
-#                     raise NotImplemented
-#                 elif loss == 'spec_only':
-#                     raise NotImplemented
-#                 elif loss == 'spec_loss':
-#                     raise NotImplemented
-#                 else: # loss is none
-#                     raise NotImplemented
 
             # mixed data model MLP of environmental rasters + cnn of satellite imagery data
-            elif observation == 'joint_image_pt':
+            if dataset == 'satellite_rasters_point':
                 (specs_lab, gens_lab, fams_lab, batch, rasters) = ret
                 if loss == 'all':
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
@@ -623,41 +619,67 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
                 elif loss == 'fam_gen':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
                     # cnn model that goes straight from cnn to species outpute layer
-                elif loss == 'spec_only':
-                    raise NotImplemented
-                # taxonomic model with loss only on the species layers
-                elif loss == 'spec_loss':
+                elif loss == 'just_spec':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
-
-
                 else: # loss is none, random forest baseline
                     raise NotImplemented
-                    
-
-            elif observation == 'joint_pt':
-                (specs_lab, gens_lab, fams_lab, rasters) = ret
-                if loss == 'just_fam':
-                    
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasteronly(specs_lab, gens_lab, fams_lab, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
+            elif model == 'SpecOnly':
+                tot_loss, loss_spec = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
+                loss_fam, loss_gen = None, None
+            elif model == 'MLP_Family':
+                tot_loss, loss_fam = forward_one_example_speconly(fams_lab, batch, optimizer, net, fam_loss, device)
+                loss_spec, loss_gen = None, None
+            elif model == 'MLP_Family_Genus':
+                tot_loss, loss_gen, loss_fam = forward_one_example_speconly(fams_lab, batch, optimizer, net, fam_loss, device)
+                loss_spec =  None
+            #if dataset != 'satellite_rasters_point:
+            else:
+                (specs_lab, gens_lab, fams_lab, batch) = ret
+                if loss == 'all':
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
+                elif loss == 'cumulative':
+                    if epoch < fampoch:
+                        # family only
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
+                    elif epoch >= fampoch and epoch < genpoch:
+                        # family and genus
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
+                    else:
+                        # all 3 
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
+                
+                elif loss == 'sequential':
+                    if epoch < fampoch:
+                        # family only
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
+                    elif epoch >= fampoch and epoch < genpoch:
+                        # family and genus
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
+                    else:
+                        # all 3 
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
+                
+                elif loss == 'just_fam':
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
                 elif loss == 'fam_gen':
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasteronly(specs_lab, gens_lab, fams_lab, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
-                elif loss == 'genus':
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasteronly(specs_lab, gens_lab, fams_lab, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'genus')
-                elif loss == 'all':
-                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasteronly(specs_lab, gens_lab, fams_lab, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
+                elif loss == 'just_spec':
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
+                else: # loss is none
+                    raise NotImplemented
                 
             if tb_writer is not None:
-                if loss == 'spec_only':
+                if model == 'SpecOnly':
                     tb_writer.add_scalar("train/tot_loss", tot_loss, step)
                     tb_writer.add_scalar("train/spec_loss", loss_spec.item(), step)
                     tot_loss_meter.append(tot_loss.item())                
                     spec_loss_meter.append(loss_spec.item())
-                elif loss == 'just_fam':
+                elif model == 'MLP_Family':
                     tb_writer.add_scalar("train/tot_loss", tot_loss, step)
                     tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
                     tot_loss_meter.append(tot_loss.item())                
                     fam_loss_meter.append(loss_fam.item())
-                elif loss == 'fam_gen':
+                elif model == 'MLP_Family_Genus':
                     tb_writer.add_scalar("train/tot_loss", tot_loss, step)
                     tb_writer.add_scalar("train/fam_loss", loss_fam.item(), step)
                     tb_writer.add_scalar("train/gen_loss", loss_gen.item(), step)
@@ -681,49 +703,6 @@ def train_batch(observation, train_loader, device, optimizer, net, spec_loss, ge
             
     return tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step    
 
-def forward_one_example_rasteronly(specs_lab, gens_lab, fams_lab, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, calculated):
-    
-    rasters = rasters.to(device)
-    specs_lab = specs_lab.to(device)                                     
-    gens_lab = gens_lab.to(device)
-    fams_lab = fams_lab.to(device)
-    optimizer.zero_grad()
-    if calculated == 'species':
-        raise NotImplemented
-    elif calculated == 'family':
-        fams = net(rasters.float()) 
-        #loss_spec = spec_loss(specs, specs_lab) 
-#         loss_gen = gen_loss(gens, gens_lab) 
-        loss_fam = fam_loss(fams, fams_lab)       
-        total_loss = loss_fam
-        loss_gen = None
-        loss_spec = None
-    elif calculated == 'genus':
-        fams, gens = net(rasters.float()) 
-        #loss_spec = spec_loss(specs, specs_lab) 
-#         loss_fam = fam_loss(fams, fams_lab)       
-        loss_gen = gen_loss(gens, gens_lab) 
-        total_loss = loss_gen
-        loss_fam = None
-        loss_spec = None
-    elif calculated == 'fam_gen':
-        fams, gens = net(rasters.float()) 
-        #loss_spec = spec_loss(specs, specs_lab) 
-        loss_fam = fam_loss(fams, fams_lab)       
-        loss_gen = gen_loss(gens, gens_lab) 
-        total_loss = loss_gen + loss_fam
-        loss_spec = None        
-    elif calculated == 'all':
-        fams, gens, specs = net(rasters.float()) 
-        loss_spec = spec_loss(specs, specs_lab) 
-        loss_fam = fam_loss(fams, fams_lab)       
-        loss_gen = gen_loss(gens, gens_lab) 
-        total_loss = loss_gen + loss_fam + loss_spec
-    else:
-        raise NotImplemented
-    total_loss.backward()
-    optimizer.step()
-    return total_loss, loss_spec, loss_gen, loss_fam
 
 def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, calculated):
     batch = batch.to(device)
@@ -750,6 +729,7 @@ def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, o
     optimizer.step()
     return total_loss, loss_spec, loss_gen, loss_fam
 
+                                                       
 def forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device):
     batch = batch.to(device)
     specs_lab = specs_lab.to(device)                                     
@@ -761,10 +741,23 @@ def forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, de
     optimizer.step()
     return total_loss, loss_spec
 
+def forward_one_example_famgen(fams_lab, gens_lab, batch, optimizer, net, fams_loss, gens_loss, device):
+    batch = batch.to(device)
+    fams_lab = fams_lab.to(device)
+    gens_lab = gens_lab.to(device)
+    optimizer.zero_grad()
+    fams, gens = net(batch.float()) 
+    loss_fam = fams_loss(fams, fams_lab) 
+    loss_gen = gens_loss(gens, genss_lab) 
+    total_loss = loss_fam + loss_gen
+    total_loss.backward()
+    optimizer.step()
+    return total_loss, loss_gen, loss_fam
 
 def forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, calculated):
+
     batch = batch.to(device)
-    specs_lab = specs_lab.to(device)                                     
+    specs_lab = specs_lab.to(device)
     gens_lab = gens_lab.to(device)
     fams_lab = fams_lab.to(device)
     optimizer.zero_grad()
@@ -802,9 +795,9 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.model, params.params.no_altitude)
+    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset)
     if not ARGS.toy_dataset:
-        tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_org-{}_loss-{}_norm-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.organism, params.params.loss, params.params.normalize, params.params.exp_id))
+        tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_dat-{}org-{}_loss-{}_norm-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.dataset, params.params.organism, params.params.loss, params.params.normalize, params.params.exp_id))
 
     else:
         tb_writer = None
@@ -861,7 +854,6 @@ def train_model(ARGS, params):
     epoch = start_epoch
     while epoch < n_epochs:
         print("starting training for epoch {}".format(epoch))
-        #clean_gpu(device)
         tick = time.time()
         net.train()
         print("before batch")
@@ -869,17 +861,17 @@ def train_model(ARGS, params):
         print('after batch')
         if not ARGS.toy_dataset:
 
-            if params.params.loss == 'spec_only':
+            if params.params.model == 'SpecOnly':
                 all_time_loss.append(np.stack(tot_loss_meter))
                 all_time_sp_loss.append(np.stack(spec_loss_meter))
                 all_time_gen_loss = []
                 all_time_fam_loss =[]
-            elif params.params.loss == 'just_fam':
+            elif params.params.model == 'MLP_Family':
                 all_time_loss.append(np.stack(tot_loss_meter))
                 all_time_sp_loss = []
                 all_time_gen_loss = []
                 all_time_fam_loss.append(np.stack(fam_loss_meter))
-            elif params.params.loss == 'fam_gen':
+            elif params.params.model == 'MLP_Family_Genus':
                 all_time_loss.append(np.stack(tot_loss_meter))
                 all_time_sp_loss = []
                 all_time_gen_loss.append(np.stack(gen_loss_meter))
@@ -900,10 +892,7 @@ def train_model(ARGS, params):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'step' : step
                     }, nets_path)        
-        
-        #clean_gpu(device)
-        
-        
+
         # test
         net.eval()
         all_accs = []
@@ -933,7 +922,7 @@ def train_model(ARGS, params):
         tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch']
+    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
     print(ARGS)

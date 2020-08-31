@@ -7,12 +7,78 @@ import matplotlib.pyplot as plt
 # adding this to check github integration on slack
 # TODO: move general methods into here
 
+def dict_key_2_index(df, key):
+    return {
+        k:v for k, v in 
+        zip(df[key].unique(), np.arange(len(df[key].unique())))
+    }
+
+
+
+
+
+# https://www.movable-type.co.uk/scripts/latlong.html
+def nmea_2_meters(lat1, lon1, lat2, lon2):
+    
+    R = 6371009 #; // metres
+    r1 = lat1 * math.pi/180 #; // φ, λ in radians
+    r2 = lat2 * math.pi/180;
+    dr = (lat2-lat1) * math.pi/180;
+    dl = (lon2-lon1) * math.pi/180;
+
+    a = math.sin(dr/2) * math.sin(dr/2) + \
+              math.cos(r1) * math.cos(r2) * \
+              math.sin(dl/2) * math.sin(dl/2);
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a));
+
+    d = R * c #; // in metres
+    return d
+
+
+def add_taxon_metadata(base_dir, obs, observation):
+    
+    ## getting family, genus, species ids for each observation
+    # get all relevant files
+    print("adding taxon information")    
+    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(base_dir), sep=";")    
+    present_specs = obs.species_id.unique()    
+    # get all the gbif species ids for all the species in the us sample
+    conversion = gbif_meta[gbif_meta['species_id'].isin(present_specs)]
+    gbif_specs = conversion.GBIF_species_id.unique()
+    # get dict that maps CELF id to GBIF id
+    spec_2_gbif = dict(zip(conversion.species_id, conversion.GBIF_species_id))
+    obs['gbif_id'] = obs['species_id'].map(spec_2_gbif)    
+    taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(base_dir), sep="\t")
+    taxa = taxons[taxons['taxonID'].isin(present_specs)]
+    phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus']]
+    gbif_2_king = dict(zip(phylogeny.taxonID, phylogeny.kingdom))
+    gbif_2_phy = dict(zip(phylogeny.taxonID, phylogeny.phylum))
+    gbif_2_class = dict(zip(phylogeny.taxonID, phylogeny['class']))
+    gbif_2_ord = dict(zip(phylogeny.taxonID, phylogeny.order))
+    gbif_2_fam = dict(zip(phylogeny.taxonID, phylogeny.family))
+    gbif_2_gen = dict(zip(phylogeny.taxonID, phylogeny.genus))
+    obs['family'] = obs['gbif_id'].map(gbif_2_fam)
+    obs['genus'] = obs['gbif_id'].map(gbif_2_gen)
+    obs['order'] = obs['gbif_id'].map(gbif_2_ord)
+    obs['class'] = obs['gbif_id'].map(gbif_2_class)
+    obs['phylum'] = obs['gbif_id'].map(gbif_2_phy)
+    obs['kingdom'] = obs['gbif_id'].map(gbif_2_king)
+    if observation == 'plant':
+        obs = obs[obs.kingdom == 'Plantae']
+    elif observation == 'animal':
+        obs = obs[obs.kingdom == 'Animalia']
+    else: #plantanimal
+        pass
+    return obs
+
 def cnn_output_size(in_size, kernel_size, stride, padding):
     output = int((in_size - kernel_size + 2*(padding)) / stride) + 1
     return(output)
 
-def scale(x, out_range=(-1, 1)):
-    min_, max_ = np.min(x), np.max(x)
+def scale(x, out_range=(-1, 1), min_=None, max_=None):
+    
+    if min_ == None and max_ == None:
+        min_, max_ = np.min(x), np.max(x)
     y = (x - (max_ + min_) / 2) / (max_ - min_)
     return y * (out_range[1] - out_range[0]) + (out_range[1] + out_range[0]) / 2
 
@@ -89,8 +155,9 @@ def topk_acc(output, target, topk=(1,), device=None):
     """Computes the standard topk accuracy for the specified values of k"""
     maxk = max(topk)
     batch_size = target.size(0)
-    _, pred = output.topk(maxk, 1, True, True)
-    targ = target.unsqueeze(1).repeat(1,maxk).to(device)
+    _, pred = torch.topk(output, maxk, 1, True, True)
+    _, targ_idx = torch.topk(target, 1, 1, True, True)
+    targ = targ_idx[0].unsqueeze(1).repeat(1,maxk).to(device)
     correct = pred.eq(targ)
     res = []
     for k in topk:
