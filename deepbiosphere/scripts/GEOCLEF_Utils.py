@@ -50,19 +50,21 @@ def add_taxon_metadata(base_dir, obs, observation):
     obs['gbif_id'] = obs['species_id'].map(spec_2_gbif)    
     taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(base_dir), sep="\t")
     taxa = taxons[taxons['taxonID'].isin(present_specs)]
-    phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus']]
+    phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'canonicalName']]
     gbif_2_king = dict(zip(phylogeny.taxonID, phylogeny.kingdom))
     gbif_2_phy = dict(zip(phylogeny.taxonID, phylogeny.phylum))
     gbif_2_class = dict(zip(phylogeny.taxonID, phylogeny['class']))
     gbif_2_ord = dict(zip(phylogeny.taxonID, phylogeny.order))
     gbif_2_fam = dict(zip(phylogeny.taxonID, phylogeny.family))
     gbif_2_gen = dict(zip(phylogeny.taxonID, phylogeny.genus))
+    gbif_2_spec = dict(zip(phylogeny.taxonID, phylogeny.canonicalName))    
     obs['family'] = obs['gbif_id'].map(gbif_2_fam)
     obs['genus'] = obs['gbif_id'].map(gbif_2_gen)
     obs['order'] = obs['gbif_id'].map(gbif_2_ord)
     obs['class'] = obs['gbif_id'].map(gbif_2_class)
     obs['phylum'] = obs['gbif_id'].map(gbif_2_phy)
     obs['kingdom'] = obs['gbif_id'].map(gbif_2_king)
+    obs['species'] = obs['gbif_id'].map(gbif_2_spec)
     if observation == 'plant':
         obs = obs[obs.kingdom == 'Plantae']
     elif observation == 'animal':

@@ -13,7 +13,7 @@ from deepbiosphere.scripts.GEOCLEF_Config import paths
 
 
 def get_multiple_joint_from_group(group_df):
-    df_np = group_df[['lat', 'lon', 'species_id', 'gbif_id', 'family', 'genus']].values #.to_numpy()
+    df_np = group_df[['lat', 'lon', 'species', 'gbif_id', 'family', 'genus']].values #.to_numpy()
     extra_specs = [{df_np[i,2]} for i in range(len(df_np))]
     extra_fams = [{df_np[i,4]} for i in range(len(df_np))] 
     extra_gens = [{df_np[i,5]} for i in range(len(df_np))]
@@ -42,16 +42,15 @@ def get_multiple_joint_from_group(group_df):
 
 def get_single_joint_from_group(group_df):
     
-    df_np = group_df[['lat', 'lon', 'species_id', 'gbif_id', 'family', 'genus', 'id']].values #.to_numpy()
+    df_np = group_df[['lat', 'lon', 'species', 'gbif_id', 'family', 'genus', 'id']].values #.to_numpy()
     # create a set with each single observation in it
     extra_specs = [{df_np[i,2]} for i in range(len(df_np))]
     extra_fams = [{df_np[i,4]} for i in range(len(df_np))] 
     extra_gens = [{df_np[i,5]} for i in range(len(df_np))]
+    extra_ids = [[-1, set()] for i in range(len(df_np))]
     
     tick = time.time()
     # def nmea_2_meters(lat1, lon1, lat2, lon2):
-    i_ids = set()
-    j_ids = set()
     for i in range(len(df_np)):
         for j in range(len(df_np)):
             if i != j:
@@ -60,18 +59,25 @@ def get_single_joint_from_group(group_df):
                     i_id = df_np[i, 6]
                     j_id = df_np[j,6]
                     # if we haven't seen this cluster of obs before, save one of the obs
-                    if i_id not in j_ids:
-                        i_ids.add(i_id)
-                    j_ids.add(j_id)
                     extra_specs[i].add(df_np[j,2])
                     extra_fams[i].add(df_np[j,4])
                     extra_gens[i].add(df_np[j,5])
+                    extra_ids[i][0] = i_id
+                    extra_ids[i][1].add(j_id)
 
     group_df['all_specs'] = extra_specs
     group_df['all_fams'] = extra_fams
     group_df['all_gens'] = extra_gens
-    bad_ids = j_ids - i_ids
+    
     # take out duplicates
+    bad_ids = []
+    sorted_ids = sorted(extra_ids, reverse=True, key=lambda x: len(x[1]))
+    for curr_id, ids in sorted_ids:
+        if curr_id in bad_ids:
+            continue
+        else:
+            bad_ids = bad_ids + list(ids)
+
     group_df = group_df[~group_df.id.isin(bad_ids)]
     tock = time.time()
     diff = tock - tick
@@ -92,8 +98,7 @@ def main():
         exit(1)
     us_train_pth = "{}occurrences/single_obs_cali_plant_census.csv".format(pth) if ARGS.census else "{pth}occurrences/single_obs_{country}_{org}_train.csv".format(pth=pth, country=ARGS.region, org=ARGS.organism)
     us_train = pd.read_csv(us_train_pth, sep=';')
-    if 'genus' not in us_train.columns.tolist():
-        us_train = utils.add_taxon_metadata(pth, us_train, ARGS.observation)
+    us_train = utils.add_taxon_metadata(pth, us_train, ARGS.observation)
     
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
@@ -142,7 +147,7 @@ def main():
         new_dat = pd.read_csv(path)
         all_dat = pd.concat([all_dat, new_dat])
     # and save data 
-    pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_train_census.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism) if ARGS.census else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train=train)
+    pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_train_census.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism) if ARGS.census else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train')
     all_dat.to_csv(pth)
     
     

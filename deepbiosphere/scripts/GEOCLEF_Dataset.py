@@ -29,7 +29,7 @@ def get_gbif_rasters_data(pth, country, organism):
 #     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
     obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, country, organism)
     joint_obs = pd.read_csv(obs_pth)  
-    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
+    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
@@ -37,9 +37,9 @@ def get_gbif_rasters_data(pth, country, organism):
 
 def get_joint_gbif_data(pth, country, organism):
     ## Grab GBIF observation data
-    obs_pth = "{}occurrences/joint_obs_{}_{}.csv".format(pth, country, organism)
+    obs_pth = "{}occurrences/joint_multiple_obs_{}_{}.csv".format(pth, country, organism)
     joint_obs = pd.read_csv(obs_pth)  
-    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
+    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
@@ -379,7 +379,12 @@ def get_gbif_observations(base_dir, organism, region, observation):
     # even for single observation, go ahead and grab the joint dataset, will just choose to not use joint data later on when grabbing observation
     # include get_gbif_rasters_data!!
     obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
-    return pd.read_csv(obs_pth, sep=';')
+    joint_obs = pd.read_csv(obs_pth, sep=',')
+    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
+    joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+    joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+    joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+    return joint_obs
         
     
 id_idx = 0
