@@ -216,6 +216,46 @@ class SkipFullFamNet(nn.Module):
         return(spec, gen, fam)
 
     
+class FlatNet(nn.Module):
+    """
+    Checking - it requires more training time, 1 layer more 
+    """
+    def __init__(self, species, families, genuses, num_channels):
+
+        super(FlatNet, self).__init__()
+        self.categories=species
+        self.species = species
+        self.families = families
+        self.genuses = genuses
+        self.num_channels=num_channels
+        self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
+        self.conv2 = nn.Conv2d(64, 128, 3,1,1)
+        self.conv3 = nn.Conv2d(128, 256, 3,1,1)
+        self.conv4 = nn.Conv2d(256, 256, 3,1,1)        
+        self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
+        self.pool2 = nn.MaxPool2d(2, 2)
+                               
+        self.pool5 = nn.MaxPool2d(5, 5)
+        self.chokepoint = 256*6*6
+        self.famfc = nn.Linear(self.chokepoint, self.families) 
+        self.genfc = nn.Linear(self.chokepoint, self.genuses)
+        self.specfc = nn.Linear(self.chokepoint, self.species) 
+        
+        
+    def forward(self, x): 
+        x = self.pool2(F.relu(self.conv1(x)))
+        x = self.pool2(F.relu(self.conv2(x)))
+        #x = F.relu(self.conv2(x))
+        x = self.pool2(F.relu(self.conv3(x)))
+        x = self.pool5(F.relu(self.conv4(x)))
+        #x = self.pool5(F.relu(self.conv5(x)))
+        x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
+        #TODO: relu help or not?
+        fam = F.relu(self.famfc(x))
+        gen = self.genfc(x)
+        spec = self.specfc(x)
+        return(spec, gen, fam)
+    
 class MLP_Family(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
