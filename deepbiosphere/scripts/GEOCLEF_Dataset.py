@@ -19,15 +19,15 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-def get_gbif_data(pth, split, country, organism):
+def get_gbif_data(pth, split, region, organism):
     ## Grab GBIF observation data
 
-    obs_pth = "{}occurrences/occurrences_{}_{}_{}.csv".format(pth, country, organism, split)
+    obs_pth = "{}occurrences/occurrences_{}_{}_{}.csv".format(pth, region, organism, split)
     return pd.read_csv(obs_pth, sep=';')  
 
-def get_gbif_rasters_data(pth, country, organism):
+def get_gbif_rasters_data(pth, region, organism):
 #     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
-    obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, country, organism)
+    obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, region, organism)
     joint_obs = pd.read_csv(obs_pth)  
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
@@ -35,9 +35,9 @@ def get_gbif_rasters_data(pth, country, organism):
     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
     return joint_obs
 
-def get_joint_gbif_data(pth, country, organism):
+def get_joint_gbif_data(pth, region, organism):
     ## Grab GBIF observation data
-    obs_pth = "{}occurrences/joint_obs_{}_{}.csv".format(pth, country, organism)
+    obs_pth = "{}occurrences/joint_obs_{}_{}.csv".format(pth, region, organism)
     joint_obs = pd.read_csv(obs_pth)  
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
@@ -355,6 +355,7 @@ def prep_data(obs):
     obs, gen_dict = map_key_2_index(obs, 'genus', 'genus_id')
     obs, fam_dict = map_key_2_index(obs, 'family', 'family_id')
     # also map all species / genus / family in joint observation to 0-num
+    import pdb; pdb.set_trace()
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
     obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])    
@@ -362,13 +363,13 @@ def prep_data(obs):
 
 def get_labels(observation, obs, idx):
         if observation == 'single':
-            specs_label = obs(idx, sp_idx)
-            gens_label = obs(idx, gen_idx)
-            fams_label = obs(idx, fam_idx)            
+            specs_label = obs[idx, sp_idx]
+            gens_label = obs[idx, gen_idx]
+            fams_label = obs[idx, fam_idx]            
         else:
-            specs_label = obs(idx, all_sp_idx)
-            gens_label = obs(idx,  all_gen_idx)
-            fams_label = obs(idx,  all_fam_idx)
+            specs_label = obs[idx, all_sp_idx]
+            gens_label = obs[idx,  all_gen_idx]
+            fams_label = obs[idx,  all_fam_idx]
         return specs_label, gens_label, fams_label
 
 
@@ -378,10 +379,16 @@ def get_gbif_observations(base_dir, organism, region, observation):
     #TODO: grab the right gbif dataset depending on what region, what observation type, what organism
     # even for single observation, go ahead and grab the joint dataset, will just choose to not use joint data later on when grabbing observation
     # include get_gbif_rasters_data!!
+    if observation == 'single':
+        observation = 'joint_multiple'
     obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
-    return pd.read_csv(obs_pth, sep=';')
+    joint_obs =  pd.read_csv(obs_pth, sep=',')
         
-    
+    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_int(x))
+    joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+    joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+    joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+    return joint_obs
 id_idx = 0
 sp_idx = 1
 gen_idx = 2
@@ -444,7 +451,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
         obs, inv_spec  = prep_data(obs)
@@ -505,7 +512,7 @@ class Bioclim_Rasters_Point(Dataset):
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
         obs, inv_spec  = prep_data(obs)
@@ -546,7 +553,7 @@ class Bioclim_Rasters_Point(Dataset):
     
     # just the environmental rasters as an image
 class Bioclim_Rasters_Image(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, pix_res=256):
+    def __init__(self, base_dir, organism, region, normalize, observation, pix_res=256):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -555,7 +562,7 @@ class Bioclim_Rasters_Image(Dataset):
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
         obs, inv_spec  = prep_data(obs)
@@ -596,7 +603,7 @@ class Bioclim_Rasters_Image(Dataset):
     
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
-    def __init__(self, base_dir, organism, region, normalize):
+    def __init__(self, base_dir, organism, region, normalize, observation):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -605,7 +612,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
         obs, inv_spec  = prep_data(obs)
@@ -659,7 +666,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
 
 
 class HighRes_Satellite_Rasters_Sheet(Dataset):
-    def __init__(self, base_dir, organism, region, normalize):
+    def __init__(self, base_dir, organism, region, normalize, observation):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -668,7 +675,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation)
         rasterpath = "{}rasters".format(self.base_dir)
-        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, country, normalize, obs)
+        self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         obs = add_genus_family_data(self.base_dir, obs)
         obs, inv_spec  = prep_data(obs)
