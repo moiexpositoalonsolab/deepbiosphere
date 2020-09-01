@@ -386,6 +386,14 @@ def get_labels(observation, obs, idx):
         return specs_label, gens_label, fams_label
 
 
+def get_inference_labels(observation, obs, idx):
+        specs_label = obs[idx, sp_idx]
+        gens_label = obs[idx, gen_idx]
+        fams_label = obs[idx, fam_idx]            
+        all_spec = obs[idx, all_sp_idx]
+        all_gen = obs[idx,  all_gen_idx]
+        all_fam = obs[idx,  all_fam_idx]            
+        return specs_label, gens_label, fams_label, all_spec, all_gen, all_fam
     
     
 def get_gbif_observations(base_dir, organism, region, observation):
@@ -469,6 +477,17 @@ class HighRes_Satellie_Images_Only(Dataset):
 
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, images)
+    
+    
+    def infer_item(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
+
+        specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)
 
     # the high resolution satellite imagery + the pointwise observation environmental rasters
 class HighRes_Satellite_Rasters_Point(Dataset):
@@ -538,7 +557,15 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, images, env_rasters)
 
-    
+    def infer_item(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
+
+        specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)    
     
     
     # x, y = eniffa * (get_item_from_obs(obs,1)[1], 
@@ -602,6 +629,15 @@ class Bioclim_Rasters_Point(Dataset):
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, env_rasters)
+    def infer_item(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
+
+        specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)
     
     # just the environmental rasters as an image
 class Bioclim_Rasters_Image(Dataset):
@@ -659,7 +695,15 @@ class Bioclim_Rasters_Image(Dataset):
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, env_rasters)
-    
+    def infer_item(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
+
+        specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)    
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
     def __init__(self, base_dir, organism, region, normalize, observation, altitude):
@@ -730,7 +774,15 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, all_imgs)
+    def infer_item(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
 
+        specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)
 
 class HighRes_Satellite_Rasters_Sheet(Dataset):
     def __init__(self, base_dir, organism, region, normalize, observation, altitude):
@@ -803,3 +855,12 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, all_imgs)
+    def infer_item(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        # obs is of shape [id, species_id, genus, family]    
+        id_ = self.obs[idx, id_idx]
+        images = image_from_id(id_, self.base_dir, self.altitude)
+
+        specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)

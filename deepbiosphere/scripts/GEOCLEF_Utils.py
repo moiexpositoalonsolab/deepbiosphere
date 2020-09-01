@@ -1,5 +1,6 @@
 import numpy as np
 import math
+from deepbiosphere.scripts import GEOCLEF_Dataset as dataset
 import pandas as pd
 import glob
 import torch
@@ -86,15 +87,22 @@ def scale(x, out_range=(-1, 1), min_=None, max_=None):
     y = (x - (max_ + min_) / 2) / (max_ - min_)
     return y * (out_range[1] - out_range[0]) + (out_range[1] + out_range[0]) / 2
 
-def plot_image(base_dir, id_, figsize=(10,10), transpose=False):
-    imgs = image_from_id(id_, base_dir)
-    fig, axs = plt.subplots(3, figsize=figsize) if transpose else plt.subplots(1, 3, figsize=figsize)
-    axs[0].imshow(np.transpose(imgs[1:4,:,:], [1,2,0]))
-    axs[0].set_title("rgb ")
-    axs[1].imshow(imgs[0,:,:].squeeze())
-    axs[1].set_title("altitude")
-    axs[2].imshow(imgs[4:5,:,:].squeeze())
-    axs[2].set_title("infrared")
+def plot_image(base_dir, id_, figsize=(10,10), transpose=False, altitude=True):
+    imgs =   dataset.image_from_id(id_, base_dir, altitude) 
+    print(imgs.shape, imgs.shape[0]-2)
+    fig, axs = plt.subplots(imgs.shape[0]-3, figsize=figsize) if transpose else plt.subplots(1, 3, figsize=figsize)
+    if altitude:
+        axs[0].imshow(np.transpose(imgs[1:4,:,:], [1,2,0]))
+        axs[0].set_title("rgb ")
+        axs[1].imshow(imgs[4:5,:,:].squeeze())
+        axs[1].set_title("infrared")
+        axs[2].imshow(imgs[0,:,:].squeeze())
+        axs[2].set_title("altitude")
+    else:
+        axs[0].imshow(np.transpose(imgs[2:-1,:,:], [1,2,0]))
+        axs[0].set_title("rgb ")
+        axs[1].imshow(imgs[1,:,:].squeeze())
+        axs[1].set_title("infrared")
     return fig
 
 def plot_env_rasters(rasters, figsize=(10,10)):
@@ -103,7 +111,10 @@ def plot_env_rasters(rasters, figsize=(10,10)):
         ras.imshow(rasters[i,:,:].squeeze())
     return fig
 
-
+def plot_one_env_rasters(rasters, idx=0, figsize=(10,10)):
+    fig, axs = plt.subplots(1, figsize=figsize)
+    axs.imshow(rasters[idx,:,:].squeeze())
+    return fig
 
 
 def norm_rank(curr, stop):
