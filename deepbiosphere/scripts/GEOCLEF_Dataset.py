@@ -221,8 +221,8 @@ def get_bioclim_rasters(base_dir, region, normalized, obs):
         aff_agg.append(affine)        
     # filter down the dataset to only in-range observations
     # this shape of cali is the us-census designated shape
-    geoms = get_cali_shape(base_dir)
-    filt_obs = filter_to_bioclim(obs, src, geoms, nan)
+#     geoms = get_cali_shape(base_dir)
+#     filt_obs = filter_to_bioclim(obs, src, geoms, nan)
     # make sure rasters in same affine 
     # replace nan value with something more reasonable
     # nan is 2x more negative than most smallest value across all rasters
@@ -242,7 +242,7 @@ def get_bioclim_rasters(base_dir, region, normalized, obs):
     all_ras = np.stack(np.squeeze(ras_agg))
     affine = aff_agg[0] # can do because confirmed that all affines are the same, will need to change if having rasters of different affines
     
-    return all_ras, affine, filt_obs, min_
+    return all_ras, affine, obs, min_
 
 def filter_to_bioclim(obs, src, geoms, nan):
     bad_ids = []
@@ -356,9 +356,9 @@ def dict_key_2_index(df, key):
 
 #     return obs, inv_spec    
     
-# TODO: assumes that species_id, genus, family columns contain all possible values contained in extra_obs    
+# TODO: assumes that species_id, genus, family columns contain all possible values contained in extra_obs    :398
 def prep_data(obs, observation):
-    
+
     # map all species ids to 0-num_species, same for family and genus
     obs, spec_dict = map_key_2_index(obs, 'species', 'species_id')
     inv_spec = {v: k for k, v in spec_dict.items()}
@@ -370,7 +370,6 @@ def prep_data(obs, observation):
         fam_dict = map_unq_2_index(obs, 'all_fams')
         gen_dict = map_unq_2_index(obs, 'all_gens')
     # also map all species / genus / family in joint observation to 0-num
-#     import pdb; pdb.set_trace()
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
     obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])
