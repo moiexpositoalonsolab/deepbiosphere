@@ -166,7 +166,6 @@ def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_
 def get_raster_sheet_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max, width, height):
     x, y = latlon_2_idx(affine, lat_lon)
     env_rasters = rasters[:,x,y]
-    assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
     if normalize == 'min_max':
         lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
         lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
@@ -381,10 +380,12 @@ def get_labels(observation, obs, idx):
             specs_label = obs[idx, sp_idx]
             gens_label = obs[idx, gen_idx]
             fams_label = obs[idx, fam_idx]            
+            gens_label = obs[idx,  all_gen_idx]
+            fams_label = obs[idx,  all_fam_idx]
         else:
             specs_label = obs[idx, all_sp_idx]
             gens_label = obs[idx,  all_gen_idx]
-            fams_label = obs[idx,  all_fam_idx]
+            fams_label = obs[idx,  all_fam_idx]            
         return specs_label, gens_label, fams_label
 
 
