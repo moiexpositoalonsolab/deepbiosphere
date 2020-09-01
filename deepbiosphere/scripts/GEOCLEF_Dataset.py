@@ -151,7 +151,6 @@ def get_raster_image_obs(lat_lon, affine, rasters, nan, normalize, pix_res):
 def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max):
     x, y = latlon_2_idx(affine, lat_lon)
     env_rasters = rasters[:,x,y]
-    assert (env_rasters == nan).sum() == 0, "attempting to index an observation outside the coordinate range at {} ".format(lat_lon)
     if normalize == 'min_max':
         lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
         lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
@@ -363,7 +362,7 @@ def prep_data(obs, observation):
     inv_spec = {v: k for k, v in spec_dict.items()}
     obs, gen_dict = map_key_2_index(obs, 'genus', 'genus_id')
     obs, fam_dict = map_key_2_index(obs, 'family', 'family_id')
-    if observation == 'joint_single':
+    if observation == 'joint_single' or observation == 'single_single':
         spec_dict = map_unq_2_index(obs, 'all_specs')
         inv_spec = {v: k for k, v in spec_dict.items()}        
         fam_dict = map_unq_2_index(obs, 'all_fams')
@@ -376,12 +375,10 @@ def prep_data(obs, observation):
     return obs, inv_spec, spec_dict, gen_dict, fam_dict
 
 def get_labels(observation, obs, idx):
-        if observation == 'single':
+        if observation == 'single' or observation == 'single_single':
             specs_label = obs[idx, sp_idx]
             gens_label = obs[idx, gen_idx]
             fams_label = obs[idx, fam_idx]            
-            gens_label = obs[idx,  all_gen_idx]
-            fams_label = obs[idx,  all_fam_idx]
         else:
             specs_label = obs[idx, all_sp_idx]
             gens_label = obs[idx,  all_gen_idx]
@@ -397,6 +394,9 @@ def get_gbif_observations(base_dir, organism, region, observation):
     # include get_gbif_rasters_data!!
     if observation == 'single':
         observation = 'joint_multiple'
+
+    elif observation == 'single_single':
+        observation = 'joint_single'
     obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
     joint_obs = pd.read_csv(obs_pth, sep=',')
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
@@ -437,7 +437,7 @@ class HighRes_Satellie_Images_Only(Dataset):
         self.num_specs = len(spec_dict)
         self.num_fams = len(fam_dict)
         self.num_gens = len(gen_dict)
-        if observation == 'joint_single':
+        if observation == 'joint_single' or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
             all_fam = [sp for ob in obs.all_fams for sp in ob]
@@ -492,7 +492,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         self.num_specs = len(spec_dict)
         self.num_fams = len(fam_dict)
         self.num_gens = len(gen_dict)
-        if observation == 'joint_single':
+        if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
             all_fam = [sp for ob in obs.all_fams for sp in ob]
@@ -564,7 +564,7 @@ class Bioclim_Rasters_Point(Dataset):
         self.num_specs = len(spec_dict)
         self.num_fams = len(fam_dict)
         self.num_gens = len(gen_dict)
-        if observation == 'joint_single':
+        if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
             all_fam = [sp for ob in obs.all_fams for sp in ob]
@@ -625,7 +625,7 @@ class Bioclim_Rasters_Image(Dataset):
         self.num_specs = len(spec_dict)
         self.num_fams = len(fam_dict)
         self.num_gens = len(gen_dict)
-        if observation == 'joint_single':
+        if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
             all_fam = [sp for ob in obs.all_fams for sp in ob]
@@ -683,7 +683,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         self.num_specs = len(spec_dict)
         self.num_fams = len(fam_dict)
         self.num_gens = len(gen_dict)
-        if observation == 'joint_single':
+        if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
             all_fam = [sp for ob in obs.all_fams for sp in ob]
@@ -754,7 +754,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         self.num_specs = len(spec_dict)
         self.num_fams = len(fam_dict)
         self.num_gens = len(gen_dict)
-        if observation == 'joint_single':
+        if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
             all_fam = [sp for ob in obs.all_fams for sp in ob]

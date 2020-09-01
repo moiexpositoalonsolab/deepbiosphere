@@ -331,7 +331,7 @@ class MLP_Family_Genus_Species(nn.Module):
         fam = self.mlp_fam(F.relu(x))
         gen = self.mlp_gen(F.relu(fam))
         spec = self.mlpout(F.relu(gen))        
-        return fam, gen, spec
+        return spec, gen, fam
 
 class MixNet(nn.Module):
     """

@@ -24,7 +24,7 @@ paths = SimpleNamespace(**paths)
 choices = {
     'base_dir': ['DBS_DIR', 'MNT_DIR', 'MEMEX_LUSTRE', 'CALC_SCRATCH', 'AZURE_DIR'],
     'region': ['us', 'fr', 'us_fr', 'cali'],
-    'observation': ['single', 'joint_multiple', 'joint_single'],
+    'observation': ['single', 'joint_multiple', 'joint_single', 'single_single'],
     'organism': ['plant', 'animal', 'plantanimal'],
     # single: single obs, joint_image is just trained on the rgbd image, joint_image_env is trained on rgbd image + env cnn rasters, 
     # joint_image_pt is trained on rgbd image + env rasters pointwise, joint_env_cnn is trained on just environmental rasters as a cnn

@@ -241,28 +241,28 @@ def joint_raster_collate_fn(batch):
                                                        
 def test_batch(test_loader, tb_writer, device, net, observation, epoch, loss, model, dataset):
     if model == 'SpecOnly':
-        if observation == 'single':
+        if observation == 'single' or observation == 'single_single':
             return test_single_speconly_batch(test_loader, tb_writer, device, net, epoch)
         else:
             return test_joint_speconly_batch(test_loader, tb_writer, device, net, epoch)
     elif model == 'MLP_Family':
-        if observation == 'single':
+        if observation == 'single' or observation == 'single_single':
             return test_single_obs_fam(test_loader, tb_writer, device, net, epoch)
         else:
             return test_joint_obs_fam(test_loader, tb_writer, device, net, epoch)
     elif model == 'MLP_Family_Genus':
-        if observation == 'single':
+        if observation == 'single' or observation == 'single_single':
             return test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch)
         else:
             return test_joint_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch)
 
     elif dataset == 'satellite_rasters_point':
-        if observation == 'single':
+        if observation == 'single' or observation == 'single_single':
             return test_single_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
         else:
             return test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch)
     else:
-        if observation == 'single':
+        if observation == 'single' or observation == 'single_single':
             return test_single_obs_batch(test_loader, tb_writer, device, net, epoch)
         else:
             return test_joint_obs_batch(test_loader, tb_writer, device, net, epoch)
@@ -348,8 +348,8 @@ def test_single_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
             fams_label = fams_label.to(device)
             (outputs, gens, fams) = net(imgs.float(), env_rasters.float()) 
             spec_accs = utils.topk_acc(outputs, specs_label, topk=(30,1), device=device) # magic no from CELF2020
-            gens_accs = utils.topk_acc(genus, gens_label, topk=(30,1), device=device) # magic no from CELF2020
-            fam_accs = utils.topk_acc(family, fams_label, topk=(30,1), device=device) # magic no from CELF2020
+            gens_accs = utils.topk_acc(gens, gens_label, topk=(30,1), device=device) # magic no from CELF2020
+            fam_accs = utils.topk_acc(fams, fams_label, topk=(30,1), device=device) # magic no from CELF2020
             prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=spec_accs[0], acc1=spec_accs[1]))
             all_spec.append(spec_accs)
             all_gen.append(gens_accs)
@@ -403,7 +403,7 @@ def test_single_obs_fam(test_loader, tb_writer, device, net, epoch):
             env_rasters = env_rasters.to(device)
             fams_label = fams_label.to(device)
             fams = net(env_rasters.float()) 
-            fam_accs = utils.topk_acc(family, fams_label, topk=(30,1), device=device) # magic no from CELF2020
+            fam_accs = utils.topk_acc(fams, fams_label, topk=(30,1), device=device) # magic no from CELF2020
             prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=fam_accs[0], acc1=fam_accs[1]))
             prog.update(1)          
             if tb_writer is not None:
@@ -430,7 +430,7 @@ def test_joint_obs_rastersonly_all(test_loader, tb_writer, device, net, epoch):
             fams, gens, specs = net(env_rasters.float()) 
             genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                                    
             famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020  
-            specaccs, totspec_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020              
+            specaccs, totspec_accs = utils.num_corr_matches(specs, specs_label) # magic no from CELF2020              
             #TODO: add other accuracy metrics??
             prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
             prog.update(1)          
@@ -482,8 +482,8 @@ def test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoc
             fams_label = fams_label.to(device)
             gens_label = gens_label.to(device)
             fams, gens = net(env_rasters.float()) 
-            gens_accs = utils.topk_acc(genus, gens_label, topk=(30,1), device=device) # magic no from CELF2020
-            fam_accs = utils.topk_acc(family, fams_label, topk=(30,1), device=device) # magic no from CELF2020
+            gens_accs = utils.topk_acc(gens, gens_label, topk=(30,1), device=device) # magic no from CELF2020
+            fam_accs = utils.topk_acc(fams, fams_label, topk=(30,1), device=device) # magic no from CELF2020
 
             prog.set_description("top 30: {acc0}  top1: {acc1}".format(acc0=gens_accs[0], acc1=gens_accs[1]))
 
@@ -631,11 +631,12 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                 loss_fam, loss_gen = None, None
             elif model == 'MLP_Family':
                 (specs_lab, gens_lab, fams_lab, batch) = ret
+#                 import pdb; pdb.set_trace()
                 tot_loss, loss_fam = forward_one_example_speconly(fams_lab, batch, optimizer, net, fam_loss, device)
                 loss_spec, loss_gen = None, None
             elif model == 'MLP_Family_Genus':
                 (specs_lab, gens_lab, fams_lab, batch) = ret
-                tot_loss, loss_gen, loss_fam = forward_one_example_speconly(fams_lab, batch, optimizer, net, fam_loss, device)
+                tot_loss, loss_gen, loss_fam = forward_one_example_famgen(fams_lab, gens_lab, batch, optimizer, net, fam_loss, gen_loss, device)
                 loss_spec =  None
             #if dataset != 'satellite_rasters_point:
             else:
@@ -740,6 +741,7 @@ def forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, de
     specs_lab = specs_lab.to(device)                                     
     optimizer.zero_grad()
     specs = net(batch.float()) 
+#     import pdb; pdb.set_trace()
     loss_spec = spec_loss(specs, specs_lab) 
     total_loss = loss_spec
     total_loss.backward()
@@ -753,7 +755,7 @@ def forward_one_example_famgen(fams_lab, gens_lab, batch, optimizer, net, fams_l
     optimizer.zero_grad()
     fams, gens = net(batch.float()) 
     loss_fam = fams_loss(fams, fams_lab) 
-    loss_gen = gens_loss(gens, genss_lab) 
+    loss_gen = gens_loss(gens, gens_lab) 
     total_loss = loss_fam + loss_gen
     total_loss.backward()
     optimizer.step()
