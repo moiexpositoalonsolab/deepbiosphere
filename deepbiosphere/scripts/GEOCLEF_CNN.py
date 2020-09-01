@@ -251,7 +251,7 @@ class FlatNet(nn.Module):
         #x = self.pool5(F.relu(self.conv5(x)))
         x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
         #TODO: relu help or not?
-        fam = F.relu(self.famfc(x))
+        fam = self.famfc(x)
         gen = self.genfc(x)
         spec = self.specfc(x)
         return(spec, gen, fam)
