@@ -327,7 +327,7 @@ def map_key_2_index(df, key, new_key=None):
     else:
         df[new_key] = df[key].map(key_2_id)
     return df, key_2_id
-
+# this is non-deterministic, fuck
 def map_unq_2_index(df, key):
     all_itm = df[key]
     unq = set()
@@ -367,6 +367,9 @@ def prep_data(obs, observation):
         inv_spec = {v: k for k, v in spec_dict.items()}        
         fam_dict = map_unq_2_index(obs, 'all_fams')
         gen_dict = map_unq_2_index(obs, 'all_gens')
+        obs = obs.assign(species_id=[spec_dict[k] for k in obs.species])
+        obs = obs.assign(genus_id=[gen_dict[k] for k in obs.genus])
+        obs = obs.assign(family_id=[fam_dict[k] for k in obs.family])        
     # also map all species / genus / family in joint observation to 0-num
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])

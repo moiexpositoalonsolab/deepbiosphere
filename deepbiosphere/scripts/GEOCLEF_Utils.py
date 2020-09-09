@@ -1,6 +1,6 @@
 import numpy as np
 import math
-from deepbiosphere.scripts import GEOCLEF_Dataset as dataset
+#from deepbiosphere.scripts import GEOCLEF_Dataset as dataset
 import pandas as pd
 import glob
 import torch
@@ -231,13 +231,45 @@ def id_2_file_fr(id_):
     cd = "0{}".format(cd) if  cd < 10 else cd
     return None, ab, cd
     
-
+def clean_all_models(base_dir, data='nets', num_2_keep=5):
+    # https://stackoverflow.com/questions/16953842/using-os-walk-to-recursively-traverse-directories-in-python
+    # traverse root directory, and list directories as dirs and files as files
+    for root, dirs, files in os.walk("{}{}/".format(base_dir, data)):
+        path = root.split(os.sep)
+        print((len(path) - 1) * '---', os.path.basename(root))
+        print(len(files))
+#         print(root, dirs)
+        # unique files are based on lr, e
+        unq_runs= {file.split("_e")[0] for file in files}
+        # so this is one entry per run
+        # list of all epochs per run
+        for run in unq_runs:
+            pths = glob.glob(root+ "/"+ run + "_e*.tar")
+            srted = utils.sort_by_epoch(pths)
+            to_keep = srted[-num_2_keep:]
+            to_toss = srted[:-num_2_keep]
+            assert len(to_keep) > 0, "missing models!"
+            if len(to_toss) > 0:
+                print("removing epochs {} to {} and keeping epochs {} to {} of model {}".format(
+                    utils.strip_to_epoch([to_toss[0]])[0], 
+                    utils.strip_to_epoch([to_toss[-1]])[0],
+                    utils.strip_to_epoch([to_keep[0]])[0], 
+                    utils.strip_to_epoch([to_keep[-1]])[0],
+                    utils.path_to_cfgname(run)))
+                for to_remove in to_toss:
+                    os.remove(to_remove)
+        print("\n")
     
 def sort_by_epoch(paths, reversed=False):    
-    return sorted(paths, reverse=reversed,key= lambda x: (int(x.split('_e')[1].split('.')[0])))
+    return sorted(paths, reverse=reversed,key= lambda x: (int(x.split('_e')[-1].split('.')[0])))
 
-def strip_to_epoch(filepaths):    
+def strip_to_epoch(filepaths):
+#     print(filepaths[0])
+#     print(filepaths[0].split('.')[0])
     return  [int(f.split('_e')[-1].split('.')[0]) for f in filepaths] 
+
+def path_to_cfgname(filepath):
+    return filepath.split("/")[-1].split("_e")[0].split('.')[0]
     
 '''files are default assumed to be ';' separator '''
 def check_gbif_files(occ_paths, img_path, sep=';'):

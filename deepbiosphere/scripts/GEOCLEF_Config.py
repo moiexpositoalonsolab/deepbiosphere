@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 paths = {
     'DBS_DIR' : "/Carnegie/DPB/Data/Shared/Labs/Moi/Everyone/deepbiosphere/GeoCELF2020/",
-    'AZURE_DIR' : '/home/leg/deepbiosphere/GeoCLEF/',
+    'AZURE_DIR' : '/home/leg/deepbiosphere/GeoCELF2020/',
     'MNT_DIR' : '/mnt/GeoCLEF/',
     'MEMEX_LUSTRE' : "/lustre/scratch/lgillespie/",
     'CALC_SCRATCH' : "/NOBACKUP/scratch/lgillespie/"
@@ -78,8 +78,11 @@ def setup_main_dirs(base_dir):
     if not os.path.exists("{}desiderata/".format(base_dir)):
         os.makedirs("{}desiderata/".format(base_dir))  
 
+def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
+    return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
+        
 def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id):
-    return "{}configs/{}_{}_{}_{}_{}_{}_{}.json".format(base_dir, observation, organism, region, model, loss, dataset, exp_id)
+    return "{}configs/{}.json".format(base_dir, build_config_name(observation, organism, region, model, loss, dataset, exp_id))
 
 def build_hyperparams_path(base_dir, exp_id):
     if not os.path.exists("{}desiderata/hyperparams/".format(base_dir)):
@@ -87,9 +90,10 @@ def build_hyperparams_path(base_dir, exp_id):
     return "{}desiderata/hyperparams/{}_{}_{}_{}.json".format(base_dir, datetime.now().day, datetime.now().month, datetime.now().year, exp_id)
 
 def load_parameters(abs_path):
+#     print(abs_path)
     assert os.path.exists(abs_path), "this config doesn't exist on the system! If you would like to rebuild it, please provide CLI to do so"
-    print("loading param configs from {}".format(abs_path))
-    with open(abs_path, 'rb') as fp:
+    print("loading param configs from {}".format(utils.path_to_cfgname(abs_path)))
+    with open(abs_path, 'r') as fp:
         params = json.load(fp)
     params = SimpleNamespace(**params)
     return params
@@ -144,24 +148,26 @@ class Run_Params():
     def build_abs_desider_path(self, epoch):
         return "{}{}_lr{}_e{}.pkl".format(self.build_rel_path(self.base_dir, 'desiderata'), self.params.exp_id, self.params.lr, epoch)
         
-    def get_all_models(self):
+    def get_all_models(self, cleaning=False):
         paths = "{}{}_lr{}_e{}.tar".format(self.build_rel_path(self.base_dir, 'nets'), self.params.exp_id, self.params.lr, '*')
-        print('get_all_models', paths)
+#         print('get_all_models', paths)
         paths = glob.glob(paths)
-        assert len(paths) > 0, 'no models to load in!'
+        if not cleaning:
+            assert len(paths) > 0, 'no models to load in!'
         epochs = utils.strip_to_epoch(paths)
         return paths, epochs
         
-    def get_all_desi(self, base_dir):
-        paths =  "{}{}_lr{}_e{}.pkl".format(self.build_rel_path('desiderata'), self.params.exp_id, self.params.lr, "*")
+    def get_all_desi(self, cleaning=False):
+        paths =  "{}{}_lr{}_e{}.pkl".format(self.build_rel_path(self.base_dir, 'desiderata'), self.params.exp_id, self.params.lr, "*")
         paths = glob.glob(paths)
-        assert len(paths) > 0, 'no desiderata to load in!'        
+        if not cleaning:
+            assert len(paths) > 0, 'no desiderata to load in!'        
         epochs = utils.strip_to_epoch(paths)
         return paths, epochs
 
     def get_recent_model(self, epoch=None, device='cpu'):
         all_models, epochs = self.get_all_models()
-        print('models ', all_models, epochs)
+#         print('models ', all_models, epochs)
 #         all_models = glob.glob(models)
         
         if epoch is not None:
@@ -172,6 +178,7 @@ class Run_Params():
         sorted_mods = utils.sort_by_epoch(all_models)
         if epoch is None:
             most_recent = sorted_mods[-1]
+            print("loading ", most_recent)
             return torch.load(most_recent, map_location=device)
         else:
             print("grabbing model at {}".format(epoch))
@@ -183,20 +190,26 @@ class Run_Params():
 
 
     def get_most_recent_des(self, epoch=None):
-        paths, epochs = self.get_all_models('nets')
-        desid = glob.glob(paths)
+        paths, epochs = self.get_all_desi('self.base_dir')
         if epoch is not None:
             assert epoch in epochs, "incorrect epoch for this model!"
-        if len(desid) <= 0:
+        if len(paths) <= 0:
             print("no models for this config on disk")
             return None
-        sorted_desi = utils.sort_by_epoch(desid)
+        sorted_desi = utils.sort_by_epoch(paths)
+#         print(epoch)
         if epoch is None:
+#             print('in none')
             most_recent = sorted_desi[-1]
+            with open(most_recent, 'rb') as f:
+                des = pickle.load(f)
+            return des
+
         else: 
             print("grabbing desiderata at {}".format(epoch))
             for m in sorted_desi:
                 if "_e{}".format(epoch) in m:
+                    most_recent = m
                     with open(most_recent, 'rb') as f:
                         des = pickle.load(f)
                     return des
@@ -213,7 +226,28 @@ class Run_Params():
             os.makedirs(nets_path)
         if not os.path.exists(cfg_path):
             os.makedirs(cfg_path)            
+    def clean_old_models(self, num_2_keep=5):
+        paths, e = self.get_all_models()
+        srt_pths = utils.sort_by_epoch(paths)
+        to_keep = srted[-num_2_keep:]
+        to_toss = srted[:-num_2_keep]
+        print("removing epochs {} to {}".format(to_toss[0], to_toss[-1]))
+        for removed in to_toss:
+            os.remove(removed)
+    def get_cfg_path(self):
+        return build_params_path(self.base_dir, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.loss, self.params.dataset, self.params.exp_id)
 
+    def get_cfg_name(self):
+        return build_config_name(self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.loss, self.params.dataset, self.params.exp_id)
+    
+    def remove_config(self):        
+        print("removing {}".format(self.get_cfg_name()))
+        m_pths, _ = self.get_all_models()
+        d_pths, _ = self.get_all_desi()
+        c_pth = self.get_cfg_path()
+        to_remove = m_pths + d_pths + [c_pth]
+        for removal in to_remove:
+            os.remove(removal)
                 
 def parse_known_args(args):
     if args is None:
