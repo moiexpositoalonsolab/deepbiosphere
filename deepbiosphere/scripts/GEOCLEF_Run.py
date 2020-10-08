@@ -517,6 +517,7 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
             specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
             genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                        
             famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020     
+            import pdb; pdb.set_trace()
             #TODO: add other accuracy metrics??
             prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
             prog.update(1)          
@@ -920,7 +921,7 @@ def train_model(ARGS, params):
             }
             desiderata_path = params.build_abs_desider_path(epoch)
             with open(desiderata_path, 'wb') as f:
-                pickle.dump(desiderata, f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(desiderata, f)
         tock = time.time()
         diff = ( tock-tick)/60
         print ("epoch {} took {} minutes".format(epoch, diff))
