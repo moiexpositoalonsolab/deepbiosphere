@@ -62,6 +62,7 @@ arguments = {
     'seed': {'type':int, 'help':"random seed to use"},
     'toy_dataset': {'dest':'toy_dataset', 'help': 'to use a small subset of data, set this option', 'action':'store_true'},
     'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches', 'action':'store_true'},
+    'clean_all': {'dest':'clean_all', 'help': 'whether to clean out all old configs and files or not', 'action':'store_true'},
     'normalize': {'choices': choices.normalize, 'help': 'whether to normalize environmental rasters'},
     'unweighted': {'dest':'unweighted', 'help': 'whether to weight loss by frequency of the observation', 'action':'store_true'},    
     'no_alt': {'dest':'no_alt', 'help': 'set to not include altitude layer, dont set to include', 'action':'store_false'},        

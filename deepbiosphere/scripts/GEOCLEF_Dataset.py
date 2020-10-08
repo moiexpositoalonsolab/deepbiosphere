@@ -327,12 +327,17 @@ def map_key_2_index(df, key, new_key=None):
     else:
         df[new_key] = df[key].map(key_2_id)
     return df, key_2_id
-# this is non-deterministic, fuck
+
+def unique(sequence):
+    seen = set()
+    return [x for x in sequence if not (x in seen or seen.add(x))]
+
 def map_unq_2_index(df, key):
     all_itm = df[key]
-    unq = set()
+    seen = set()
+    unq = []
     for itm in all_itm:
-        unq.update(itm)
+        unq = unq + [x for x in itm if not (x in seen or seen.add(x))]
     name_2_id = {
         k:v for k, v in zip(unq, np.arange(len(unq)))
     }
@@ -442,12 +447,12 @@ class HighRes_Satellie_Images_Only(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
         
-        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
-        self.idx_2_id = inv_spec
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(spec_dict)
-        self.num_fams = len(fam_dict)
-        self.num_gens = len(gen_dict)
+        self.num_specs = len(self.spec_dict)
+        self.num_fams = len(self.fam_dict)
+        self.num_gens = len(self.gen_dict)
         if observation == 'joint_single' or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
@@ -508,12 +513,12 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
-        self.idx_2_id = inv_spec
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(spec_dict)
-        self.num_fams = len(fam_dict)
-        self.num_gens = len(gen_dict)
+        self.num_specs = len(self.spec_dict)
+        self.num_fams = len(self.fam_dict)
+        self.num_gens = len(self.gen_dict)
         if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
@@ -591,12 +596,12 @@ class Bioclim_Rasters_Point(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
-        self.idx_2_id = inv_spec
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(spec_dict)
-        self.num_fams = len(fam_dict)
-        self.num_gens = len(gen_dict)
+        self.num_specs = len(self.spec_dict)
+        self.num_fams = len(self.fam_dict)
+        self.num_gens = len(self.gen_dict)
         if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
@@ -662,12 +667,12 @@ class Bioclim_Rasters_Image(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
-        self.idx_2_id = inv_spec
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(spec_dict)
-        self.num_fams = len(fam_dict)
-        self.num_gens = len(gen_dict)
+        self.num_specs = len(self.spec_dict)
+        self.num_fams = len(self.fam_dict)
+        self.num_gens = len(self.gen_dict)
         if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
@@ -727,12 +732,12 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
-        self.idx_2_id = inv_spec
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(spec_dict)
-        self.num_fams = len(fam_dict)
-        self.num_gens = len(gen_dict)
+        self.num_specs = len(self.spec_dict)
+        self.num_fams = len(self.fam_dict)
+        self.num_gens = len(self.gen_dict)
         if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
@@ -812,12 +817,12 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, inv_spec, spec_dict, gen_dict, fam_dict  = prep_data(obs, observation)
-        self.idx_2_id = inv_spec
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
-        self.num_specs = len(spec_dict)
-        self.num_fams = len(fam_dict)
-        self.num_gens = len(gen_dict)
+        self.num_specs = len(self.spec_dict)
+        self.num_fams = len(self.fam_dict)
+        self.num_gens = len(self.gen_dict)
         if observation == 'joint_single'  or observation == 'single_single':
             all_sps = [sp for ob in obs.all_specs for sp in ob]
             all_gen = [sp for ob in obs.all_gens for sp in ob]
