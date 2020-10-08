@@ -1,6 +1,5 @@
 import numpy as np
 import math
-#from deepbiosphere.scripts import GEOCLEF_Dataset as dataset
 import pandas as pd
 import glob
 import torch
@@ -151,8 +150,38 @@ def mean_reciprocal_rank(lab, guess, total=True, norm=True):
         else:
             return 1/all_right.min()    
 
+def recall_per_batch(output, target, actual):
 
-def num_corr_matches(output, target):
+    recall = []
+    tot_rec = []
+    top1_rec = []
+    tot_top1 = []
+    for obs, trg, act in zip(output, target, actual):
+        out_vals, out_idxs = torch.topk(obs, int(trg.sum().item()))
+        targ_vals, targ_idxs = torch.topk(trg, int(trg.sum().item()))
+        eq = len(list(set(out_idxs.tolist()) & set(targ_idxs.tolist())))
+        eq_t1 = len(list(set(out_idxs.tolist()) & set([actual.item()])))        
+        recall = eq / trg.sum() * 100
+        top1_recall = eq_t1 * 100
+        tot_rec.append((eq, len(targ_idxs)))
+        recall.append(recall.item())
+        tot_top1.append(eq_t1)
+        top1_rec.append(top1_recall.item())
+    return recall, tot_rec, top1_rec, tot_top1
+        
+def recall_per_example(guess, lab, actual, weight, weighted=True):
+    # recall
+    maxk = len(lab)
+    pred, idxs = torch.topk(guess, maxk)
+    guessed = set(idxs.tolist()[0])
+    eq = len(list(guessed & set(lab)))
+    recall = eq / maxk
+    top1_recall = len(list(guessed  & {actual}))
+    if weighted:
+        top1_recall = top1_recall / weight
+    return recall, top1_recall
+
+def num_corr_matches(output, target, actual):
     tot_acc = []
     acc_acc = []
     for obs, trg in zip(output, target):

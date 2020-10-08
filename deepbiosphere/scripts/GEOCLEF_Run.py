@@ -187,7 +187,6 @@ def joint_collate_fn(batch):
         fams_tens[fam] += 1
         all_fams.append(fams_tens)
         imgs.append(img)
-#     import pdb; pdb.set_trace() # look at size of allspecs, allgens, allfams, imgs}
     return torch.stack(all_specs), torch.stack(all_gens), torch.stack(all_fams), torch.from_numpy(np.stack(imgs))
 
 def joint_raster_collate_fn(batch):
@@ -297,13 +296,12 @@ def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
 
                 tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
                 tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)   
-            else:
-                break
 
             prog.update(1)
         prog.close()
         return all_spec, all_gen, all_fam
-    
+ 
+    #TODO: fix to work with recall_per_example
 def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
         allspec = []
@@ -311,11 +309,8 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
         allfam = []
         for i, (specs_label, gens_label, fams_label, imgs, env_rasters) in enumerate(test_loader):
             imgs = imgs.to(device)
-            env_rasters = env_rasters.to(device)
-            specs_lab = specs_label.to(device)                                     
-            gens_label = gens_label.to(device)
-            fams_label = fams_label.to(device)
-            (outputs, gens, fams) = net(imgs.float(), env_rasters.float()) 
+            env_rasters = torch.from_numpy(env_rasters).to(device)
+            (outputs, gens, fams) = net(env_rasters.float(), env_rasters.float()) 
             specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
             genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                        
             famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020  
@@ -326,8 +321,6 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
                 tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
-            else:
-                break
             allspec.append(totspec_accs)
             allgen.append(totgen_accs)
             allfam.append(totfam_accs)
@@ -363,8 +356,6 @@ def test_single_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
 
                 tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
                 tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)                          
-            else:
-                break
         allspec.append(totspec_accs)
         allgen.append(totgen_accs)
         allfam.append(totfam_accs)
@@ -372,25 +363,31 @@ def test_single_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
     return allfam, allgen, allspec
 
 def test_joint_obs_fam(test_loader, tb_writer, device, net, epoch):
-    with tqdm(total=len(test_loader), unit="batch") as prog:
-        means = []
-        all_accs = []
-        mean_accs = []
-        for i, (_, _, fams_label, env_rasters) in enumerate(test_loader):
-            env_rasters = env_rasters.to(device)
-            fams_label = fams_label.to(device)
-            fams = net(env_rasters.float()) 
-            famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020  
-            #TODO: add other accuracy metrics??
-            prog.set_description("mean accuracy across batch: {acc0}".format(acc0=famaccs.mean()))
+    means = []
+    all_accs = []
+    mean_accs = []
+    all_frec = []    
+    all_tf = []    
+    sampler = test_loader.sampler
+    dataset = test_loader.dataset
+    with tqdm(total=len(sampler), unit="example") as prog:
+        for i, idx in enumerate(sampler):
+        # return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)
+            (_, _, fams_label, _, _, all_fams, loaded_imgs) = dataset.infer_item(idx)            
+            loaded_imgs = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
+            fams = net(loaded_imgs.float()) 
+            weight = dataset.fam_freqs[fams_label]
+            famrec, famtop1 = utils.recall_per_example(fams, all_fams, fams_label, weight) # magic no from CELF2020  
+            all_frec.append(famrec)
+            all_tf.append(famtop1)            
+            prog.set_description("mean recall across batch: {acc0}".format(acc0=famrec))
             prog.update(1)          
-            if tb_writer is not None:
-                tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
-            else:
-                break
-            all_accs.append(totfam_accs)
-            mean_accs.append(famaccs)
-            means.append(famaccs.mean())
+            all_accs.append(famrec)
+            mean_accs.append(famtop1)
+            means.append(famrec * 100)
+        if tb_writer is not None:
+            tb_writer.add_scalar("test/avg_fam_recall",  mean(all_frec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_fam_top1_recall", mean(all_tf) * 100, epoch)            
     prog.close()
     return means, all_accs, mean_accs
 
@@ -409,8 +406,6 @@ def test_single_obs_fam(test_loader, tb_writer, device, net, epoch):
             if tb_writer is not None:
                 tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
                 tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)   
-            else:
-                break
             all_accs.append(fam_accs)
             mean_accs.append(fam_accs)
             means.append(fam_accs.mean())
@@ -438,39 +433,52 @@ def test_joint_obs_rastersonly_all(test_loader, tb_writer, device, net, epoch):
                 tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
                 tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
-            else:
-                break
             all_accs.append(totfam_accs)
             mean_accs.append(totgen_accs)
             means.append(totspec_accs)
     prog.close()
     return means, all_accs, mean_accs
 
+def mean(lst): 
+    return sum(lst) / len(lst) 
+
 def test_joint_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch):
-    with tqdm(total=len(test_loader), unit="batch") as prog:
-        means = []
-        all_accs = []
-        mean_accs = []
-        for i, (_, gens_label, fams_label, env_rasters) in enumerate(test_loader):
-            env_rasters = env_rasters.to(device)
-            fams_label = fams_label.to(device)
-            gens_label = gens_label.to(device)
+    means = []
+    all_accs = []
+    mean_accs = []
+    all_grec = []
+    all_frec = []
+    all_tg = []
+    all_tf = []
+    sampler = test_loader.sampler
+    dataset = test_loader.dataset
+    with tqdm(total=len(sampler), unit="example") as prog:
+        for i, idx in enumerate(sampler):
+        # return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)
+            (_, gens_label, fams_label, _, all_gens, all_fams, env_rasters) = dataset.infer_item(idx)            
+            env_rasters= torch.from_numpy(np.expand_dims(env_rasters, axis=0)).to(device)
             fams, gens = net(env_rasters.float()) 
-            genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                                    
-            famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020  
-            #TODO: add other accuracy metrics??
-            prog.set_description("mean accuracy across batch: {acc0}".format(acc0=genaccs.mean()))
+            fam_weight = dataset.fam_freqs[fams_label]
+            gen_weight = dataset.gen_freqs[gens_label]
+            famrec, famtop1 = utils.recall_per_example(fams, all_fams, fams_label, fam_weight) # magic no from CELF2020  
+            genrec, gentop1 = utils.recall_per_example(gens, all_gens, gens_label, gen_weight) # magic no from CELF2020  
+            all_grec.append(genrec)
+            all_frec.append(famrec)
+            all_tg.append(gentop1)
+            all_tf.append(famtop1)
+            prog.set_description("mean recall across batch: {acc0}".format(acc0=genrec))
             prog.update(1)          
-            if tb_writer is not None:
-                tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)
-                tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
-            else:
-                break
-            all_accs.append(totfam_accs)
-            mean_accs.append(totgen_accs)
-            means.append(genaccs.mean())
+            all_accs.append((famrec, genrec))
+            mean_accs.append((famtop1, gentop1))
+            means.append((famrec * 100, genrec * 100))
+        if tb_writer is not None:
+            tb_writer.add_scalar("test/avg_fam_recall", mean(all_frec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_fam_top1_recall", mean(all_tf) * 100, epoch) 
+            tb_writer.add_scalar("test/avg_gen_recall", mean(all_grec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_gen_top1_recall", mean(all_tg) * 100, epoch)                             
     prog.close()
-    return means, all_accs, mean_accs
+    return means, all_accs, mean_accs    
+    
                                                        
 def test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoch):
     with tqdm(total=len(test_loader), unit="batch") as prog:
@@ -495,8 +503,6 @@ def test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoc
 
                 tb_writer.add_scalar("test/30_fam_accuracy", fam_accs[0], epoch)
                 tb_writer.add_scalar("test/1_fam_accuracy", fam_accs[1], epoch)   
-            else:
-                break
             all_accs.append(fam_accs)
             mean_accs.append(gens_accs)
             means.append(gens_accs.mean())
@@ -504,49 +510,80 @@ def test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoc
     return means, all_accs, mean_accs
 
 def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
-    with tqdm(total=len(test_loader), unit="batch") as prog:
-        allspec = []
-        allgen = []
-        allfam = []
-        for i, (specs_label, gens_label, fams_label, loaded_imgs) in enumerate(test_loader):
-            batch = loaded_imgs.to(device)
-            specs_lab = specs_label.to(device)                                     
-            gens_label = gens_label.to(device)
-            fams_label = fams_label.to(device)
+    
+    allspec = []
+    allgen = []
+    allfam = []
+    all_grec = []
+    all_frec = []
+    all_srec = []    
+    all_tg = []
+    all_tf = []    
+    all_ts = []
+    sampler = test_loader.sampler
+    dataset = test_loader.dataset
+    with tqdm(total=len(sampler), unit="example") as prog:
+        for i, idx in enumerate(sampler):
+            (secs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+            batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
             (outputs, gens, fams) = net(batch.float())
-            specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
-            genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                        
-            famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020     
-            #TODO: add other accuracy metrics??
-            prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
-            prog.update(1)          
-            if tb_writer is not None:
-                tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
-                tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
-                tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
-            allspec.append(totspec_accs)
-            allgen.append(totgen_accs)
-            allfam.append(totfam_accs)
+            fam_weight = dataset.fam_freqs[fams_label]
+            gen_weight = dataset.gen_freqs[gens_label]
+            spec_weight = dataset.spec_freqs[secs_label]
+            famrec, famtop1 = utils.recall_per_example(fams, all_fams, fams_label, fam_weight) # magic no from CELF2020  
+            genrec, gentop1 = utils.recall_per_example(gens, all_gens, gens_label, gen_weight) # magic no from CELF2020  
+            specrec, spectop1 = utils.recall_per_example(outputs, all_specs, secs_label, spec_weight) # magic no from CELF2020
+            all_grec.append(genrec)
+            all_frec.append(famrec)
+            all_srec.append(specrec)
+            all_tg.append(gentop1)
+            all_tf.append(famtop1)
+            all_ts.append(spectop1)
+            prog.set_description("mean recall across batch: {acc0}".format(acc0=specrec))
+            prog.update(1)                               
+            allspec.append((specrec, spectop1))
+            allfam.append(( famrec, famtop1 ))
+            allgen.append(( genrec, gentop1 ))
+        if tb_writer is not None:
+            tb_writer.add_scalar("test/avg_fam_recall", mean(all_frec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_fam_top1_recall", mean(all_tf) * 100, epoch) 
+            tb_writer.add_scalar("test/avg_gen_recall", mean(all_grec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_gen_top1_recall", mean(all_tg) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_recall", mean(all_srec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_top1_recall", mean(all_ts) * 100, epoch) 
+            
     prog.close()
     return allfam, allgen, allspec
 
 def test_joint_speconly_batch(test_loader, tb_writer, device, net, epoch):
-    with tqdm(total=len(test_loader), unit="batch") as prog:
-        means = []
-        all_accs = []
-        mean_accs = []
-        for i, (specs_label, _, _, loaded_imgs) in enumerate(test_loader):
-            batch = loaded_imgs.to(device)
-            specs_lab = specs_label.to(device)                                     
+
+    means = []
+    all_accs = []
+    mean_accs = []
+    all_spec = []
+    all_sp1 = []
+    sampler = test_loader.sampler
+    dataset = test_loader.dataset
+    with tqdm(total=len(sampler), unit="example") as prog:
+        for i, idx in enumerate(sampler):
+            # specs label is top1, all_spec is all species
+            (specs_label, _, _, all_spec, _, _, loaded_imgs) = dataset.infer_item(idx)
+            batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
             outputs = net(batch.float()) 
-            specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
-            prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
+            # recall, top1_recall
+            spec_weight = dataset.spec_freqs[specs_label]
+            specrec, spectop1 = utils.recall_per_example(outputs, all_specs, specs_label, spec_weight) # magic no from CELF2020
+            prog.set_description("mean recall across batch: {acc0}".format(acc0=specrec))
+            all_spec.append(specrec)
+            all_sp1.append(spectop1)
             prog.update(1)          
-            if tb_writer is not None:
-                tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
-            all_accs.append(totspec_accs)
-            mean_accs.append(specaccs)
-            means.append(specaccs.mean())
+            all_accs.append(specrec)
+            mean_accs.append(spectop1)
+            means.append(specrec * 100)
+        if tb_writer is not None:
+            tb_writer.add_scalar("test/avg_spec_recall", mean(all_spec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_top1_recall", mean(all_sp1) * 100, epoch)                
+            
     prog.close()
     return means, all_accs, mean_accs
                                                        
@@ -580,7 +617,6 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
     spec_loss_meter = []
     gen_loss_meter = []
     fam_loss_meter = []  
-
     with tqdm(total=len(train_loader), unit="batch") as prog:
         for i, ret in enumerate(train_loader):     
             specophs = nepoch
@@ -631,7 +667,6 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                 loss_fam, loss_gen = None, None
             elif model == 'MLP_Family':
                 (specs_lab, gens_lab, fams_lab, batch) = ret
-#                 import pdb; pdb.set_trace()
                 tot_loss, loss_fam = forward_one_example_speconly(fams_lab, batch, optimizer, net, fam_loss, device)
                 loss_spec, loss_gen = None, None
             elif model == 'MLP_Family_Genus':
@@ -701,8 +736,6 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                     spec_loss_meter.append(loss_spec.item())
                     gen_loss_meter.append(loss_gen.item())
                     fam_loss_meter.append(loss_fam.item()) 
-            else:
-                break
             prog.set_description("loss: {tot_loss}".format(tot_loss=tot_loss))
             prog.update(1)                
             step += 1
@@ -741,7 +774,6 @@ def forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, de
     specs_lab = specs_lab.to(device)                                     
     optimizer.zero_grad()
     specs = net(batch.float()) 
-#     import pdb; pdb.set_trace()
     loss_spec = spec_loss(specs, specs_lab) 
     total_loss = loss_spec
     total_loss.backward()
@@ -808,6 +840,7 @@ def train_model(ARGS, params):
 
     else:
         tb_writer = None
+        train_dataset.obs = train_dataset.obs[:ARGS.batch_size*2]
     val_split = .9
     print("setting up network")
     # global so can access in collate_fn easily
@@ -888,17 +921,14 @@ def train_model(ARGS, params):
                 all_time_sp_loss.append(np.stack(spec_loss_meter))
                 all_time_gen_loss.append(np.stack(gen_loss_meter))
                 all_time_fam_loss.append(np.stack(fam_loss_meter))
-        else:
-            break
-        
-        nets_path=params.build_abs_nets_path(epoch)
-        print('nets path ', nets_path)
-        torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': net.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'step' : step
-                    }, nets_path)        
+            nets_path=params.build_abs_nets_path(epoch)
+            print('nets path ', nets_path)
+            torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': net.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'step' : step
+                        }, nets_path)        
 
         # test
         net.eval()
@@ -917,6 +947,10 @@ def train_model(ARGS, params):
                 'mean_accs': mean_accs,
                 'splits' : idxs,
                 'batch_size': batch_size,
+                'inv_spec' : train_dataset.inv_spec, 
+                'spec_dict' : train_dataset.spec_dict, 
+                'gen_dict' : train_dataset.gen_dict, 
+                'fam_dict': train_dataset.fam_dict
             }
             desiderata_path = params.build_abs_desider_path(epoch)
             with open(desiderata_path, 'wb') as f:
@@ -933,7 +967,6 @@ if __name__ == "__main__":
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
     print(ARGS)
-#     import pdb; pdb.set_trace()
     print('epoch', ARGS.epoch)
     print('load from config ', ARGS.load_from_config)
     if ARGS.load_from_config is not None:
