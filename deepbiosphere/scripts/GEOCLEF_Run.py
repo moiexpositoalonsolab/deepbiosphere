@@ -1,3 +1,4 @@
+import copy
 import pickle
 import pandas as pd
 import argparse
@@ -16,6 +17,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import math
 from tqdm import tqdm
 from deepbiosphere.scripts import GEOCLEF_CNN as cnn
+from deepbiosphere.scripts import inference as inference
 from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
@@ -524,15 +526,24 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
     dataset = test_loader.dataset
     with tqdm(total=len(sampler), unit="example") as prog:
         for i, idx in enumerate(sampler):
-            (secs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+            (specs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+            # what you use for recreating labels if trianing from restart
+#             ob = dataset.occs.iloc[idx]
+#             sp = ob.species
+#             # reconstruct true label using class mapping from model
+#             all_specs = [dataset.spec_dict[s] for s in ob.all_specs_name]
+#             specs_label = dataset.spec_dict[ob.species]            
+
             batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
             (outputs, gens, fams) = net(batch.float())
             fam_weight = dataset.fam_freqs[fams_label]
             gen_weight = dataset.gen_freqs[gens_label]
-            spec_weight = dataset.spec_freqs[secs_label]
+            spec_weight = dataset.spec_freqs[specs_label]
             famrec, famtop1 = utils.recall_per_example(fams, all_fams, fams_label, fam_weight) # magic no from CELF2020  
             genrec, gentop1 = utils.recall_per_example(gens, all_gens, gens_label, gen_weight) # magic no from CELF2020  
-            specrec, spectop1 = utils.recall_per_example(outputs, all_specs, secs_label, spec_weight) # magic no from CELF2020
+            specrec, spectop1 = utils.recall_per_example(outputs, all_specs, specs_label, spec_weight) # magic no from CELF2020
+#             import pdb; pdb.set_trace()s
+            
             all_grec.append(genrec)
             all_frec.append(famrec)
             all_srec.append(specrec)
@@ -840,7 +851,7 @@ def train_model(ARGS, params):
 
     else:
         tb_writer = None
-        train_dataset.obs = train_dataset.obs[:ARGS.batch_size*2]
+#         train_dataset.obs = train_dataset.obs[:params.batch_size*2]
     val_split = .9
     print("setting up network")
     # global so can access in collate_fn easily
@@ -858,7 +869,8 @@ def train_model(ARGS, params):
     
     if ARGS.from_scratch or not ARGS.load_from_config:
         start_epoch = 0
-        step = 0 
+        step = 0         
+        train_samp, test_samp, idxs = split_train_test(train_dataset, val_split)        
     else:
         net_load = params.get_recent_model(device=device)
         net.load_state_dict(net_load['model_state_dict'])
@@ -868,11 +880,34 @@ def train_model(ARGS, params):
         start_epoch = net_load['epoch']
         step = net_load['step']
         print("loading model from epoch {}".format(start_epoch))
+        train_idx, test_idx = params.get_split()
+        train_samp = SubsetRandomSampler(train_idx)
+        test_samp = SubsetRandomSampler(test_idx) 
+        idxs = {'train' : train_idx, 'test' : test_idx}
+        desi = params.get_most_recent_des()
+        train_dataset.inv_spec = desi['inv_spec']
+        train_dataset.spec_dict = desi['spec_dict']
+        train_dataset.gen_dict = desi['gen_dict']
+        train_dataset.fam_dict = desi['fam_dict']        
+
+        
+        
     spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, params.params.loss, params.params.unweighted, device) 
+
+    if ARGS.toy_dataset:
+
+        test_dataset = copy.deepcopy(train_dataset)
+        train_dataset.obs = train_dataset.obs[:1000]
+        test_dataset.obs = test_dataset.obs[1000:2000]
+        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes,  SubsetRandomSampler(np.arange(1000)), ARGS.model)
+        test_loader = setup_dataloader(test_dataset, params.params.dataset, batch_size, ARGS.processes, SubsetRandomSampler(np.arange(1000)), ARGS.model)
+        
+    else:
+        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model)
+        test_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, test_samp, ARGS.model)
+ 
+
     
-    train_samp, test_samp, idxs = split_train_test(train_dataset, val_split) 
-    train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model)
-    test_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, test_samp, ARGS.model)
     datock = time.time()
     dadiff = datock - datick
     print("loading data took {dadiff} seconds".format(dadiff=dadiff))
@@ -897,8 +932,10 @@ def train_model(ARGS, params):
         tick = time.time()
         net.train()
         print("before batch")
+        
         tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, tot_epoch, epoch, params.params.loss)
         print('after batch')
+        #TODO change back!!!
         if not ARGS.toy_dataset:
 
             if params.params.model == 'SpecOnly':
@@ -921,22 +958,25 @@ def train_model(ARGS, params):
                 all_time_sp_loss.append(np.stack(spec_loss_meter))
                 all_time_gen_loss.append(np.stack(gen_loss_meter))
                 all_time_fam_loss.append(np.stack(fam_loss_meter))
-            nets_path=params.build_abs_nets_path(epoch)
-            print('nets path ', nets_path)
-            torch.save({
-                        'epoch': epoch,
-                        'model_state_dict': net.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'step' : step
-                        }, nets_path)        
+        nets_path=params.build_abs_nets_path(epoch)
+        print('nets path ', nets_path)
+        torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': net.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'step' : step
+                    }, nets_path)        
 
         # test
         net.eval()
         all_accs = []
         print("testing model")
         with torch.no_grad():
-            means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss, params.params.model, params.params.dataset)   
-        if not ARGS.toy_dataset:
+            means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss, params.params.model, params.params.dataset)
+
+#TODO uncomment below line!!!
+#         if not ARGS.toy_dataset:
+        if True:
             desiderata = {
                 'all_loss': all_time_loss,
                 'spec_loss': all_time_sp_loss,
@@ -955,6 +995,8 @@ def train_model(ARGS, params):
             desiderata_path = params.build_abs_desider_path(epoch)
             with open(desiderata_path, 'wb') as f:
                 pickle.dump(desiderata, f)
+#         insert inference again here???
+        inference.eval_model(params.get_cfg_name()+'.json', ARGS.base_dir, ARGS.toy_dataset, epoch=epoch)
         tock = time.time()
         diff = ( tock-tick)/60
         print ("epoch {} took {} minutes".format(epoch, diff))

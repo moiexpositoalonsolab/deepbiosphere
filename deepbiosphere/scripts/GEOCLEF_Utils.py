@@ -169,6 +169,18 @@ def recall_per_batch(output, target, actual):
         top1_rec.append(top1_recall.item())
     return recall, tot_rec, top1_rec, tot_top1
         
+def recall_per_example_classes(lab, guess, actual):
+    """ calculates recall per example. Returns multi-label recall + top 1 recall + all correctly predicted classes"""
+    # recall
+    maxk = len(lab)
+    pred, idxs = torch.topk(guess, maxk)
+    corr_id = list(set(idxs.tolist()[0]) & set(lab)) 
+    eq = len(corr_id)
+    recall = eq / maxk
+    top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
+    return recall, top1_recall, corr_id
+    
+    
 def recall_per_example(guess, lab, actual, weight, weighted=True):
     # recall
     maxk = len(lab)

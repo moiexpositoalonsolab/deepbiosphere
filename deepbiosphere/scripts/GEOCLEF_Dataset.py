@@ -376,6 +376,9 @@ def prep_data(obs, observation):
         obs = obs.assign(genus_id=[gen_dict[k] for k in obs.genus])
         obs = obs.assign(family_id=[fam_dict[k] for k in obs.family])        
     # also map all species / genus / family in joint observation to 0-num
+    obs['all_specs_name'] = obs.all_specs
+    obs['all_fams_name'] = obs.all_fams
+    obs['all_gens_name'] = obs.all_gens    
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
     obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])
@@ -689,6 +692,7 @@ class Bioclim_Rasters_Image(Dataset):
         print("num rasters is ", self.num_rasters)
         self.channels = self.num_rasters
         # convert to numpy
+        self.occs = obs
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
 
     def __len__(self):

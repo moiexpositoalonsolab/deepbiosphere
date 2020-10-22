@@ -110,6 +110,7 @@ class Run_Params():
         if cfg_path is not None:
             abs_path = "{}configs/{}".format(base_dir, cfg_path)
             self.params = load_parameters(abs_path)
+#             print(vars(params))
             self.base_dir = base_dir
         # will hopefully short circuit out of check if args is None but cfg_path isn't    
         elif ARGS.load_from_config is not None :
