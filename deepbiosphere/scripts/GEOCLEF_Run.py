@@ -958,14 +958,14 @@ def train_model(ARGS, params):
                 all_time_sp_loss.append(np.stack(spec_loss_meter))
                 all_time_gen_loss.append(np.stack(gen_loss_meter))
                 all_time_fam_loss.append(np.stack(fam_loss_meter))
-        nets_path=params.build_abs_nets_path(epoch)
-        print('nets path ', nets_path)
-        torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': net.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'step' : step
-                    }, nets_path)        
+            nets_path=params.build_abs_nets_path(epoch)
+            print('nets path ', nets_path)
+            torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': net.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'step' : step
+                        }, nets_path)        
 
         # test
         net.eval()
@@ -975,8 +975,7 @@ def train_model(ARGS, params):
             means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss, params.params.model, params.params.dataset)
 
 #TODO uncomment below line!!!
-#         if not ARGS.toy_dataset:
-        if True:
+        if not ARGS.toy_dataset:
             desiderata = {
                 'all_loss': all_time_loss,
                 'spec_loss': all_time_sp_loss,
@@ -996,7 +995,7 @@ def train_model(ARGS, params):
             with open(desiderata_path, 'wb') as f:
                 pickle.dump(desiderata, f)
 #         insert inference again here???
-        inference.eval_model(params.get_cfg_name()+'.json', ARGS.base_dir, ARGS.toy_dataset, epoch=epoch)
+            inference.eval_model(params.get_cfg_name()+'.json', ARGS.base_dir, ARGS.toy_dataset, epoch=epoch)
         tock = time.time()
         diff = ( tock-tick)/60
         print ("epoch {} took {} minutes".format(epoch, diff))
