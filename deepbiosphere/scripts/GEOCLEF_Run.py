@@ -17,7 +17,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import math
 from tqdm import tqdm
 from deepbiosphere.scripts import GEOCLEF_CNN as cnn
-from deepbiosphere.scripts import inference as inference
+# from deepbiosphere.scripts import inference as inference
 from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
