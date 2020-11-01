@@ -87,9 +87,10 @@ def scale(x, out_range=(-1, 1), min_=None, max_=None):
     return y * (out_range[1] - out_range[0]) + (out_range[1] + out_range[0]) / 2
 
 def plot_image(base_dir, id_, figsize=(10,10), transpose=False, altitude=True):
-    imgs =   dataset.image_from_id(id_, base_dir, altitude) 
+    imgs =   image_from_id(id_, base_dir, altitude) 
     print(imgs.shape, imgs.shape[0]-2)
-    fig, axs = plt.subplots(imgs.shape[0]-3, figsize=figsize) if transpose else plt.subplots(1, 3, figsize=figsize)
+    num = imgs.shape[0]-2
+    fig, axs = plt.subplots(num, figsize=figsize) if transpose else plt.subplots(1, num, figsize=figsize)
     if altitude:
         axs[0].imshow(np.transpose(imgs[1:4,:,:], [1,2,0]))
         axs[0].set_title("rgb ")
@@ -98,9 +99,10 @@ def plot_image(base_dir, id_, figsize=(10,10), transpose=False, altitude=True):
         axs[2].imshow(imgs[0,:,:].squeeze())
         axs[2].set_title("altitude")
     else:
-        axs[0].imshow(np.transpose(imgs[2:-1,:,:], [1,2,0]))
+# imgs.take([0,2,3], mode='wrap', axis=0).shape
+        axs[0].imshow(np.transpose(imgs[:3]).squeeze())
         axs[0].set_title("rgb ")
-        axs[1].imshow(imgs[1,:,:].squeeze())
+        axs[1].imshow(imgs[3,:,:].squeeze())
         axs[1].set_title("infrared")
     return fig
 
@@ -221,12 +223,18 @@ def topk_acc(output, target, topk=(1,), device=None):
         res.append(correct_k.mul_(100.0 / batch_size))
     del targ, pred, target
     return res
+def subpath_2_img_noalt(pth, subpath, id_):
+    rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
+    # Necessary because some data corrupted...
+    np_img = np.load(rgbd)
+    np_img = np_img[:,:,:4]
+    return np.transpose(np_img,(2, 0, 1))
 
-def image_from_id(id_, base_dir):
+def image_from_id(id_, pth, altitude=True):
     # make sure image and path are for same region
     cdd, ab, cd = id_2_file(id_)
     subpath = "patches_{}/{}/{}/".format('fr', cd, ab) if id_ >= 10000000 else "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
-    return subpath_2_img(base_dir, subpath, id_)
+    return subpath_2_img(pth, subpath, id_) if altitude else subpath_2_img_noalt(pth, subpath, id_)
 
 def subpath_2_img(pth, subpath, id_):
     alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
