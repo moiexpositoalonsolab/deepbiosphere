@@ -25,6 +25,23 @@ from deepbiosphere.scripts import GEOCLEF_Config as config
 
 
 
+def better_split_train_test(full_dat, split_amt):
+    shuffle = np.random.permutation(np.arange(len(dset)))
+    split = int(len(idxs)*split_amt)    
+    test = set()
+    total = len(dset)
+    i = 0
+    while len(test) <= split:
+        test.update(full_dat.obs[shuffle[i], dataset.ids_idx])
+        i += 1    
+    test_idx = []
+    train_idx = []
+    for idx in np.arange(len(full_dat)):
+        test_idx.append(idx) if full_dat.obs[idx,0] in test else train_idx.append(idx)
+    train_sampler = SubsetRandomSampler(train_idx)
+    valid_sampler = SubsetRandomSampler(test_idx)
+    return train_sampler, valid_sampler, {'train': train_idx, 'test' : test_idx}
+
 
 def split_train_test(full_dat, split_amt):
     '''grab split_amt% of labeled data for holdout testing'''
@@ -870,7 +887,7 @@ def train_model(ARGS, params):
     if ARGS.from_scratch or not ARGS.load_from_config:
         start_epoch = 0
         step = 0         
-        train_samp, test_samp, idxs = split_train_test(train_dataset, val_split)        
+        train_samp, test_samp, idxs = better_split_train_test(train_dataset, val_split)        
     else:
         net_load = params.get_recent_model(device=device)
         net.load_state_dict(net_load['model_state_dict'])

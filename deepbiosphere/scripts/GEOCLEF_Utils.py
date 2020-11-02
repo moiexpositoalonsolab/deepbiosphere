@@ -41,8 +41,9 @@ def add_taxon_metadata(base_dir, obs, organism):
     # get all relevant files
     print("adding taxon information")   
     print("columns ", obs.columns)
-    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(base_dir), sep=";")    
+    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(base_dir), sep=None)    
     print("columns ", obs.columns)
+    print(obs.columns)
     present_specs = obs.species_id.unique()    
     # get all the gbif species ids for all the species in the us sample
     conversion = gbif_meta[gbif_meta['species_id'].isin(present_specs)]
@@ -324,7 +325,7 @@ def path_to_cfgname(filepath):
 def check_gbif_files(occ_paths, img_path, sep=';'):
     occs = []
     for path in occ_paths:
-        occs.append(pd.read_csv(path, sep=sep))
+        occs.append(pd.read_csv(path, sep=None))
     occs = pd.concat(occs, sort=False)
     # grab all the image files (careful, really slow!)
     #for root, dirs, files in os.walk('python/Lib/email'):

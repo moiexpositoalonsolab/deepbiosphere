@@ -13,11 +13,11 @@ from deepbiosphere.scripts.GEOCLEF_Config import paths
 
 
 def get_multiple_joint_from_group(group_df):
-    df_np = group_df[['lat', 'lon', 'species', 'gbif_id', 'family', 'genus']].values #.to_numpy()
+    df_np = group_df[['lat', 'lon', 'species', 'gbif_id', 'family', 'genus', 'id']].values #.to_numpy()
     extra_specs = [{df_np[i,2]} for i in range(len(df_np))]
     extra_fams = [{df_np[i,4]} for i in range(len(df_np))] 
     extra_gens = [{df_np[i,5]} for i in range(len(df_np))]
-    
+    extra_ids = [{df_np[i,6]} for i in range(len(df_np))]    
     tick = time.time()
     # def nmea_2_meters(lat1, lon1, lat2, lon2):
     for i in range(len(df_np)):
@@ -28,6 +28,7 @@ def get_multiple_joint_from_group(group_df):
                     extra_specs[i].add(df_np[j,2])
                     extra_fams[i].add(df_np[j,4])
                     extra_gens[i].add(df_np[j,5])
+                    extra_ids[i].add(df_np[j,6])                    
     tock = time.time()                
     diff = tock - tick
     # ((diff / len(bb_np)) * len(filtered))/(60*60)
@@ -37,6 +38,7 @@ def get_multiple_joint_from_group(group_df):
     group_df['all_specs'] = extra_specs
     group_df['all_fams'] = extra_fams
     group_df['all_gens'] = extra_gens    
+    group_df['extra_ids'] = extra_ids    
     return group_df
 
 
@@ -97,7 +99,7 @@ def main():
         print("why are you doing this?")
         exit(1)
     us_train_pth = "{}occurrences/single_obs_cali_plant_census.csv".format(pth) if ARGS.census else "{pth}occurrences/single_obs_{country}_{org}_train.csv".format(pth=pth, country=ARGS.region, org=ARGS.organism)
-    us_train = pd.read_csv(us_train_pth, sep=',')
+    us_train = pd.read_csv(us_train_pth, sep=None)
     us_train = utils.add_taxon_metadata(pth, us_train, ARGS.organism)
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
@@ -141,9 +143,9 @@ def main():
     del us_train, grouped
     glob_pth = "{pth}joint_obs/{obs}/{region}*".format(pth=pth, obs=ARGS.observation, region=ARGS.region)
     all_grouped = glob.glob(glob_pth)
-    all_dat = pd.read_csv(all_grouped[0])
+    all_dat = pd.read_csv(all_grouped[0], sep=None)
     for path in all_grouped[1:]:
-        new_dat = pd.read_csv(path)
+        new_dat = pd.read_csv(path, sep=None)
         all_dat = pd.concat([all_dat, new_dat])
     # and save data 
     pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_train_census.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism) if ARGS.census else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train')

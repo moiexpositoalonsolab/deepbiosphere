@@ -24,7 +24,7 @@ def get_gbif_data(pth, split, region, organism):
     ## Grab GBIF observation data
 
     obs_pth = "{}occurrences/occurrences_{}_{}_{}.csv".format(pth, region, organism, split)
-    return pd.read_csv(obs_pth, sep=';')  
+    return pd.read_csv(obs_pth, sep=None)  
 
 def get_gbif_rasters_data(pth, region, organism):
 #     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
@@ -296,7 +296,7 @@ def get_shapes(id_, pth, altitude):
 def add_genus_family_data(pth, train):
     ## getting family, genus, species ids for each observation
     # get all relevant files
-    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=";")
+    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(pth), sep=None)
     taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(pth), sep="\t")
     # get all unique species ids in us train data
     us_celf_spec = train.species_id.unique()
@@ -382,6 +382,8 @@ def prep_data(obs, observation):
     obs = obs.assign(all_specs=[[spec_dict[k] for k in row ] for row in obs.all_specs])
     obs = obs.assign(all_gens=[[gen_dict[k] for k in row ] for row in obs.all_gens])
     obs = obs.assign(all_fams=[[fam_dict[k] for k in row ] for row in obs.all_fams])
+    if 'extra_ids' in obs.columns:
+        obs = obs.assign(extra_ids=[[int(k) for k in row ] for row in obs.extra_ids])
         
     return obs, inv_spec, spec_dict, gen_dict, fam_dict
 
@@ -417,11 +419,13 @@ def get_gbif_observations(base_dir, organism, region, observation):
     elif observation == 'single_single':
         observation = 'joint_single'
     obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
-    joint_obs = pd.read_csv(obs_pth, sep=',')
+    joint_obs = pd.read_csv(obs_pth, sep=None)
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+    if 'extra_ids' in joint_obs.columns:
+        joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
     return joint_obs
 
     return joint_obs
@@ -433,7 +437,7 @@ all_sp_idx = 4
 all_gen_idx = 6
 all_fam_idx = 5
 lat_lon_idx = 7
-
+ids_idx = 7
 
 
 
@@ -469,7 +473,7 @@ class HighRes_Satellie_Images_Only(Dataset):
             self.gen_freqs = obs.genus_id.value_counts().to_dict()
             self.fam_freqs = obs.family_id.value_counts().to_dict()                
         # convert to numpy
-        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens']].values
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'extra_ids']].values
 
         channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
         self.channels = channels
