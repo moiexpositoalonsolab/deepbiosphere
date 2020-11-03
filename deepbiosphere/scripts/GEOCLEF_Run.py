@@ -65,23 +65,23 @@ def check_mem():
 
 
 
-def setup_train_dataset(observation, base_dir, organism, region, normalize, altitude, dataset):
+def setup_train_dataset(observation, base_dir, organism, region, normalize, altitude, dataset, threshold):
     '''grab and setup train dataset'''
     
     if dataset == 'satellite_only':
-        return Dataset.HighRes_Satellie_Images_Only(base_dir, organism, region, observation, altitude)
+        return Dataset.HighRes_Satellie_Images_Only(base_dir, organism, region, observation, altitude, threshold)
         
     elif dataset == 'satellite_rasters_image':
-        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude)
+        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude, threshold)
     elif dataset == 'satellite_rasters_point':
-        return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize)
+        return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize, threshold)
     elif dataset == 'rasters_image':
-        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, pix_res=256)
+        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, pix_res=256, threshold)
     elif dataset == 'rasters_point':
-        return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation)
+        return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation, threshold)
         
     elif dataset == 'satellite_rasters_sheet':
-        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation, altitude)
+        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation, altitude, threshold)
     else: 
         raise NotImplementedError
 
@@ -862,7 +862,7 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset)
+    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold)
     if not ARGS.toy_dataset:
         tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_dat-{}org-{}_loss-{}_norm-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.dataset, params.params.organism, params.params.loss, params.params.normalize, params.params.exp_id))
 
@@ -1021,7 +1021,7 @@ def train_model(ARGS, params):
         tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset']
+    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
     print(ARGS)

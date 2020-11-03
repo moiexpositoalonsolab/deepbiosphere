@@ -360,14 +360,18 @@ def dict_key_2_index(df, key):
 #     return obs, inv_spec    
     
 # TODO: assumes that species_id, genus, family columns contain all possible values contained in extra_obs    :398
-def prep_data(obs, observation):
+def prep_data(obs, obs_type, threshold):
 
+    # cut out species without enough observations
+    spec_freq = obs.species.value_counts()
+    goodspec = [spec for spec, i in spec_freq.items() if i >= threshold]
+    obs = obs[obs.species.isin(goodspec)]
     # map all species ids to 0-num_species, same for family and genus
     obs, spec_dict = map_key_2_index(obs, 'species', 'species_id')
     inv_spec = {v: k for k, v in spec_dict.items()}
     obs, gen_dict = map_key_2_index(obs, 'genus', 'genus_id')
     obs, fam_dict = map_key_2_index(obs, 'family', 'family_id')
-    if observation == 'joint_single' or observation == 'single_single':
+    if obs_type == 'joint_single' or obs_type == 'single_single':
         spec_dict = map_unq_2_index(obs, 'all_specs')
         inv_spec = {v: k for k, v in spec_dict.items()}        
         fam_dict = map_unq_2_index(obs, 'all_fams')
@@ -443,7 +447,7 @@ ids_idx = 7
 
 # just the high resolution satellite imagery
 class HighRes_Satellie_Images_Only(Dataset):
-    def __init__(self, base_dir, organism, region, observation, altitude):
+    def __init__(self, base_dir, organism, region, observation, altitude, threshold):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -454,7 +458,7 @@ class HighRes_Satellie_Images_Only(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
         
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -506,7 +510,7 @@ class HighRes_Satellie_Images_Only(Dataset):
 
     # the high resolution satellite imagery + the pointwise observation environmental rasters
 class HighRes_Satellite_Rasters_Point(Dataset):
-    def __init__(self, base_dir, organism, region, observation, altitude, normalize):
+    def __init__(self, base_dir, organism, region, observation, altitude, normalize, threshold):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -520,7 +524,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -589,7 +593,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
     # x, y = eniffa * (get_item_from_obs(obs,1)[1], 
     # just the environmental raster point value at a location
 class Bioclim_Rasters_Point(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation):
+    def __init__(self, base_dir, organism, region, normalize, observation, threshold):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -603,7 +607,7 @@ class Bioclim_Rasters_Point(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -660,7 +664,7 @@ class Bioclim_Rasters_Point(Dataset):
     
     # just the environmental rasters as an image
 class Bioclim_Rasters_Image(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, pix_res=256):
+    def __init__(self, base_dir, organism, region, normalize, observation, pix_res=256, threshold):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -674,7 +678,7 @@ class Bioclim_Rasters_Image(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -725,7 +729,7 @@ class Bioclim_Rasters_Image(Dataset):
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters)    
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, altitude):
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -740,7 +744,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -810,7 +814,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, all_imgs)
 
 class HighRes_Satellite_Rasters_Sheet(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, altitude):
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -825,7 +829,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)

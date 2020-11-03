@@ -57,6 +57,7 @@ arguments = {
     'dataset': {'choices':choices.dataset, 'required': ('--load_from_config' not in sys.argv)},    
     'model':{'choices':choices.model, 'required': ('--load_from_config' not in sys.argv)},
     'loss': {'choices':choices.loss, 'required': ('--load_from_config' not in sys.argv)},
+    'threshold' : {'dest':'threshold', 'type':int,'help' : "how many observations must a species at least have to be added to the dataset", 'default':4, 'required': ('--load_from_config' not in sys.argv)},
     # optional arguments
     'processes': {'type':int, 'help':"how many worker processes to use for data loading",'default':1},    
     'seed': {'type':int, 'help':"random seed to use"},
@@ -67,7 +68,7 @@ arguments = {
     'unweighted': {'dest':'unweighted', 'help': 'whether to weight loss by frequency of the observation', 'action':'store_true'},    
     'no_alt': {'dest':'no_alt', 'help': 'set to not include altitude layer, dont set to include', 'action':'store_false'},        
     'from_scratch': {'dest':'from_scratch', 'help': 'if you want to restart training from scratch and rebuild everything, set this flag', 'action':'store_true'},
-    'census' : {'dest':'census', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'}
+    'census' : {'dest':'census', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'}    
 }
 
 def setup_main_dirs(base_dir):
@@ -133,6 +134,7 @@ class Run_Params():
                 'unweighted' : ARGS.unweighted,
                 'no_altitude' : ARGS.no_alt,
                 'dataset' : ARGS.dataset,
+                'threshold' : ARGS.threshold
             }
 
             with open(cfg_path, 'w') as fp:
