@@ -1,10 +1,12 @@
 import warnings
+import geopandas as gpd
 import pandas as pd
 import time
 import math 
 import reverse_geocoder as rg
 import glob
 import os
+from shapely.geometry import Point, Polygon
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
 from deepbiosphere.scripts.GEOCLEF_Config import paths
@@ -87,8 +89,32 @@ def get_single_joint_from_group(group_df):
     return group_df
 
 
-
-
+def add_ecoregions(base_dir, dset):
+    # convert shapefile to geojson
+    # use geopandas to read shapefiles: https://stackoverflow.com/questions/43119040/shapefile-into-geojson-conversion-python-3
+    diff = time.time()
+    file = base_dir + 'us_shapefiles/ecoregions3_4/ca/ca_eco_l3.shp'
+    shp_file = gpd.read_file(file)
+    pts = [ Point(d.lon, d.lat) for _, d in dset.iterrows()]
+    gds = gpd.GeoSeries(pts)
+    gds.set_crs(epsg=4326, inplace=True)
+    gds = gds.to_crs(shp_file.crs)
+    L1, L2, L3 = [], [], []
+    for row in gds:
+        L3.append(shp_file[ shp_file.geometry.contains(row)].NA_L3NAME)
+        L2.append(shp_file[ shp_file.geometry.contains(row)].NA_L2NAME)
+        L1.append(shp_file[ shp_file.geometry.contains(row)].NA_L1NAME)    
+    L11 = [L.to_list()[0] for L in L1]
+    L22 = [L.to_list()[0] for L in L2]
+    L33 = [L.to_list()[0] for L in L3]
+    
+    dset = dset.assign(L1=L11)
+    dset = dset.assign(L2=L22)
+    dset = dset.assign(L3=L33)    
+    doff = time.time()
+    print("ecoregions took " ((doff-diff)/100*len(ddset) / 3600), " minutes")
+    return dset
+    
 def main():
     
     warnings.filterwarnings("ignore")
@@ -148,6 +174,10 @@ def main():
         new_dat = pd.read_csv(path, sep=None)
         all_dat = pd.concat([all_dat, new_dat])
     # and save data 
+    
+    # add ecoregions data
+    all_dat = add_ecoregions(pth, all_dat)
+    
     pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_train_census.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism) if ARGS.census else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train')
     all_dat.to_csv(pth)
     
