@@ -20,31 +20,31 @@ import warnings
 warnings.filterwarnings("ignore")
 
 
-def get_gbif_data(pth, split, region, organism):
-    ## Grab GBIF observation data
+# def get_gbif_data(pth, split, region, organism):
+#     ## Grab GBIF observation data
 
-    obs_pth = "{}occurrences/occurrences_{}_{}_{}.csv".format(pth, region, organism, split)
-    return pd.read_csv(obs_pth, sep=None)  
+#     obs_pth = "{}occurrences/occurrences_{}_{}_{}.csv".format(pth, region, organism, split)
+#     return pd.read_csv(obs_pth, sep=None)  
 
-def get_gbif_rasters_data(pth, region, organism):
-#     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
-    obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, region, organism)
-    joint_obs = pd.read_csv(obs_pth)  
-    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-    joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-    joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-    joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-    return joint_obs
+# def get_gbif_rasters_data(pth, region, organism):
+# #     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
+#     obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, region, organism)
+#     joint_obs = pd.read_csv(obs_pth)  
+#     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+#     return joint_obs
 
-def get_joint_gbif_data(pth, region, organism):
-    ## Grab GBIF observation data
-    obs_pth = "{}occurrences/joint_multiple_obs_{}_{}.csv".format(pth, region, organism)
-    joint_obs = pd.read_csv(obs_pth)  
-    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-    joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-    joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-    joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-    return joint_obs
+# def get_joint_gbif_data(pth, region, organism):
+#     ## Grab GBIF observation data
+#     obs_pth = "{}occurrences/joint_multiple_obs_{}_{}.csv".format(pth, region, organism)
+#     joint_obs = pd.read_csv(obs_pth)  
+#     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+#     return joint_obs
 
 
 
@@ -360,12 +360,13 @@ def dict_key_2_index(df, key):
 #     return obs, inv_spec    
     
 # TODO: assumes that species_id, genus, family columns contain all possible values contained in extra_obs    :398
-def prep_data(obs, obs_type, threshold):
+def prep_data(obs, obs_type):
 
     # cut out species without enough observations
-    spec_freq = obs.species.value_counts()
-    goodspec = [spec for spec, i in spec_freq.items() if i >= threshold]
-    obs = obs[obs.species.isin(goodspec)]
+    # moved thresholding to joint_obs.py
+#     spec_freq = obs.species.value_counts()
+#     goodspec = [spec for spec, i in spec_freq.items() if i >= threshold]
+#     obs = obs[obs.species.isin(goodspec)]
     # map all species ids to 0-num_species, same for family and genus
     obs, spec_dict = map_key_2_index(obs, 'species', 'species_id')
     inv_spec = {v: k for k, v in spec_dict.items()}
@@ -413,7 +414,7 @@ def get_inference_labels(observation, obs, idx):
         return specs_label, gens_label, fams_label, all_spec, all_gen, all_fam
     
     
-def get_gbif_observations(base_dir, organism, region, observation):
+def get_gbif_observations(base_dir, organism, region, observation, threshold):
     #TODO: grab the right gbif dataset depending on what region, what observation type, what organism
     # even for single observation, go ahead and grab the joint dataset, will just choose to not use joint data later on when grabbing observation
     # include get_gbif_rasters_data!!
@@ -422,7 +423,7 @@ def get_gbif_observations(base_dir, organism, region, observation):
 
     elif observation == 'single_single':
         observation = 'joint_single'
-    obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
+    obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
     joint_obs = pd.read_csv(obs_pth, sep=None)
     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
@@ -453,12 +454,12 @@ class HighRes_Satellie_Images_Only(Dataset):
         self.organism = organism
         self.altitude = altitude
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
         obs.fillna('nan', inplace=True)
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
         
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -517,14 +518,14 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         self.altitude = altitude
         self.normalize = normalize
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -600,14 +601,14 @@ class Bioclim_Rasters_Point(Dataset):
         self.channels = None
         self.normalize = normalize
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -671,14 +672,14 @@ class Bioclim_Rasters_Image(Dataset):
         self.normalize = normalize
         self.pix_res = pix_res
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -737,14 +738,14 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         self.channels = None
         self.normalize = normalize
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
@@ -822,14 +823,14 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         self.normalize = normalize
         self.altitude = altitude
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
 
-        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = obs_typeprep_data(obs, observation, threshold)
+        obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
         self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)

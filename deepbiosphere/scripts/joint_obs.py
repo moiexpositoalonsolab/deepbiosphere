@@ -3,6 +3,7 @@ from shapely.geometry import Point, Polygon
 import warnings
 import geopandas as gpd
 import pandas as pd
+import numpy as np
 import time
 import math 
 import reverse_geocoder as rg
@@ -90,10 +91,30 @@ def get_single_joint_from_group(group_df):
     print("took {diff} seconds".format(diff=diff))
     return group_df
 
+def remove_single_location_species(dset):
+    # make sure unique location filtering of species
+    meme = dset.groupby(['species'])
+    tracker = {spec: set() for spec in dset.species.unique()}
+    for spec, m in meme:
+        print(spec)
+        df_np = m[['lat', 'lon', 'species', 'id']].values #.to_numpy()
+        for i in range(len(df_np)):
+            for j in range(len(df_np)):
+                if i != j:
+                    dist = utils.nmea_2_meters(df_np[i,0], df_np[i,1], df_np[j,0], df_np[j,1])
+                    if dist >= 256:
+                        tracker[m.species.iloc[0]].update([df_np[i,3], df_np[j,3]])
+
+    single_ob = [s for s,unq in tracker.items() if len(unq) == 0]     
+    cleaned = dset[~dset.species.isin(single_ob)]
+    cleaned.index = np.arange(len(cleaned))
+    return cleaned
+
 
 def add_ecoregions(base_dir, dset):
     # convert shapefile to geojson
     # use geopandas to read shapefiles: https://stackoverflow.com/questions/43119040/shapefile-into-geojson-conversion-python-3
+    # inspiration: https://github.com/gboeing/urban-data-science/blob/master/19-Spatial-Analysis-and-Cartography/rtree-spatial-indexing.ipynb
     diff = time.time()
     # use geopandas to read shapefiles: https://stackoverflow.com/questions/43119040/shapefile-into-geojson-conversion-python-3
     file = base_dir + 'us_shapefiles/ecoregions3_4/ca/ca_eco_l3.shp'
@@ -119,65 +140,68 @@ def main():
     us_train_pth = "{}occurrences/single_obs_cali_plant_census.csv".format(pth) if ARGS.census else "{pth}occurrences/single_obs_{country}_{org}_train.csv".format(pth=pth, country=ARGS.region, org=ARGS.organism)
     us_train = pd.read_csv(us_train_pth, sep=None)
     us_train = utils.add_taxon_metadata(pth, us_train, ARGS.organism)
+    # remove species with too few observations period
+    spec_freq = us_train.species.value_counts()
+    goodspec = [spec for spec, i in spec_freq.items() if i >= ARGS.threshold]
+    us_train = us_train[us_train.species.isin(goodspec)]
+    # remove species that are only in one geographic location in dataset
+    us_train = remove_single_location_species(us_train)
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
     # convert to list for faster extraction
     us_latlon = us_train['lat_lon'].tolist()
     # grab location data for the lat lon
     res = rg.search(us_latlon)
-    if not ARGS.ecoregions_only:
-    
-        # grab necessary info from the results
-        states = [r['admin1'] for r in res]
-        regions = [r['admin2'] for r in res]
-        cities = [r['name'] for r in res]
-        # add the states information back into the original dataframe
-        us_train['state'] = states
-        us_train['region'] = regions
-        us_train['city'] = cities
-        # group data into smaller, more manageable chunks
-        grouped = us_train.groupby(['city', 'state', 'region'])
-        write_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
-        if not os.path.exists(write_pth):
-            os.makedirs(write_pth)
-    #     import pdb; pdb.set_trace()
-        for (grouping, df) in grouped:
-            print("grouping {grouping}".format(grouping=grouping))
-            if ARGS.observation == 'joint_multiple':
-                joint_df = get_multiple_joint_from_group(df)
-            elif ARGS.observation == 'joint_single':
-                joint_df = get_single_joint_from_group(df)
-            else:
-                pass
+    # grab necessary info from the results
+    states = [r['admin1'] for r in res]
+    regions = [r['admin2'] for r in res]
+    cities = [r['name'] for r in res]
+    # add the states information back into the original dataframe
+    us_train['state'] = states
+    us_train['region'] = regions
+    us_train['city'] = cities
+    # group data into smaller, more manageable chunks
+    grouped = us_train.groupby(['city', 'state', 'region'])
+    write_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
+    if not os.path.exists(write_pth):
+        os.makedirs(write_pth)
+#     import pdb; pdb.set_trace()
+    for (grouping, df) in grouped:
+        print("grouping {grouping}".format(grouping=grouping))
+        if ARGS.observation == 'joint_multiple':
+            joint_df = get_multiple_joint_from_group(df)
+        elif ARGS.observation == 'joint_single':
+            joint_df = get_single_joint_from_group(df)
+        else:
+            pass
 
 
-            city = grouping[0].replace(" ", "")
-            region = grouping[2].replace(" ", "")
-            state = grouping[1].replace(" ", "")
-            pth_pth = "{write_pth}{country}_{city}_{region}_{state}.csv".format(write_pth=write_pth, country=ARGS.region, city=city, region=region, state=state)
-            joint_df.to_csv(pth_pth)
+        city = grouping[0].replace(" ", "")
+        region = grouping[2].replace(" ", "")
+        state = grouping[1].replace(" ", "")
+        pth_pth = "{write_pth}{country}_{city}_{region}_{state}.csv".format(write_pth=write_pth, country=ARGS.region, city=city, region=region, state=state)
+        joint_df.to_csv(pth_pth)
 
-        # now clean memory and go regrab that data and append
-        del us_train, grouped
-        glob_pth = "{pth}joint_obs/{obs}/{region}*".format(pth=pth, obs=ARGS.observation, region=ARGS.region)
-        all_grouped = glob.glob(glob_pth)
-        all_dat = pd.read_csv(all_grouped[0], sep=None)
-        for path in all_grouped[1:]:
-            new_dat = pd.read_csv(path, sep=None)
-            all_dat = pd.concat([all_dat, new_dat])
-    else:
-        all_dat = us_train
+    # now clean memory and go regrab that data and append
+    del us_train, grouped
+    glob_pth = "{pth}joint_obs/{obs}/{region}*".format(pth=pth, obs=ARGS.observation, region=ARGS.region)
+    all_grouped = glob.glob(glob_pth)
+    all_dat = pd.read_csv(all_grouped[0], sep=None)
+    for path in all_grouped[1:]:
+        new_dat = pd.read_csv(path, sep=None)
+        all_dat = pd.concat([all_dat, new_dat])
+
     # and save data 
     print("moving to ecoregions")
     # add ecoregions data
     all_dat = add_ecoregions(pth, all_dat)
     
-    pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_train_census.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism) if ARGS.census else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train')
+    pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_train_census.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism) if ARGS.census else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}_{threshold}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train', threshold=ARGS.threshold)
     all_dat.to_csv(pth)
     
     
 if __name__ == "__main__":
     
-    args = ['base_dir', 'organism', 'census', 'region', 'observation', 'ecoregions_only']
+    args = ['base_dir', 'organism', 'census', 'region', 'observation', 'threshold']
     ARGS = config.parse_known_args(args)
     main()
