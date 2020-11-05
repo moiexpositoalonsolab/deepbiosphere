@@ -76,7 +76,7 @@ def setup_train_dataset(observation, base_dir, organism, region, normalize, alti
     elif dataset == 'satellite_rasters_point':
         return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize, threshold)
     elif dataset == 'rasters_image':
-        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, pix_res=256, threshold)
+        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, threshold)
     elif dataset == 'rasters_point':
         return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation, threshold)
         

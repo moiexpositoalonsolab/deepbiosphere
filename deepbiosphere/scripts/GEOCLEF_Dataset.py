@@ -664,7 +664,7 @@ class Bioclim_Rasters_Point(Dataset):
     
     # just the environmental rasters as an image
 class Bioclim_Rasters_Image(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, pix_res=256, threshold):
+    def __init__(self, base_dir, organism, region, normalize, observation, threshold, pix_res=256):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -729,7 +729,7 @@ class Bioclim_Rasters_Image(Dataset):
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters)    
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold):
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshol):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism

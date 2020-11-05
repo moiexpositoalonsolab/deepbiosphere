@@ -1,3 +1,5 @@
+from geopandas.tools import sjoin
+from shapely.geometry import Point, Polygon
 import warnings
 import geopandas as gpd
 import pandas as pd
@@ -93,26 +95,16 @@ def add_ecoregions(base_dir, dset):
     # convert shapefile to geojson
     # use geopandas to read shapefiles: https://stackoverflow.com/questions/43119040/shapefile-into-geojson-conversion-python-3
     diff = time.time()
+    # use geopandas to read shapefiles: https://stackoverflow.com/questions/43119040/shapefile-into-geojson-conversion-python-3
     file = base_dir + 'us_shapefiles/ecoregions3_4/ca/ca_eco_l3.shp'
     shp_file = gpd.read_file(file)
-    pts = [ Point(d.lon, d.lat) for _, d in dset.iterrows()]
-    gds = gpd.GeoSeries(pts)
-    gds.set_crs(epsg=4326, inplace=True)
-    gds = gds.to_crs(shp_file.crs)
-    L1, L2, L3 = [], [], []
-    for row in gds:
-        L3.append(shp_file[ shp_file.geometry.contains(row)].NA_L3NAME)
-        L2.append(shp_file[ shp_file.geometry.contains(row)].NA_L2NAME)
-        L1.append(shp_file[ shp_file.geometry.contains(row)].NA_L1NAME)    
-    L11 = [L.to_list()[0] for L in L1]
-    L22 = [L.to_list()[0] for L in L2]
-    L33 = [L.to_list()[0] for L in L3]
-    
-    dset = dset.assign(L1=L11)
-    dset = dset.assign(L2=L22)
-    dset = dset.assign(L3=L33)    
+    gdf = gpd.GeoDataFrame(dset)
+    gdf['geometry'] = gdf.apply(lambda row: Point((row['lon'], row['lat'])), axis=1)
+    gdf.set_crs(epsg=4326, inplace=True)
+    gdf = gdf.to_crs(shp_file.crs)
+    dset = sjoin(gdf, shp_file, how='left',op="within")    
     doff = time.time()
-    print("ecoregions took " ((doff-diff)/100*len(ddset) / 3600), " minutes")
+    print("ecoregions took ", ((doff-diff)/ 60), " minutes")
     return dset
     
 def main():
@@ -133,48 +125,50 @@ def main():
     us_latlon = us_train['lat_lon'].tolist()
     # grab location data for the lat lon
     res = rg.search(us_latlon)
-
+    if not ARGS.ecoregions_only:
     
-    # grab necessary info from the results
-    states = [r['admin1'] for r in res]
-    regions = [r['admin2'] for r in res]
-    cities = [r['name'] for r in res]
-    # add the states information back into the original dataframe
-    us_train['state'] = states
-    us_train['region'] = regions
-    us_train['city'] = cities
-    # group data into smaller, more manageable chunks
-    grouped = us_train.groupby(['city', 'state', 'region'])
-    write_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
-    if not os.path.exists(write_pth):
-        os.makedirs(write_pth)
-#     import pdb; pdb.set_trace()
-    for (grouping, df) in grouped:
-        print("grouping {grouping}".format(grouping=grouping))
-        if ARGS.observation == 'joint_multiple':
-            joint_df = get_multiple_joint_from_group(df)
-        elif ARGS.observation == 'joint_single':
-            joint_df = get_single_joint_from_group(df)
-        else:
-            pass
+        # grab necessary info from the results
+        states = [r['admin1'] for r in res]
+        regions = [r['admin2'] for r in res]
+        cities = [r['name'] for r in res]
+        # add the states information back into the original dataframe
+        us_train['state'] = states
+        us_train['region'] = regions
+        us_train['city'] = cities
+        # group data into smaller, more manageable chunks
+        grouped = us_train.groupby(['city', 'state', 'region'])
+        write_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
+        if not os.path.exists(write_pth):
+            os.makedirs(write_pth)
+    #     import pdb; pdb.set_trace()
+        for (grouping, df) in grouped:
+            print("grouping {grouping}".format(grouping=grouping))
+            if ARGS.observation == 'joint_multiple':
+                joint_df = get_multiple_joint_from_group(df)
+            elif ARGS.observation == 'joint_single':
+                joint_df = get_single_joint_from_group(df)
+            else:
+                pass
 
 
-        city = grouping[0].replace(" ", "")
-        region = grouping[2].replace(" ", "")
-        state = grouping[1].replace(" ", "")
-        pth_pth = "{write_pth}{country}_{city}_{region}_{state}.csv".format(write_pth=write_pth, country=ARGS.region, city=city, region=region, state=state)
-        joint_df.to_csv(pth_pth)
+            city = grouping[0].replace(" ", "")
+            region = grouping[2].replace(" ", "")
+            state = grouping[1].replace(" ", "")
+            pth_pth = "{write_pth}{country}_{city}_{region}_{state}.csv".format(write_pth=write_pth, country=ARGS.region, city=city, region=region, state=state)
+            joint_df.to_csv(pth_pth)
 
-    # now clean memory and go regrab that data and append
-    del us_train, grouped
-    glob_pth = "{pth}joint_obs/{obs}/{region}*".format(pth=pth, obs=ARGS.observation, region=ARGS.region)
-    all_grouped = glob.glob(glob_pth)
-    all_dat = pd.read_csv(all_grouped[0], sep=None)
-    for path in all_grouped[1:]:
-        new_dat = pd.read_csv(path, sep=None)
-        all_dat = pd.concat([all_dat, new_dat])
+        # now clean memory and go regrab that data and append
+        del us_train, grouped
+        glob_pth = "{pth}joint_obs/{obs}/{region}*".format(pth=pth, obs=ARGS.observation, region=ARGS.region)
+        all_grouped = glob.glob(glob_pth)
+        all_dat = pd.read_csv(all_grouped[0], sep=None)
+        for path in all_grouped[1:]:
+            new_dat = pd.read_csv(path, sep=None)
+            all_dat = pd.concat([all_dat, new_dat])
+    else:
+        all_dat = us_train
     # and save data 
-    
+    print("moving to ecoregions")
     # add ecoregions data
     all_dat = add_ecoregions(pth, all_dat)
     
@@ -184,6 +178,6 @@ def main():
     
 if __name__ == "__main__":
     
-    args = ['base_dir', 'organism', 'census', 'region', 'observation']
+    args = ['base_dir', 'organism', 'census', 'region', 'observation', 'ecoregions_only']
     ARGS = config.parse_known_args(args)
     main()
