@@ -26,24 +26,28 @@ from deepbiosphere.scripts import GEOCLEF_Config as config
 
 
 def better_split_train_test(full_dat, split_amt):
-    shuffle = np.random.permutation(np.arange(len(dset)))
-    split = int(len(idxs)*split_amt)    
-    test = set()
-    total = len(dset)
-    i = 0
-    while len(test) <= split:
-        test.update(full_dat.obs[shuffle[i], dataset.ids_idx])
-        i += 1    
-    test_idx = []
-    train_idx = []
-    for idx in np.arange(len(full_dat)):
-        test_idx.append(idx) if full_dat.obs[idx,0] in test else train_idx.append(idx)
+#     shuffle = np.random.permutation(np.arange(len(dset)))
+#     split = int(len(idxs)*split_amt)    
+#     test = set()
+#     total = len(dset)
+#     i = 0
+#     while len(test) <= split:
+#         test.update(full_dat.obs[shuffle[i], dataset.ids_idx])
+#         i += 1    
+#     test_idx = []
+#     train_idx = []
+#     for idx in np.arange(len(full_dat)):
+#         test_idx.append(idx) if full_dat.obs[idx,0] in test else train_idx.append(idx)
+#     train_sampler = SubsetRandomSampler(train_idx)
+#     valid_sampler = SubsetRandomSampler(test_idx)
+    test_idx = full_dat.test
+    train_idx, full_dat.train
     train_sampler = SubsetRandomSampler(train_idx)
     valid_sampler = SubsetRandomSampler(test_idx)
     return train_sampler, valid_sampler, {'train': train_idx, 'test' : test_idx}
 
 
-def split_train_test(full_dat, split_amt):
+def old_split_train_test(full_dat, split_amt):
     '''grab split_amt% of labeled data for holdout testing'''
     idxs = np.random.permutation(len(full_dat))
     split = int(len(idxs)*split_amt)
@@ -65,11 +69,11 @@ def check_mem():
 
 
 
-def setup_train_dataset(observation, base_dir, organism, region, normalize, altitude, dataset, threshold):
-    '''grab and setup train dataset'''
+def setup_dataset(observation, base_dir, organism, region, normalize, altitude, dataset, threshold):
+    '''grab and setup train or test dataset'''
     
     if dataset == 'satellite_only':
-        return Dataset.HighRes_Satellie_Images_Only(base_dir, organism, region, observation, altitude, threshold)
+        return Dataset.HighRes_Satellite_Images_Only(base_dir, organism, region, observation, altitude, threshold)
         
     elif dataset == 'satellite_rasters_image':
         return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude, threshold)
@@ -192,6 +196,9 @@ def joint_collate_fn(batch):
     all_gens = []
     all_fams = []
     imgs = []
+    num_specs = 3988 # TREMOVE@!!
+    num_gens = 1243
+    num_fams = 241
     #(specs_label, gens_label, fams_label, images)  
     for (spec, gen, fam, img) in batch:
         specs_tens = torch.zeros(num_specs)
@@ -862,7 +869,7 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_train_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold)
+    train_dataset = setup_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold)
     if not ARGS.toy_dataset:
         tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_dat-{}org-{}_loss-{}_norm-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.dataset, params.params.organism, params.params.loss, params.params.normalize, params.params.exp_id))
 
@@ -897,7 +904,7 @@ def train_model(ARGS, params):
         start_epoch = net_load['epoch']
         step = net_load['step']
         print("loading model from epoch {}".format(start_epoch))
-        train_idx, test_idx = params.get_split()
+        train_idx, test_idx = train_dataset.train, train_dataset.test
         train_samp = SubsetRandomSampler(train_idx)
         test_samp = SubsetRandomSampler(test_idx) 
         idxs = {'train' : train_idx, 'test' : test_idx}

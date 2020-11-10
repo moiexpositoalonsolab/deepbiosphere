@@ -1,3 +1,4 @@
+import os
 from collections import Counter
 from deepbiosphere.scripts.GEOCLEF_Config import paths
 import glob
@@ -61,13 +62,14 @@ def xy_2_range_center(pix_res, x, y):
         
 def parse_string_to_tuple(string):
     return eval(string)
+
 def parse_string_to_string(string):
-    string = string.replace("{", '').replace("}", "").replace("'", '')
+    string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '')
     split = string.split(", ")
     return split
 
 def parse_string_to_int(string):
-    string = string.replace("{", '').replace("}", "").replace("'", '')
+    string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '')
     split = string.split(", ")
     return [int(s) for s in split]
 
@@ -413,6 +415,18 @@ def get_inference_labels(observation, obs, idx):
         all_fam = obs[idx,  all_fam_idx]            
         return specs_label, gens_label, fams_label, all_spec, all_gen, all_fam
     
+def reformat_data(joint_obs):
+    if 'all_specs' in joint_obs.columns and not isinstance(joint_obs.all_specs[0], list):
+        joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
+    if 'all_gens' in joint_obs.columns and not isinstance(joint_obs.all_gens[0], list):    
+        joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+    if 'all_fams' in joint_obs.columns and not isinstance(joint_obs.all_fams[0], list):        
+        joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+    if 'lat_lon' in joint_obs.columns and not isinstance(joint_obs.lat_lon[0], tuple):        
+        joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+    if 'extra_ids' in joint_obs.columns and not isinstance(joint_obs.extra_ids, list):
+        joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
+    return joint_obs    
     
 def get_gbif_observations(base_dir, organism, region, observation, threshold):
     #TODO: grab the right gbif dataset depending on what region, what observation type, what organism
@@ -423,17 +437,22 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold):
 
     elif observation == 'single_single':
         observation = 'joint_single'
-    obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
+#     print('madness')
+    if threshold is None:
+        obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
+    else:
+        obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
+#     print(obs_pth)
+    assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)
-    joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-    joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-    joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-    joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-    if 'extra_ids' in joint_obs.columns:
-        joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
-    return joint_obs
+#     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+#     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+#     if 'extra_ids' in joint_obs.columns:
+#         joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
+    return reformat_data(joint_obs)
 
-    return joint_obs
 id_idx = 0
 sp_idx = 1
 gen_idx = 2
@@ -447,7 +466,7 @@ ids_idx = 7
 
 
 # just the high resolution satellite imagery
-class HighRes_Satellie_Images_Only(Dataset):
+class HighRes_Satellite_Images_Only(Dataset):
     def __init__(self, base_dir, organism, region, observation, altitude, threshold):
         self.base_dir = base_dir
         self.region = region
@@ -478,8 +497,9 @@ class HighRes_Satellie_Images_Only(Dataset):
             self.gen_freqs = obs.genus_id.value_counts().to_dict()
             self.fam_freqs = obs.family_id.value_counts().to_dict()                
         # convert to numpy
+        self.test = obs[obs.test].index.tolist()
+        self.train = obs[~obs.test].index.tolist()        
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'extra_ids']].values
-
         channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
         self.channels = channels
         self.width = width
@@ -549,7 +569,8 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         self.lon_min = obs.lon.min()        
         self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
         print("num rasters is ", self.num_rasters)
-
+        self.train = obs[~obs.test].index.tolist()
+        self.test = obs[obs.test].index.tolist()
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
 
@@ -632,7 +653,8 @@ class Bioclim_Rasters_Point(Dataset):
         self.lon_min = obs.lon.min()        
         self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
         print("num rasters is ", self.num_rasters)
-
+        self.train = obs[~obs.test].index.tolist()
+        self.test = obs[obs.test].index.tolist()
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
 
@@ -702,6 +724,8 @@ class Bioclim_Rasters_Image(Dataset):
         self.channels = self.num_rasters
         # convert to numpy
         self.occs = obs
+        self.train = obs[~obs.test].index.tolist()
+        self.test = obs[obs.test].index.tolist()        
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
 
     def __len__(self):
@@ -730,7 +754,7 @@ class Bioclim_Rasters_Image(Dataset):
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters)    
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshol):
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -766,7 +790,8 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
             
         self.num_rasters = self.rasters.shape[0] # plus two because including the lat lon
         print("num rasters is ", self.num_rasters)
-
+        self.train = obs[~obs.test].index.tolist()
+        self.test = obs[obs.test].index.tolist()
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
         channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
@@ -855,7 +880,8 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         self.lon_min = obs.lon.min()        
         self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
         print("num rasters is ", self.num_rasters)
-
+        self.train = obs[~obs.test].index.tolist()
+        self.test = obs[obs.test].index.tolist()
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
         channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
