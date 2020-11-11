@@ -82,9 +82,7 @@ class CrossEntropyPresenceOnly(nn.Module):
             self.op = pass_
         else:
             raise NotImplementedError
-        weights = torch.FloatTensor(class_weights)
-        weights.to(device)
-        self.class_weights = torch.autograd.Variable(weights) 
+        self.class_weights = torch.autograd.Variable(class_weights) 
         self.log_softmax = nn.LogSoftmax()    
 
     # targets is a multihot vector
