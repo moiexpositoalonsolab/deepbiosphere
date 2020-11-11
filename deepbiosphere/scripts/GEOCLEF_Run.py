@@ -137,7 +137,7 @@ def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model):
         collate_fn = joint_raster_collate_fn
     else:
         collate_fn = joint_collate_fn
-    dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler)
+    dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler, drop_last=False)
 
     return dataloader
 
