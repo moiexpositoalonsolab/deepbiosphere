@@ -11,6 +11,9 @@ import torch.optim as optim
 
 # Brier loss using sigmoid with only present classes
 
+def pass_(input):
+    return input
+
 class BrierPresenceOnly(nn.Module):
     def __init__(self, type='sum'):
         #include sigmoid or softmax option
@@ -21,6 +24,8 @@ class BrierPresenceOnly(nn.Module):
             self.op = torch.mean
         elif type == 'sum':
             self.op = torch.sum
+        elif type == 'none':
+            self.op = pass_
         else:
             raise NotImplementedError
             
@@ -47,6 +52,8 @@ class BrierAll(nn.Module):
             self.op = torch.mean
         elif type == 'sum':
             self.op = torch.sum
+        elif type == 'none':
+            self.op = pass_
         else:
             raise NotImplementedError
 
@@ -64,8 +71,17 @@ class BrierAll(nn.Module):
 # https://jamesmccaffrey.wordpress.com/2020/03/16/the-math-derivation-of-the-softmax-with-max-and-log-tricks/
 class CrossEntropyPresenceOnly(nn.Module):
     # for now, gotta have weight so just pass 1s for laziness
-    def __init__(self, class_weights,  device='cpu'):
+    def __init__(self, class_weights,  device='cpu', type='sum'):
         super().__init__()
+        self.type = type
+        if type == 'mean':
+            self.op = torch.mean
+        elif type == 'sum':
+            self.op = torch.sum
+        elif type == 'none':
+            self.op = pass_
+        else:
+            raise NotImplementedError
         weights = torch.FloatTensor(class_weights)
         weights.to(device)
         self.class_weights = torch.autograd.Variable(weights) 
@@ -81,7 +97,7 @@ class CrossEntropyPresenceOnly(nn.Module):
         # now average across sample
         nll_avg = torch.div(torch.sum(nll, dim=1), targets.sum(dim=1))
         # then average across batch
-        return torch.mean(nll_avg)
+        return self.op(nll_avg)
 
     
     

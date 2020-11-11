@@ -19,6 +19,7 @@ from tqdm import tqdm
 from deepbiosphere.scripts import GEOCLEF_CNN as cnn
 # from deepbiosphere.scripts import inference as inference
 from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
+from deepbiosphere.scripts import GEOCLEF_Loss as losses
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
 
@@ -142,26 +143,61 @@ def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model):
 
 
     
-def setup_loss(observation, dataset, loss, unweighted, device):
+def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
 
     if loss == 'none':
         return None, None, None
     
-    spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
-    gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
-    fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)    
-
+    if loss =='BrierAll':
+        spec_loss= losses.BrierAll(loss_type)
+        gen_loss = losses.BrierAll(loss_type)
+        fam_loss = losses.BrierAll(loss_type)
+    elif loss == 'BrierPresenceOnly':
+        spec_loss= losses.BrierPresenceOnly(loss_type)
+        gen_loss = losses.BrierPresenceOnly(loss_type)
+        fam_loss = losses.BrierPresenceOnly(loss_type)    
+    elif loss == 'MultiLabelMarginLoss':
+        spec_loss= losses.BrierAll(loss_type)
+        gen_loss = losses.BrierAll(loss_type)
+        fam_loss = losses.BrierAll(loss_type)    
+    elif loss == 'AsymmetricLoss':
+        spec_loss= losses.AsymmetricLoss()
+        gen_loss = losses.AsymmetricLoss()
+        fam_loss = losses.AsymmetricLoss()        
+    elif loss == 'AsymmetricLossOptimized':    
+        spec_loss= losses.AsymmetricLossOptimized()
+        gen_loss = losses.AsymmetricLossOptimized()
+        fam_loss = losses.AsymmetricLossOptimized()
     if not unweighted:
+        spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
+        gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
+        fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)        
         spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
         gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
         fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
-        spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq)
-        gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq)
-        fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq)
+        if loss == 'BCEWithLogits':
+            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq, reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq, reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq, reduction=loss_type)
+        elif loss == 'CrossEntropyPresenceOnly':
+            spec_loss= losses.CrossEntropyPresenceOnly(spec_freq, type=loss_type)
+            gen_loss = losses.CrossEntropyPresenceOnly(gen_freq, type=loss_type)
+            fam_loss = losses.CrossEntropyPresenceOnly(fam_freq, type=loss_type)
+        else:
+            raise NotImplementedError
     else:
-        spec_loss = torch.nn.BCEWithLogitsLoss()
-        gen_loss = torch.nn.BCEWithLogitsLoss()
-        fam_loss = torch.nn.BCEWithLogitsLoss()
+        if loss == 'BCEWithLogits':
+            spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+        elif loss == 'CrossEntropyPresenceOnly':
+            spec_loss= losses.CrossEntropyPresenceOnly(torch.ones(num_specs, dtype=torch.float, device=device), reduction=loss_type)
+            gen_loss = losses.CrossEntropyPresenceOnly(torch.ones(num_gens, dtype=torch.float, device=device), reduction=loss_type)
+            fam_loss = losses.CrossEntropyPresenceOnly(torch.ones(num_fams, dtype=torch.float, device=device), reduction=loss_type)
+        else:
+            raise NotImplementedError
+
+            
     if loss == 'just_fam':
         gen_loss = None
         spec_loss = None
@@ -741,8 +777,8 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
                 elif loss == 'just_spec':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
-                else: # loss is none
-                    raise NotImplemented
+                else: # loss is none or one of the new options! None of the cumulative nonsense, just run loss normally
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
                 
             if tb_writer is not None:
                 if model == 'SpecOnly':
@@ -916,7 +952,7 @@ def train_model(ARGS, params):
 
         
         
-    spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, params.params.loss, params.params.unweighted, device) 
+    spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, params.params.loss, params.params.unweighted, device, params.params.loss_type) 
 
     if ARGS.toy_dataset:
 
@@ -1028,7 +1064,7 @@ def train_model(ARGS, params):
         tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold']
+    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
     print(ARGS)

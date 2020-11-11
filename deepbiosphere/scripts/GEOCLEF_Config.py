@@ -32,9 +32,13 @@ choices = {
     # old: joint_image', 'joint_image_env', 'joint_image_pt', 'joint_env_cnn', 'joint_pt', 'joint_image_cnn', 'single_image_cnn', 'single_env_cnn'],
     # new: satellite_only, satellite_rasters_lowres, satellite_rasters_point, rasters_lowres, rasters_point, satellite_rasters_sheet, 
     'dataset': [ 'satellite_only', 'satellite_rasters_image', 'satellite_rasters_point', 'rasters_image', 'rasters_point', 'satellite_rasters_sheet'],
-    'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec'],
+    # loss is overcoded to both set the actual loss function and to determine when what loss is calculated and for what taxonomy
+    'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec', 
+             'MultiLabelMarginLoss', 'BCEWithLogits','BrierPresenceOnly','BrierAll','CrossEntropyPresenceOnly','AsymmetricLoss','AsymmetricLossOptimized'
+             ],
     'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet'],
-    'normalize' : ['normalize', 'min_max', 'none']
+    'normalize' : ['normalize', 'min_max', 'none'],
+    'loss_type' : ['none', 'mean', 'sum']
     
 }
 choices = SimpleNamespace(**choices)
@@ -57,7 +61,8 @@ arguments = {
     'dataset': {'choices':choices.dataset, 'required': ('--load_from_config' not in sys.argv)},    
     'model':{'choices':choices.model, 'required': ('--load_from_config' not in sys.argv)},
     'loss': {'choices':choices.loss, 'required': ('--load_from_config' not in sys.argv)},
-    'threshold' : {'dest':'threshold', 'type':int,'help' : "how many observations must a species at least have to be added to the dataset", 'default':4, 'required': ('--load_from_config' not in sys.argv)},
+    'loss_type': {'choices':choices.loss_type, 'default' : 'mean'},    
+    'threshold' : {'dest':'threshold', 'type':int,'help' : "how many observations must a species at least have to be added to the dataset", 'default':4},
     # optional arguments
     'processes': {'type':int, 'help':"how many worker processes to use for data loading",'default':1},    
     'seed': {'type':int, 'help':"random seed to use"},
@@ -135,7 +140,8 @@ class Run_Params():
                 'unweighted' : ARGS.unweighted,
                 'no_altitude' : ARGS.no_alt,
                 'dataset' : ARGS.dataset,
-                'threshold' : ARGS.threshold
+                'threshold' : ARGS.threshold,
+                'loss_type' : ARGS.loss_type
             }
 
             with open(cfg_path, 'w') as fp:

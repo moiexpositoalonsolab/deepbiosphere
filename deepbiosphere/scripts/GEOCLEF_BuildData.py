@@ -90,7 +90,6 @@ def get_single_joint_from_group(group_df):
             continue
         else:
             bad_ids = bad_ids + list(ids)
-#     import pdb; pdb.set_trace()
     group_df = group_df[~group_df.id.isin(bad_ids)]
     tock = time.time()
     diff = tock - tick
@@ -147,6 +146,7 @@ def create_test_train_split(dset):
     # appended to.
     tracker = {}
     test = set()
+    print("setting up tracker")
     spec_freq = dset.species.value_counts()
     for spec, freq in spec_freq.items():
 
@@ -179,7 +179,7 @@ def create_test_train_split(dset):
     loop_tracker = {species: 0 for species in dset.species.unique()}
     freq_spec = spec_freq.keys().to_list()
     num_unq = len(dset.species.unique())
-    
+    print("doing first pass through data")
     # essentially, while there is still a species that
     # has no observations yet in the test set, keep adding
     # observations to the test set
@@ -203,8 +203,6 @@ def create_test_train_split(dset):
             extras = dset.iloc[obs[0]].extra_ids
             # now update the species tracker for not just this species but all species from extra_ids
             # To do so, I grab all other occurrences from the joint label
-#             import pdb; pdb.set_trace()
-            print(extras, type(extras))
             extra_obs = dset[dset.id.isin(extras)]
             # then, go in and update the tracker for that species
             # the current occurrence's id is included in extra_ids
@@ -224,7 +222,7 @@ def create_test_train_split(dset):
     # each of these species to the test dataset, which will almost
     # perfectly preserve that there is at least one occurrence of
     # each species in train and test
-    
+    print("pulling out missing species")
     # using the tracker, see if there are any species for whom all occurrences
     # have been added to test
     certify = [spec for spec in dset.species.unique() if ((tracker[spec][0]) - tracker[spec][1] >= 0)]
@@ -242,6 +240,7 @@ def create_test_train_split(dset):
     removed = dset[dset.id.isin(new_test)]
     # figure out what species are now missing from test
     missing = set(dset.species.unique()) - set(removed.species.unique())
+    print("refining test set")
     # add to new tracker the already made observations
     for id_ in new_test:
         spec = dset[dset.id == int(id_)]
@@ -278,8 +277,9 @@ def create_test_train_split(dset):
 
             new_test.update(extras[0]) 
     # and now you have a well-balanced test-train split!
+    print("train and test set ready!")
     dset['test'] = dset.id.isin(new_test)
-    print(dset.columns)
+#     print(dset.columns)
     print("{} observations in train, {} in test for {}%".format((len(dset)- sum(dset.test)), sum(dset.test), (sum(dset.test)/len(dset)*100) ))
     print("{} species in train, {} species in test".format(len(dset[~dset.test].species.unique()), len(dset[dset.test].species.unique())))
 #     return train, test
@@ -328,7 +328,6 @@ def main():
     write_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
     if not os.path.exists(write_pth):
         os.makedirs(write_pth)
-#     import pdb; pdb.set_trace()
     for (grouping, df) in grouped:
         print("grouping {grouping}".format(grouping=grouping))
         if ARGS.observation == 'joint_multiple':
@@ -353,7 +352,8 @@ def main():
     for path in all_grouped[1:]:
         new_dat = pd.read_csv(path, sep=None)
         all_dat = pd.concat([all_dat, new_dat])
-
+    # make sure data is the right format
+    all_dat = dataset.reformat_data(all_dat)
     # and save data 
     print("moving to ecoregions")
     # add ecoregions data
