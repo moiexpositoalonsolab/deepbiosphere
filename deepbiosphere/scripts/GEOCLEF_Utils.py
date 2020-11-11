@@ -40,10 +40,7 @@ def add_taxon_metadata(base_dir, obs, organism):
     ## getting family, genus, species ids for each observation
     # get all relevant files
     print("adding taxon information")   
-    print("columns ", obs.columns)
     gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(base_dir), sep=None)    
-    print("columns ", obs.columns)
-    print(obs.columns)
     present_specs = obs.species_id.unique()    
     # get all the gbif species ids for all the species in the us sample
     conversion = gbif_meta[gbif_meta['species_id'].isin(present_specs)]

@@ -136,6 +136,10 @@ def add_ecoregions(base_dir, dset):
     
 def create_test_train_split(dset):
     
+    # make sure to reset the index because
+    # behavior is contingent on the index
+    # matching!
+    dset.index = np.arange(len(dset))
     # create data structure to track
     # total number of observations of each
     # species in datset, including in other
@@ -178,8 +182,8 @@ def create_test_train_split(dset):
     # all species have been added to the test set
     loop_tracker = {species: 0 for species in dset.species.unique()}
     freq_spec = spec_freq.keys().to_list()
+    freq_spec.reverse()
     num_unq = len(dset.species.unique())
-    print("doing first pass through data")
     # essentially, while there is still a species that
     # has no observations yet in the test set, keep adding
     # observations to the test set
@@ -187,7 +191,8 @@ def create_test_train_split(dset):
         # randomly grab a species (the distribution of number of 
         # observations per species and the average length of a species'
         # joint label is not uniform, so it's more efficient to randomly sample)
-        spec = np.random.choice(freq_spec, 1)[0]
+        to_look_at = [s for s in freq_spec if loop_tracker[s] == 0]
+        spec = np.random.choice(to_look_at, 1)[0]
         # if we don't yet have an observation for
         # this species, grab a random observation for
         # that species and add it and all its joint label 
@@ -250,6 +255,7 @@ def create_test_train_split(dset):
     # We'll be smart though and add the smallest observation to test
     # to make sure the likelihood that we accidentally take all 
     # observations for another species is minimized
+    num_specs = len(dset.species.unique())
     for spec in missing:
         des = dset[dset.species == spec]
         # find smallest obs, add it to test set    
@@ -262,7 +268,9 @@ def create_test_train_split(dset):
         extra_obs = dset[dset.id.isin(extras[0])]
         # project if any species would have all observations
         # added to test if we took this observation
-        certify = {((trackk[spec][0]+1) - trackk[spec][1] > 0) : spec for spec in extra_obs.species.unique()}
+        
+        # somehow certify isn't working...
+        certify = {((trackk[spec][0]+2) - trackk[spec][1] > 0) : spec for spec in extra_obs.species.unique()}
         # if adding this observation would move all occurrences
         # of a given species over to the test set, then don't add
         # this observation
