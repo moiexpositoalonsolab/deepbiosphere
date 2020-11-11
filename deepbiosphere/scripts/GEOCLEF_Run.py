@@ -17,7 +17,6 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import math
 from tqdm import tqdm
 from deepbiosphere.scripts import GEOCLEF_CNN as cnn
-# from deepbiosphere.scripts import inference as inference
 from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
 from deepbiosphere.scripts import GEOCLEF_Loss as losses
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
@@ -1047,8 +1046,6 @@ def train_model(ARGS, params):
             desiderata_path = params.build_abs_desider_path(epoch)
             with open(desiderata_path, 'wb') as f:
                 pickle.dump(desiderata, f)
-#         insert inference again here???
-            inference.eval_model(params.get_cfg_name()+'.json', ARGS.base_dir, ARGS.toy_dataset, epoch=epoch)
         tock = time.time()
         diff = ( tock-tick)/60
         print ("epoch {} took {} minutes".format(epoch, diff))
