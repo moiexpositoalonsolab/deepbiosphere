@@ -42,7 +42,7 @@ def better_split_train_test(full_dat, split_amt):
 #     train_sampler = SubsetRandomSampler(train_idx)
 #     valid_sampler = SubsetRandomSampler(test_idx)
     test_idx = full_dat.test
-    train_idx, full_dat.train
+    train_idx = full_dat.train
     train_sampler = SubsetRandomSampler(train_idx)
     valid_sampler = SubsetRandomSampler(test_idx)
     return train_sampler, valid_sampler, {'train': train_idx, 'test' : test_idx}
@@ -92,7 +92,7 @@ def setup_dataset(observation, base_dir, organism, region, normalize, altitude, 
 
         
 def setup_model(model, train_dataset):
-    
+
     num_specs = train_dataset.num_specs
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens
@@ -147,7 +147,6 @@ def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
 
     if loss == 'none':
         return None, None, None
-    
     if loss =='BrierAll':
         spec_loss= losses.BrierAll(loss_type)
         gen_loss = losses.BrierAll(loss_type)
@@ -183,8 +182,6 @@ def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
             spec_loss= losses.CrossEntropyPresenceOnly(spec_freq, type=loss_type)
             gen_loss = losses.CrossEntropyPresenceOnly(gen_freq, type=loss_type)
             fam_loss = losses.CrossEntropyPresenceOnly(fam_freq, type=loss_type)
-        else:
-            raise NotImplementedError
     else:
         if loss == 'BCEWithLogits':
             spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
@@ -194,8 +191,6 @@ def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
             spec_loss= losses.CrossEntropyPresenceOnly(torch.ones(num_specs, dtype=torch.float, device=device), reduction=loss_type)
             gen_loss = losses.CrossEntropyPresenceOnly(torch.ones(num_gens, dtype=torch.float, device=device), reduction=loss_type)
             fam_loss = losses.CrossEntropyPresenceOnly(torch.ones(num_fams, dtype=torch.float, device=device), reduction=loss_type)
-        else:
-            raise NotImplementedError
 
             
     if loss == 'just_fam':
@@ -232,9 +227,7 @@ def joint_collate_fn(batch):
     all_gens = []
     all_fams = []
     imgs = []
-    num_specs = 3988 # TREMOVE@!!
-    num_gens = 1243
-    num_fams = 241
+
     #(specs_label, gens_label, fams_label, images)  
     for (spec, gen, fam, img) in batch:
         specs_tens = torch.zeros(num_specs)
@@ -951,9 +944,9 @@ def train_model(ARGS, params):
         train_dataset.fam_dict = desi['fam_dict']        
 
         
-        
+    print("setting up loss")    
     spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, params.params.loss, params.params.unweighted, device, params.params.loss_type) 
-
+    print("setting up dataset")
     if ARGS.toy_dataset:
 
         test_dataset = copy.deepcopy(train_dataset)
