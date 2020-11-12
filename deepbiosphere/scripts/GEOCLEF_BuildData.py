@@ -1,3 +1,4 @@
+import shutil
 import copy
 from geopandas.tools import sjoin
 from shapely.geometry import Point, Polygon
@@ -287,11 +288,21 @@ def create_test_train_split(dset):
     # and now you have a well-balanced test-train split!
     print("train and test set ready!")
     dset['test'] = dset.id.isin(new_test)
-#     print(dset.columns)
     print("{} observations in train, {} in test for {}%".format((len(dset)- sum(dset.test)), sum(dset.test), (sum(dset.test)/len(dset)*100) ))
     print("{} species in train, {} species in test".format(len(dset[~dset.test].species.unique()), len(dset[dset.test].species.unique())))
-#     return train, test
     return dset
+    
+    
+def take_top_species(dset, num_specs):
+    print(dset.columns)
+    spec_ordered = dset.species.value_counts()
+    top_specs = list(s for (s,v) in spec_ordered.items())[:num_specs]
+    return dset[dset.species.isin(top_specs)]
+    
+def remove_small_species(dset, threshold):
+    spec_freq = dset.species.value_counts()
+    goodspec = [spec for spec, i in spec_freq.items() if i >= threshold]
+    return dset[dset.species.isin(goodspec)]
     
 def main():
     
@@ -304,19 +315,22 @@ def main():
         exit(1)
     us_train_pth = "{}occurrences/single_obs_cali_plant_census.csv".format(pth) if ARGS.census else "{pth}occurrences/single_obs_{country}_{org}_train.csv".format(pth=pth, country=ARGS.region, org=ARGS.organism)
     us_train = pd.read_csv(us_train_pth, sep=None)
-    us_train = dataset.reformat_data(us_train)
     if 'species' not in us_train.columns:
         us_train = utils.add_taxon_metadata(pth, us_train, ARGS.organism)
+    if ARGS.num_species > -1:
+        us_train = take_top_species(us_train, ARGS.num_species)
+#     print(us_train.lat_lon)
+#     print(type(us_train.lat_lon.iloc[0]))
+    us_train = dataset.reformat_data(us_train)
+
     # remove species with too few observations period
-#     print(us_train.columns)»
-    spec_freq = us_train.species.value_counts()
-#     print(len(spec_freq))
-    goodspec = [spec for spec, i in spec_freq.items() if i >= ARGS.threshold]
-    us_train = us_train[us_train.species.isin(goodspec)]
+    us_train = remove_small_species(us_train, ARGS.threshold)
     # remove species that are only in one geographic location in dataset
     us_train = remove_single_location_species(us_train)
-#     print(len(us_train.species.unique()))
-#     exit(1)
+    assert len(list( (s, v) for (s,v) in us_train.species.value_counts().items() if v < 3)) == 0
+    # check and see if there are now species without enough observations 
+    # and re-clean species that are now below the threshold
+    us_train = remove_small_species(us_train, ARGS.threshold) 
     # create a new tuple column
     us_train['lat_lon'] = list(zip(us_train.lat, us_train.lon))
     # convert to list for faster extraction
@@ -333,6 +347,10 @@ def main():
     us_train['city'] = cities
     # group data into smaller, more manageable chunks
     grouped = us_train.groupby(['city', 'state', 'region'])
+    
+    # clean up any previous files floating around from cali
+    rm_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
+    shutil.rmtree(rm_pth)
     write_pth = "{pth}joint_obs/{obs}/".format(pth=pth, obs=ARGS.observation)
     if not os.path.exists(write_pth):
         os.makedirs(write_pth)
@@ -345,7 +363,8 @@ def main():
         else:
             pass
 
-
+        # TODO: if limited number of species, don't save to file
+        # OHHHH I Think the reason that were getting species with 1 obs is that there are some files floating around in the joint that is incorrect, need to clean it out before I run a given file!
         city = grouping[0].replace(" ", "")
         region = grouping[2].replace(" ", "")
         state = grouping[1].replace(" ", "")
@@ -361,20 +380,21 @@ def main():
         new_dat = pd.read_csv(path, sep=None)
         all_dat = pd.concat([all_dat, new_dat])
     # make sure data is the right format
+    assert len(list( (s, v) for (s,v) in all_dat.species.value_counts().items() if v < 3)) == 0    
+    all_dat.index = np.arange(len(all_dat))
     all_dat = dataset.reformat_data(all_dat)
     # and save data 
     print("moving to ecoregions")
     # add ecoregions data
     all_dat = add_ecoregions(pth, all_dat)
     all_dat = create_test_train_split(all_dat)
-    train_pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}_{threshold}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train', threshold=ARGS.threshold)
-#     test_pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_{test}_{threshold}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,test='test', threshold=ARGS.threshold
+    assert len(list( (s, v) for (s,v) in all_dat.species.value_counts().items() if v < 3)) == 0    
+    train_pth = "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}_{threshold}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train', threshold=ARGS.threshold) if ARGS.num_species < 0 else "{pth}/occurrences/{obs}_obs_{region}_{plant}_{train}_{threshold}_top{spec}.csv".format(obs=ARGS.observation, pth=pth, region=ARGS.region, plant=ARGS.organism,train='train', threshold=ARGS.threshold, spec=ARGS.num_species)
     all_dat.to_csv(train_pth)
-#     all_test.to_csv(test_pth)
     
     
 if __name__ == "__main__":
     
-    args = ['base_dir', 'organism', 'census', 'region', 'observation', 'threshold']
+    args = ['base_dir', 'organism', 'census', 'region', 'observation', 'threshold', 'num_species']
     ARGS = config.parse_known_args(args)
     main()

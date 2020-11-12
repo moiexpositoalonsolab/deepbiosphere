@@ -74,7 +74,8 @@ arguments = {
     'no_alt': {'dest':'no_alt', 'help': 'set to not include altitude layer, dont set to include', 'action':'store_false'},        
     'from_scratch': {'dest':'from_scratch', 'help': 'if you want to restart training from scratch and rebuild everything, set this flag', 'action':'store_true'},
     'census' : {'dest':'census', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'},
-    'ecoregions_only' : {'dest':'ecoregions_only', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'}        
+    'ecoregions_only' : {'dest':'ecoregions_only', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'},
+    'num_species' : {'type' : int, 'help' : 'for building dataset, if want to cut to top K species, set this option', 'default': -1}
 }
 
 def setup_main_dirs(base_dir):
