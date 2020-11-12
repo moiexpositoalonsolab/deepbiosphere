@@ -151,6 +151,7 @@ def get_raster_image_obs(lat_lon, affine, rasters, nan, normalize, pix_res):
         env_rasters = rasters[:,xmin:xmax,ymin:ymax]
     return env_rasters
 def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max):
+
     x, y = latlon_2_idx(affine, lat_lon)
     env_rasters = rasters[:,x,y]
     if normalize == 'min_max':
@@ -416,15 +417,15 @@ def get_inference_labels(observation, obs, idx):
         return specs_label, gens_label, fams_label, all_spec, all_gen, all_fam
     
 def reformat_data(joint_obs):
-    if 'all_specs' in joint_obs.columns and not isinstance(joint_obs.all_specs[0], list) and not isinstance(joint_obs.all_specs[0], set):
+    if 'all_specs' in joint_obs.columns and not isinstance(joint_obs.all_specs[0], list) or not isinstance(joint_obs.all_specs[0], set):
         joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-    if 'all_gens' in joint_obs.columns and not isinstance(joint_obs.all_gens[0], list) and not isinstance(joint_obs.all_specs[0], set):    
+    if 'all_gens' in joint_obs.columns and not isinstance(joint_obs.all_gens[0], list) or not isinstance(joint_obs.all_specs[0], set):    
         joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-    if 'all_fams' in joint_obs.columns and not isinstance(joint_obs.all_fams[0], list) and not isinstance(joint_obs.all_specs[0], set):
+    if 'all_fams' in joint_obs.columns and not isinstance(joint_obs.all_fams[0], list) or not isinstance(joint_obs.all_specs[0], set):
         joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-    if 'lat_lon' in joint_obs.columns and not isinstance(joint_obs.lat_lon.iloc[0], tuple) and not isinstance(joint_obs.lat_lon.iloc[0], object):        
+    if 'lat_lon' in joint_obs.columns and not isinstance(joint_obs.lat_lon.iloc[0], tuple) or not isinstance(joint_obs.lat_lon.iloc[0], object):        
         joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-    if 'extra_ids' in joint_obs.columns and not isinstance(joint_obs.extra_ids, list) and not isinstance(joint_obs.all_specs[0], set):
+    if 'extra_ids' in joint_obs.columns and not isinstance(joint_obs.extra_ids, list) or not isinstance(joint_obs.all_specs[0], set):
         joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
     return joint_obs    
     
