@@ -112,11 +112,11 @@ def main():
     
 
     
-    if ARGS.clean_all:
-        clean_all_models(ARGS.base_dir)
-    else:
-        params = Run_Params(ARGS.base_dir, ARGS)        
-        params.clean_old_models()
+    #if ARGS.clean_all:
+    #    clean_all_models(ARGS.base_dir)
+    #else:
+    #    params = Run_Params(ARGS.base_dir, ARGS)        
+    #    params.clean_old_models()
     clean_tensorboard(ARGS.base_dir.split('GeoCELF2020/')[0])
 
 

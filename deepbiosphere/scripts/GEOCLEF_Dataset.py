@@ -442,15 +442,9 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold):
         obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
     else:
         obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
-#     print(obs_pth)
+    print(obs_pth)
     assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)
-#     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-#     if 'extra_ids' in joint_obs.columns:
-#         joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
     return reformat_data(joint_obs)
 
 id_idx = 0
