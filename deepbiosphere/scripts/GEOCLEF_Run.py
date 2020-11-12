@@ -143,7 +143,7 @@ def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model):
 
     
 def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
-
+    spec_loss, gen_loss, fam_loss = None, None, None
     if loss == 'none':
         return None, None, None
     if loss =='BrierAll':
