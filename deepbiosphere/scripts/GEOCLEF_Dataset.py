@@ -20,38 +20,6 @@ from deepbiosphere.GLC.environmental_raster_glc import Raster, PatchExtractor
 import warnings
 warnings.filterwarnings("ignore")
 
-
-# def get_gbif_data(pth, split, region, organism):
-#     ## Grab GBIF observation data
-
-#     obs_pth = "{}occurrences/occurrences_{}_{}_{}.csv".format(pth, region, organism, split)
-#     return pd.read_csv(obs_pth, sep=None)  
-
-# def get_gbif_rasters_data(pth, region, organism):
-# #     {pth}/occurrences/joint_obs_{region}{plant}_train_rasters.csv
-#     obs_pth = "{}occurrences/joint_obs_{}_{}_train_rasters.csv".format(pth, region, organism)
-#     joint_obs = pd.read_csv(obs_pth)  
-#     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-#     return joint_obs
-
-# def get_joint_gbif_data(pth, region, organism):
-#     ## Grab GBIF observation data
-#     obs_pth = "{}occurrences/joint_multiple_obs_{}_{}.csv".format(pth, region, organism)
-#     joint_obs = pd.read_csv(obs_pth)  
-#     joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-#     joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-#     return joint_obs
-
-
-
-
-
-
 def xy_2_range_center(pix_res, x, y):
     half = pix_res /2
     xmin, xmax = x-half, x+half

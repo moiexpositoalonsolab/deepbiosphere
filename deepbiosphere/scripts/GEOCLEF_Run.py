@@ -25,7 +25,7 @@ from deepbiosphere.scripts import GEOCLEF_Config as config
 
 
 
-def better_split_train_test(full_dat, split_amt):
+def better_split_train_test(full_dat):
 #     shuffle = np.random.permutation(np.arange(len(dset)))
 #     split = int(len(idxs)*split_amt)    
 #     test = set()
@@ -922,7 +922,7 @@ def train_model(ARGS, params):
     if ARGS.from_scratch or not ARGS.load_from_config:
         start_epoch = 0
         step = 0         
-        train_samp, test_samp, idxs = better_split_train_test(train_dataset, val_split)        
+        train_samp, test_samp, idxs = better_split_train_test(train_dataset)        
     else:
         net_load = params.get_recent_model(device=device)
         net.load_state_dict(net_load['model_state_dict'])
