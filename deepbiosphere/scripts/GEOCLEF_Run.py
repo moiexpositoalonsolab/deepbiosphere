@@ -131,7 +131,11 @@ def setup_model(model, train_dataset):
         exit(1), "if you reach this, you got a real problem bucko"
 
         
-def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model):
+def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model, joint_collate_fn=None):
+
+    if joint_collate_fn is not None:
+        collate_fn = joint_collate_fn
+    
     if dtype == 'satellite_rasters_point':
         collate_fn = joint_raster_collate_fn
     else:
@@ -193,11 +197,56 @@ def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
 
             
     if loss == 'just_fam':
+        if not unweighted:
+            spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
+            gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
+            fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)        
+            spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
+            gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
+            fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
+            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq, reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq, reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq, reduction=loss_type)
+        else:
+
+            spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
         gen_loss = None
         spec_loss = None
     elif loss == 'fam_gen':
+        if not unweighted:
+            spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
+            gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
+            fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)        
+            spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
+            gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
+            fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
+            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq, reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq, reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq, reduction=loss_type)
+        else:
+
+            spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
         spec_loss == None
     elif loss == 'spec_only':
+        if not unweighted:
+            spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
+            gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
+            fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)        
+            spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
+            gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
+            fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
+            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq, reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq, reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq, reduction=loss_type)
+        else:
+
+            spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            gen_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+            fam_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
         fam_loss = None
         gen_loss = None
 

@@ -1,8 +1,9 @@
 import deepbiosphere.scripts.GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_CNN as nets
 import torch
+import torch.functional as F
 from deepbiosphere.scripts.GEOCLEF_Config import paths, Run_Params
-from deepbiosphere.scripts.GEOCLEF_Run import  setup_train_dataset, setup_model, setup_loss
+from deepbiosphere.scripts.GEOCLEF_Run import  setup_dataset, setup_model, setup_loss
 import deepbiosphere.scripts.GEOCLEF_Dataset as dataset
 import numpy as np
 import pandas as pd
@@ -10,21 +11,87 @@ import matplotlib.pyplot as plt
 import time
 import pickle
 
+# not batched version!!
+# t1 should be model output, t2 should be label for batch dims to work
+# https://stackoverflow.com/questions/55110047/finding-non-intersection-of-two-pytorch-tensors
+def torch_intersection(t1, t2, device):
+    
+    indices = torch.zeros_like(t2, dtype = torch.uint8, device = device)
+    if len(t2.shape) > 1:
+        raise TypeError; 'will index incorrectly across tensors'
+    for i, elem in zip(np.arange(len(t2)), t2):
+        indices[i] = (t1 == elem).sum()
+    intersection = t2[indices]  
+    return intersection
+
+
+
+
+# so sigmoiding doesn't really change the output, getting rid of it
+def recall_per_example_all(lab, guess, actual, weight, device='cpu'):
+
+    maxk = len(lab)
+    pred, idxs = torch.topk(guess, maxk)
+    intersection = torch_intersection(idxs, lab, device)
+    recall = len(intersection)/maxk
+    top1_rec = (intersection == actual).sum()
+    top1_rec_weight = float(top1_rec)/float(weight)
+    return recall, top1_rec, top1_rec_weight, intersection
+
+
+# so sigmoiding doesn't really change the output, getting rid of it
+def accuracy_per_example(lab, guess, actual, weight, device='cpu'):
+    
+    y_size = len(lab)
+    pred, idxs = torch.topk(guess, maxk)
+    intersection = torch_intersection(idxs, lab, device)
+    recall = len(intersection)/maxk
+    top1_rec = (intersection == actual).sum()
+    top1_rec_weight = float(top1_rec)/float(weight)
+    torch.unique(torch.cat([???[0], lab]))
+    return recall, top1_rec, top1_rec_weight, intersection
+
 
 def recall_per_example(lab, guess, actual):
     # recall
     maxk = len(lab)
     pred, idxs = torch.topk(guess, maxk)
-#     import pdb; pdb.set_trace()
+
     eq = len(list(set(idxs.tolist()[0]) & set(lab)))
     recall = eq / maxk
     top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
     return recall, top1_recall
 
+
+def recall_per_example_sigmoid(lab, guess, actual, sigmoid):
+    # recall
+    maxk = len(lab)
+    guess = sigmoid(guess)
+    pred, idxs = torch.topk(guess, maxk)
+
+    eq = len(list(set(idxs.tolist()[0]) & set(lab)))
+    recall = eq / maxk    
+    top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
+    return recall, top1_recall
+
+def recall_per_example_weighted(lab, guess, actual, weight):
+    # recall
+    maxk = len(lab)
+    pred, idxs = torch.topk(guess, maxk)
+
+    eq = len(list(set(idxs.tolist()[0]) & set(lab)))
+    recall = eq / maxk
+    top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
+    top1_recall = top1_recall / weight    
+    recall = recall / weight
+    return recall, top1_recall
+
+
 def recall_per_example_classes(lab, guess, actual):
     """ calculates recall per example. Returns multi-label recall + top 1 recall + all correctly predicted classes"""
     # recall
     maxk = len(lab)
+    
     pred, idxs = torch.topk(guess, maxk)
     corr_id = list(set(idxs.tolist()[0]) & set(lab)) 
     eq = len(corr_id)
@@ -36,19 +103,18 @@ def recall_per_example_classes(lab, guess, actual):
 # this thresholding is terrible, need to fix....
 # very stochastic depending on number of species in the image
 # sum this across all examples and divide by num samples
-def precision_per_example(lab, guess, thres=.1):
-    maxk = len(lab)
-    pred, idxs = torch.topk(guess, maxk)
-    overlap = np.intersect1d(idxs.numpy().squeeze(), np.array(lab))
-    sig = torch.nn.Softmax()
-    probs = sig(guess)
-    prob, idxs = torch.topk(probs, probs.shape[-1])
-    cutoff = 1
-    for i in range(probs[0].shape[0]):
-        if probs[0][:i].sum() > thres:
-            cutoff = i
-            break
-    return len(overlap)/ cutoff
+# NEW threshold is .5 and we will pass the values through sigmoid to convert the distro
+# to a proability for each class
+def precision_per_example(lab, guess, actual, weight, device='cpu', thres=.5):
+    
+    guess = torch.sigmoid(guess)
+    yhat_size = (guess > .5).sum()
+    pred, idxs = torch.topk(guess, yhat_size)
+    overlap = torch_intersection(idxs, lab, device)
+    prec = float(len(overlap))/ float(yhat_size) if yhat_size > 0 else 0.0
+    top1_prec = (overlap == actual).sum()
+    top1_prec_weight = float(top1_prec)/float(weight)    
+    return prec, top1_prec, top1_prec_weight, overlap
 
 def eval_model(config_name, base_dir, toy_dataset, epoch=None):
     params = Run_Params(cfg_path=config_name, base_dir=base_dir)
@@ -91,7 +157,7 @@ def eval_model(config_name, base_dir, toy_dataset, epoch=None):
        # prec_fam =precision_per_example(all_fam, fams, thres=.1)
         rec_spc = utils.recall_per_example_classes(all_spec, specs, specs_label)        
 #         rec_spc = recall_per_example(all_spec, specs, specs_label)
-#         import pdb; pdb.set_trace()
+
         rec_gen = recall_per_example(all_gen, gens, gens_label)
         rec_fam = recall_per_example(all_fam, fams, fams_label)
         #tot_prec_spc.append(prec_spc) 
