@@ -196,7 +196,7 @@ class Run_Params():
             print("grabbing model at {}".format(epoch))
             for m in sorted_mods:
                 if "_e{}".format(epoch) in m:
-                    return torch.load(most_recent, map_location=device)
+                    return torch.load(m, map_location=device)
         print("no adequate model found!")
         return None
 

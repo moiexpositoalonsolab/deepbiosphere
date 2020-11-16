@@ -69,23 +69,24 @@ def check_mem():
 
 
 
-def setup_dataset(observation, base_dir, organism, region, normalize, altitude, dataset, threshold):
+def setup_dataset(observation, base_dir, organism, region, normalize, altitude, dataset, threshold, num_species):
     '''grab and setup train or test dataset'''
     
     if dataset == 'satellite_only':
-        return Dataset.HighRes_Satellite_Images_Only(base_dir, organism, region, observation, altitude, threshold)
+        return Dataset.HighRes_Satellite_Images_Only(base_dir, organism, region, observation, altitude, threshold, num_species)
         
     elif dataset == 'satellite_rasters_image':
-        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude, threshold)
+#         (base_dir,organism, region, observation, threshold, topk)
+        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude, threshold, num_species)
     elif dataset == 'satellite_rasters_point':
-        return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize, threshold)
+        return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize, threshold,num_species)
     elif dataset == 'rasters_image':
-        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, threshold)
+        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, threshold,num_species)
     elif dataset == 'rasters_point':
-        return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation, threshold)
+        return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation, threshold, num_species)
         
     elif dataset == 'satellite_rasters_sheet':
-        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation, altitude, threshold)
+        return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation, altitude, threshold, num_species)
     else: 
         raise NotImplementedError
 
@@ -95,7 +96,8 @@ def setup_model(model, train_dataset):
     num_specs = train_dataset.num_specs
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens
-    
+    print(num_specs, num_fams, num_gens)
+    print("----- model ----")
     if model == 'SVM':
         raise NotImplementedError
     elif model == 'RandomForest':
@@ -141,12 +143,11 @@ def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model, joint
     else:
         collate_fn = joint_collate_fn
     dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler, drop_last=False)
-
     return dataloader
 
 
     
-def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
+def setup_loss(observation, dataset, loss, unweighted, device, loss_type, model):
     spec_loss, gen_loss, fam_loss = None, None, None
     if loss == 'none':
         return None, None, None
@@ -196,59 +197,15 @@ def setup_loss(observation, dataset, loss, unweighted, device, loss_type):
             fam_loss = losses.CrossEntropyPresenceOnly(torch.ones(num_fams, dtype=torch.float, device=device), reduction=loss_type)
 
             
-    if loss == 'just_fam':
-        if not unweighted:
-            spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
-            gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
-            fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)        
-            spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
-            gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
-            fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
-            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq, reduction=loss_type)
-            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq, reduction=loss_type)
-            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq, reduction=loss_type)
-        else:
-
-            spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
-            gen_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
-            fam_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+    if model == 'MLP_Family':
         gen_loss = None
         spec_loss = None
-    elif loss == 'fam_gen':
-        if not unweighted:
-            spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
-            gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
-            fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)        
-            spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
-            gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
-            fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
-            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq, reduction=loss_type)
-            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq, reduction=loss_type)
-            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq, reduction=loss_type)
-        else:
-
-            spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
-            gen_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
-            fam_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+    elif model == 'MLP_Family_Genus':
         spec_loss == None
-    elif loss == 'spec_only':
-        if not unweighted:
-            spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
-            gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
-            fam_freq = Dataset.freq_from_dict(dataset.fam_freqs)        
-            spec_freq = 1.0 / torch.tensor(spec_freq, dtype=torch.float, device=device)
-            gen_freq = 1.0 / torch.tensor(gen_freq, dtype=torch.float, device=device)
-            fam_freq = 1.0 / torch.tensor(fam_freq, dtype=torch.float, device=device)
-            spec_loss = torch.nn.BCEWithLogitsLoss(spec_freq, reduction=loss_type)
-            gen_loss = torch.nn.BCEWithLogitsLoss(gen_freq, reduction=loss_type)
-            fam_loss = torch.nn.BCEWithLogitsLoss(fam_freq, reduction=loss_type)
-        else:
-
-            spec_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
-            gen_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
-            fam_loss = torch.nn.BCEWithLogitsLoss(reduction=loss_type)
+    if model == 'SpecOnly':
         fam_loss = None
         gen_loss = None
+
 
         
     return spec_loss, gen_loss, fam_loss
@@ -275,7 +232,6 @@ def joint_collate_fn(batch):
     all_gens = []
     all_fams = []
     imgs = []
-
     #(specs_label, gens_label, fams_label, images)  
     for (spec, gen, fam, img) in batch:
         specs_tens = torch.zeros(num_specs)
@@ -684,7 +640,7 @@ def test_joint_speconly_batch(test_loader, tb_writer, device, net, epoch):
             outputs = net(batch.float()) 
             # recall, top1_recall
             spec_weight = dataset.spec_freqs[specs_label]
-            specrec, spectop1 = utils.recall_per_example(outputs, all_specs, specs_label, spec_weight) # magic no from CELF2020
+            specrec, spectop1 = utils.recall_per_example(outputs, all_spec, specs_label, spec_weight) # magic no from CELF2020
             prog.set_description("mean recall across batch: {acc0}".format(acc0=specrec))
             all_spec.append(specrec)
             all_sp1.append(spectop1)
@@ -769,7 +725,7 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                 elif loss == 'fam_gen':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
                     # cnn model that goes straight from cnn to species outpute layer
-                elif loss == 'just_spec':
+                elif model == 'SpecOnly':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
                 else: # loss is none, random forest baseline
                     raise NotImplemented
@@ -816,7 +772,7 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'family')
                 elif loss == 'fam_gen':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen')
-                elif loss == 'just_spec':
+                elif model == 'SpecOnly':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
                 else: # loss is none or one of the new options! None of the cumulative nonsense, just run loss normally
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
@@ -883,6 +839,10 @@ def forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, o
                                                        
 def forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device):
     batch = batch.to(device)
+#     import pdb; pdb.set_trace()    
+#     specs_lab = torch.tensor(specs_lab, device=device)
+#     print(type(specs_lab), specs_lab.shape)
+    specs_lab =specs_lab[0]
     specs_lab = specs_lab.to(device)                                     
     optimizer.zero_grad()
     specs = net(batch.float()) 
@@ -946,7 +906,7 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold)
+    train_dataset = setup_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold,ARGS.num_species)
     if not ARGS.toy_dataset:
         tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_dat-{}org-{}_loss-{}_norm-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.dataset, params.params.organism, params.params.loss, params.params.normalize, params.params.exp_id))
 
@@ -993,19 +953,19 @@ def train_model(ARGS, params):
 
         
     print("setting up loss")    
-    spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, params.params.loss, params.params.unweighted, device, params.params.loss_type) 
+    spec_loss, gen_loss, fam_loss = setup_loss(params.params.observation, train_dataset, params.params.loss, params.params.unweighted, device, params.params.loss_type, params.params.model) 
     print("setting up dataset")
     if ARGS.toy_dataset:
 
         test_dataset = copy.deepcopy(train_dataset)
         train_dataset.obs = train_dataset.obs[:1000]
         test_dataset.obs = test_dataset.obs[1000:2000]
-        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes,  SubsetRandomSampler(np.arange(1000)), ARGS.model)
-        test_loader = setup_dataloader(test_dataset, params.params.dataset, batch_size, ARGS.processes, SubsetRandomSampler(np.arange(1000)), ARGS.model)
+        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes,  SubsetRandomSampler(np.arange(1000)), ARGS.model, joint_collate_fn)
+        test_loader = setup_dataloader(test_dataset, params.params.dataset, batch_size, ARGS.processes, SubsetRandomSampler(np.arange(1000)), ARGS.model, joint_collate_fn)
         
     else:
-        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model)
-        test_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, test_samp, ARGS.model)
+        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model, joint_collate_fn)
+        test_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, test_samp, ARGS.model, joint_collate_fn)
  
 
     
@@ -1103,7 +1063,7 @@ def train_model(ARGS, params):
         tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type']
+    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type', 'num_species']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
     print(ARGS)

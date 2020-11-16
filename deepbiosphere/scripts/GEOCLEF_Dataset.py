@@ -429,7 +429,7 @@ def reformat_data(joint_obs):
         joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
     return joint_obs    
     
-def get_gbif_observations(base_dir, organism, region, observation, threshold):
+def get_gbif_observations(base_dir, organism, region, observation, threshold, topk=None):
     #TODO: grab the right gbif dataset depending on what region, what observation type, what organism
     # even for single observation, go ahead and grab the joint dataset, will just choose to not use joint data later on when grabbing observation
     # include get_gbif_rasters_data!!
@@ -443,6 +443,9 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold):
         obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
     else:
         obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
+        
+    if topk > -1:
+        obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}_top{}.csv".format(base_dir, observation, region, organism, threshold, topk)
     print(obs_pth)
     assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)
@@ -462,13 +465,13 @@ ids_idx = 7
 
 # just the high resolution satellite imagery
 class HighRes_Satellite_Images_Only(Dataset):
-    def __init__(self, base_dir, organism, region, observation, altitude, threshold):
+    def __init__(self, base_dir, organism, region, observation, altitude, threshold, topk):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
         self.altitude = altitude
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         obs.fillna('nan', inplace=True)
         if 'species' not in obs.columns:
             obs = utils.add_taxon_metadata(self.base_dir, obs, self.organism)
@@ -526,14 +529,14 @@ class HighRes_Satellite_Images_Only(Dataset):
 
     # the high resolution satellite imagery + the pointwise observation environmental rasters
 class HighRes_Satellite_Rasters_Point(Dataset):
-    def __init__(self, base_dir, organism, region, observation, altitude, normalize, threshold):
+    def __init__(self, base_dir, organism, region, observation, altitude, normalize, threshold, topk):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
         self.altitude = altitude
         self.normalize = normalize
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
@@ -610,14 +613,14 @@ class HighRes_Satellite_Rasters_Point(Dataset):
     # x, y = eniffa * (get_item_from_obs(obs,1)[1], 
     # just the environmental raster point value at a location
 class Bioclim_Rasters_Point(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, threshold):
+    def __init__(self, base_dir, organism, region, normalize, observation, threshold, topk):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
         self.channels = None
         self.normalize = normalize
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
@@ -682,14 +685,14 @@ class Bioclim_Rasters_Point(Dataset):
     
     # just the environmental rasters as an image
 class Bioclim_Rasters_Image(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, threshold, pix_res=256):
+    def __init__(self, base_dir, organism, region, normalize, observation, threshold, topk, pix_res=256):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
         self.normalize = normalize
         self.pix_res = pix_res
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
@@ -749,7 +752,8 @@ class Bioclim_Rasters_Image(Dataset):
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters)    
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold):
+    
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold, topk):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -757,7 +761,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         self.channels = None
         self.normalize = normalize
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               
@@ -835,7 +839,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, all_imgs)
 
 class HighRes_Satellite_Rasters_Sheet(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold):
+    def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold, topk):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -843,7 +847,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         self.normalize = normalize
         self.altitude = altitude
         self.observation = observation
-        obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
+        obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
         obs.fillna('nan', inplace=True)               

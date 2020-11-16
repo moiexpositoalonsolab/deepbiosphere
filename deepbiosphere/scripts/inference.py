@@ -1,18 +1,144 @@
 import deepbiosphere.scripts.GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_CNN as nets
+import glob
 import torch
 import torch.functional as F
 from deepbiosphere.scripts.GEOCLEF_Config import paths, Run_Params
 from deepbiosphere.scripts.GEOCLEF_Run import  setup_dataset, setup_model, setup_loss
-import deepbiosphere.scripts.GEOCLEF_Dataset as dataset
+import deepbiosphere.scripts.GEOCLEF_Run as run
+import deepbiosphere.scripts.GEOCLEF_Dataset as Dataset
+#import deepbiosphere.scripts.as inference
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
 import pickle
 
+
+
+def pandas_inference(base_dir, config_name, test=True, device='cpu'):
+    print(config_name)
+    params = Run_Params(cfg_path=config_name, base_dir=base_dir)
+    if config_name == 'joint_multiple_plant_cali_FlatNet_AsymmetricLossOptimized_satellite_only_top10_satonly_lowlr.json':
+        state = params.get_recent_model(epoch=8)
+        des = params.get_most_recent_des(epoch=8)
+    else:
+        state = params.get_recent_model()
+        des = params.get_most_recent_des()
+    
+    if 'top10' in config_name:
+        topk = 10
+    else:
+        topk = -1
+#     except AttributeError: topk = -1    
+    
+#     print("topk: ", topk)
+#     print(vars(params))
+    dataset = run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, topk)
+    train_samp, test_samp, idxs = run.better_split_train_test(dataset, .1)            
+    train_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, train_samp, params.params.model, None)
+    test_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, test_samp, params.params.model, None)    
+    model = run.setup_model(params.params.model, dataset)
+    model.load_state_dict(state['model_state_dict'])
+    model = model.to(device)    
+    results = Dataset.get_gbif_observations(base_dir, params.params.organism, params.params.region, params.params.observation, params.params.threshold, topk)
+    name = None
+    if test:
+        print('inferring on test set')
+        sampler = test_loader.sampler
+        dataset = test_loader.dataset        
+        name = 'test'
+    else:
+        print('inferring on train set')        
+        sampler = train_loader.sampler
+        dataset = train_loader.dataset        
+        name = 'train'
+    results = make_new_cols('fam', results)
+    results = make_new_cols('gen', results)
+    results = make_new_cols('spc', results)
+
+    tick = time.time()
+    for i, idx in enumerate(sampler):
+        (specs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+        weight = dataset.spec_freqs[specs_label]
+        # unseen data performance
+        # see how slow it is, if very slow can add batching
+        batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
+        # save precision, recall, accuracy, plus raw network outputs, yhat, yhatf for each observation to the results pd dataframe
+        id_ = dataset.obs[idx, Dataset.id_idx]
+        if params.params.model == 'MLP_Family':
+            (fams) = model(batch.float())
+            all_fams = torch.tensor(all_fams, device=device)
+            results = run_inf_on_taxon(results, 'fam', idx, all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device)
+        elif params.params.model == 'MLP_Family_Genus':
+            (fams, gens) = model(batch.float()) 
+            all_gens = torch.tensor(all_gens, device=device)
+            all_fams = torch.tensor(all_fams, device=device)        
+            results = run_inf_on_taxon(results, 'fam', idx, all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device)
+            results = run_inf_on_taxon(results, 'gen', idx, all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device)
+        elif params.params.model == 'SpecOnly':
+            (specs) = model(batch.float()) 
+            all_specs = torch.tensor(all_specs, device=device)        
+            results = run_inf_on_taxon(results, 'spc', idx, all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device)
+        else:
+
+            (specs, gens, fams) = model(batch.float()) 
+            all_specs = torch.tensor(all_specs, device=device)
+            all_gens = torch.tensor(all_gens, device=device)
+            all_fams = torch.tensor(all_fams, device=device)        
+            results = run_inf_on_taxon(results, 'fam', idx, all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device)
+            results = run_inf_on_taxon(results, 'gen', idx, all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device)
+            results = run_inf_on_taxon(results, 'spc', idx, all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device)
+    tock = time.time()
+    print("took ", ((tock-tick)/60), " minutes for device ", device)
+    filename = config_name.split('.json')[0] + name
+    # make sure it's a unique file name    
+    other_versions = glob.glob(base_dir + '' + filename + '.csv')
+    if len(other_versions) > 0:
+        filename = filename + (len(other_versions) + 1)
+    filename = base_dir + 'inference/' + filename + '.csv'
+    results.to_csv(filename)
+    
+# prep the dataset for working with this data
+        # save precision, recall, accuracy, plus raw network outputs, yhat, yhatf for each observation to the results pd dataframe
+    # recall, top1_rec.tolist(), top1_rec_weight, intersection.tolist()
+def make_new_cols(taxon, results):
+    results["{}_precision_avg".format(taxon)] = None
+    results["{}_precision_top1".format(taxon)] = None
+    results["{}_precision_top1weight".format(taxon)] = None
+
+    results["{}_recall_avg".format(taxon)] = None
+    results["{}_recall_top1".format(taxon)] = None
+    results["{}_recall_top1weight".format(taxon)] = None
+
+    results["{}_accuracy".format(taxon)] = None
+    results["{}_intersection".format(taxon)] = None
+    results["{}_union".format(taxon)] = None
+
+    results["{}_outputs".format(taxon)] = None
+    results["{}_yhat".format(taxon)] = None
+    results["{}_ytrue".format(taxon)] = None
+    return results
+
+
+def run_inf_on_taxon(results, taxon, idx, labels, guess, toplabel, weight, device):
+    results.at[idx, "{}_precision_avg".format(taxon)] = precision_per_example(labels, guess, toplabel, weight, device)[0]
+    results.at[idx, "{}_precision_top1".format(taxon)] = precision_per_example(labels, guess, toplabel, weight, device)[1]
+    results.at[idx, "{}_precision_top1weight".format(taxon)] = precision_per_example(labels, guess, toplabel, weight, device)[2]
+    results.at[idx, "{}_recall_avg".format(taxon)] = recall_per_example(labels, guess, toplabel, weight, device)[0]
+    results.at[idx, "{}_recall_top1".format(taxon)] = recall_per_example(labels, guess, toplabel, weight, device)[1]
+    results.at[idx, "{}_recall_top1weight".format(taxon)] = recall_per_example(labels, guess, toplabel, weight, device)[2]
+    results.at[idx, "{}_accuracy".format(taxon)] = accuracy_per_example(labels, guess, device)[0]
+    results.at[idx, "{}_intersection".format(taxon)] = accuracy_per_example(labels, guess, device)[1]
+    results.at[idx, "{}_union".format(taxon)] = accuracy_per_example(labels, guess, device)[2]
+    results.at[idx, "{}_outputs".format(taxon)] = guess.tolist()
+    results.at[idx, "{}_yhat".format(taxon)] = get_fnp_vector(guess, labels)[1]
+    results.at[idx, "{}_ytrue".format(taxon)] = get_fnp_vector(guess, labels)[0]
+    return results
+
+
 # not batched version!!
-# t1 should be model output, t2 should be label for batch dims to work
+# t1 should model output, t2 should be label for batch dims to work
 # https://stackoverflow.com/questions/55110047/finding-non-intersection-of-two-pytorch-tensors
 def torch_intersection(t1, t2, device):
     
@@ -24,11 +150,44 @@ def torch_intersection(t1, t2, device):
     intersection = t2[indices]  
     return intersection
 
+def get_fnp_vector(guess, lab):
+    guess = torch.sigmoid(guess)
+    yhat_size = (guess > .5).sum()
+    pred, idxs = torch.topk(guess, yhat_size)
+    # make sure when return to take off gpu for speed
+    # dict ops are faster on cpu 
+    yhat = torch.zeros_like(guess, dtype=torch.uint8, device='cpu')
+    y = torch.zeros_like(guess, dtype=torch.uint8, device='cpu')
+    yhat[:,idxs] +=1
+    y[:,lab] += 1
+    return y.tolist(), yhat.tolist()
 
 
+def init_perlabel_dict(inv_dict):
+    return {
+    id_ : [{
+        'tp' : 0,
+        'fp' : 0,
+        'tn' : 0,
+        'fn' : 0
+    },0]
+    for id_ in inv_dict.values()}
+
+def update_lab_dict(y, yhat, label_dict, inv_dict):
+    
+    for i, (maybe, corr) in enumerate(zip(yhat[0], y[0])):
+        if maybe and corr:
+            label_dict[inv_dict[i]][0]['tp'] += 1
+        if maybe and not corr:
+            label_dict[inv_dict[i]][0]['fp'] += 1
+        if not maybe and not corr:
+            label_dict[inv_dict[i]][0]['tn'] += 1   
+        if not maybe and corr:
+            label_dict[inv_dict[i]][0]['fn'] += 1       
+    return label_dict
 
 # so sigmoiding doesn't really change the output, getting rid of it
-def recall_per_example_all(lab, guess, actual, weight, device='cpu'):
+def recall_per_example(lab, guess, actual, weight, device='cpu'):
 
     maxk = len(lab)
     pred, idxs = torch.topk(guess, maxk)
@@ -36,73 +195,20 @@ def recall_per_example_all(lab, guess, actual, weight, device='cpu'):
     recall = len(intersection)/maxk
     top1_rec = (intersection == actual).sum()
     top1_rec_weight = float(top1_rec)/float(weight)
-    return recall, top1_rec, top1_rec_weight, intersection
+    return recall, top1_rec.tolist(), top1_rec_weight, intersection.tolist()
 
 
 # so sigmoiding doesn't really change the output, getting rid of it
-def accuracy_per_example(lab, guess, actual, weight, device='cpu'):
+def accuracy_per_example(lab, guess, device='cpu'):
     
-    y_size = len(lab)
-    pred, idxs = torch.topk(guess, maxk)
+    guess = torch.sigmoid(guess)
+    yhat_size = (guess > .5).sum()
+    pred, idxs = torch.topk(guess, yhat_size)
+    
     intersection = torch_intersection(idxs, lab, device)
-    recall = len(intersection)/maxk
-    top1_rec = (intersection == actual).sum()
-    top1_rec_weight = float(top1_rec)/float(weight)
-    torch.unique(torch.cat([???[0], lab]))
-    return recall, top1_rec, top1_rec_weight, intersection
+    union = torch.unique(torch.cat([idxs[0], lab]))
+    return float(len(intersection))/len(union), intersection.tolist(), union.tolist()
 
-
-def recall_per_example(lab, guess, actual):
-    # recall
-    maxk = len(lab)
-    pred, idxs = torch.topk(guess, maxk)
-
-    eq = len(list(set(idxs.tolist()[0]) & set(lab)))
-    recall = eq / maxk
-    top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
-    return recall, top1_recall
-
-
-def recall_per_example_sigmoid(lab, guess, actual, sigmoid):
-    # recall
-    maxk = len(lab)
-    guess = sigmoid(guess)
-    pred, idxs = torch.topk(guess, maxk)
-
-    eq = len(list(set(idxs.tolist()[0]) & set(lab)))
-    recall = eq / maxk    
-    top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
-    return recall, top1_recall
-
-def recall_per_example_weighted(lab, guess, actual, weight):
-    # recall
-    maxk = len(lab)
-    pred, idxs = torch.topk(guess, maxk)
-
-    eq = len(list(set(idxs.tolist()[0]) & set(lab)))
-    recall = eq / maxk
-    top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
-    top1_recall = top1_recall / weight    
-    recall = recall / weight
-    return recall, top1_recall
-
-
-def recall_per_example_classes(lab, guess, actual):
-    """ calculates recall per example. Returns multi-label recall + top 1 recall + all correctly predicted classes"""
-    # recall
-    maxk = len(lab)
-    
-    pred, idxs = torch.topk(guess, maxk)
-    corr_id = list(set(idxs.tolist()[0]) & set(lab)) 
-    eq = len(corr_id)
-    recall = eq / maxk
-    top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
-    return recall, top1_recall, corr_id
-
-#TODO: use a threshold to determine which values to cut off the prediction at??
-# this thresholding is terrible, need to fix....
-# very stochastic depending on number of species in the image
-# sum this across all examples and divide by num samples
 # NEW threshold is .5 and we will pass the values through sigmoid to convert the distro
 # to a proability for each class
 def precision_per_example(lab, guess, actual, weight, device='cpu', thres=.5):
@@ -114,140 +220,300 @@ def precision_per_example(lab, guess, actual, weight, device='cpu', thres=.5):
     prec = float(len(overlap))/ float(yhat_size) if yhat_size > 0 else 0.0
     top1_prec = (overlap == actual).sum()
     top1_prec_weight = float(top1_prec)/float(weight)    
-    return prec, top1_prec, top1_prec_weight, overlap
+    return prec, top1_prec.tolist(), top1_prec_weight, overlap.tolist()
 
-def eval_model(config_name, base_dir, toy_dataset, epoch=None):
-    params = Run_Params(cfg_path=config_name, base_dir=base_dir)
+# note the metrics for this species
+# For each label calc the summation of true positives (tp ), true negatives (tnj), false positives (fp ), and false negatives
+# true positives: classes in intersection
+# false positives: classes in yhat_topk that are not in all_specs
+# false negatives: classes in all_specs that are not in yhat_topk
+# true negatives: classes not in yhat_topk that are not in all_specs
+# 
+#    yhat         y
+#    1            0 FP
+#    0            0 TN
+#    0            1 FN
+#    1            1 TP
+# So I need the two X species long vectors of binary classification
+# loop through those vectors, call the dict to convert to species string
+# name,then add to which of the two based on value
+# need a method that you call with specs, all_specs to convert to these two vectors
+# then loop through the vector and do ^
+# turn this into a method where I pass the dict in
+# for the time being, don't wory about batching, will cross that bridge if too slow
+def eval_model_new(config_name, base_dir, device='cpu', test=True, outputs='all'):
+    print('setting up parameters')
+    params = Run_Params(cfg_path=config_name, base_dir=paths.AZURE_DIR)
     state = params.get_recent_model()
-#     state = torch.load(model_path, map_location="cpu")
-    # setup_train_dataset(observation, base_dir, organism, region, normalize, altitude, dataset)
-    dataset = setup_train_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset)
-    model = setup_model(params.params.model, dataset)
+    dataset = run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold)
+    train_samp, test_samp, idxs = run.better_split_train_test(dataset, .1)            
+    train_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, train_samp, params.params.model, None)
+    test_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, test_samp, params.params.model, None)    
+    model = run.setup_model(params.params.model, dataset)
     model.load_state_dict(state['model_state_dict'])
-    # model = model.to(device)
-    train, test = params.get_split()
-    if toy_dataset:
-        test = test[:1000]
-    # train = splits['train']
-    # test = splits['test']
-    # unseen data performance
-    # see how slow it is, if very slow can add batching
-    # device = torch.device("cuda:0")
-    #tot_prec_spc = []
-    #tot_prec_gen = []
-    #tot_prec_fam = []
-    tracker = {sp : [0,0] for sp in dataset.spec_dict.keys()}
-    tot_rec_spc =  []
-    tot_rec_gen =  []
-    tot_rec_fam =  []
-
-    tot_rec1_spc =  []
-    tot_rec1_gen =  []
-    tot_rec1_fam =  []
-
+    model = model.to(device)    
+    des = params.get_most_recent_des()
+    results = get_gbif_observations(base_dir, params.params.organism, params.params.region, params.params.observation, params.params.threshold, params.params.topk)
+    # TODO: does not handle models with different style outputs ell
+    inv_spec = des['inv_spec']
+    inv_gen = {v: k for k, v in des['gen_dict'].items()}
+    inv_fam = {v: k for k, v in des['fam_dict'].items()}
+    name = None
+    if test:
+        print('inferring on test set')
+        sampler = test_loader.sampler
+        dataset = test_loader.dataset        
+        name = 'test'
+    else:
+        print('inferring on train set')        
+        sampler = train_loader.sampler
+        dataset = train_loader.dataset        
+        name = 'train'
     tick = time.time()
-    for i in test:
-        ret = dataset.infer_item(i)
-        (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, batch) = ret
-        batch = torch.tensor(batch).unsqueeze(axis=0)#.to(device)
-        (specs, gens, fams) = model(batch.float()) 
-        # put accuracy checks here!
-        #prec_spc = precision_per_example(all_spec, specs, thres=.1)
-       # prec_gen =precision_per_example(all_gen, gens, thres=.1)
-       # prec_fam =precision_per_example(all_fam, fams, thres=.1)
-        rec_spc = utils.recall_per_example_classes(all_spec, specs, specs_label)        
-#         rec_spc = recall_per_example(all_spec, specs, specs_label)
+    # get unique species from dataset
+    # one entry in per_spec for each species, sub-dict is one
+    # entry per prec, rec, acc
+    for i, idx in enumerate(sampler):
+        (specs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+        weight = dataset.spec_freqs[specs_label]
+        # unseen data performance
+        # see how slow it is, if very slow can add batching
+        all_specs = torch.tensor(all_specs, device=device)
+        all_gens = torch.tensor(all_gens, device=device)
+        all_fams = torch.tensor(all_fams, device=device)
+        batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
+        # save precision, recall, accuracy, plus raw network outputs, yhat, yhatf for each observation to the results pd dataframe
+        id_ = dataset.obs[idx, dataset.id_idx]
+        if params.params.model == 'MLP_Family':
+            (fams) = model(batch.float()) 
+            # df.loc[df['column_name'] == some_value]
+            results.loc[df['id'] == id_]['fam_precision'] = precision_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device)
+            
+            
+#             prec['family'].append(precision_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            rec['family'].append(recall_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            acc['family'].append(accuracy_per_example(all_fams, fams, device))    
+            yf, yhatf = get_fnp_vector(fams, all_fams)
+            per_fam = update_lab_dict(yf, yhatf, per_fam, inv_fam)    
+            per_fam[inv_fam[fams_label]][1] += 1  
+        elif params.params.model == 'MLP_Family_Genus':
+            (fams, gens) = model(batch.float()) 
+            prec['genus'].append(precision_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            rec['genus'].append(recall_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            acc['genus'].append(accuracy_per_example(all_gens, gens, device))
 
-        rec_gen = recall_per_example(all_gen, gens, gens_label)
-        rec_fam = recall_per_example(all_fam, fams, fams_label)
-        #tot_prec_spc.append(prec_spc) 
-        #tot_prec_gen.append(prec_gen) 
-        #tot_prec_fam.append(prec_fam) 
-        # note if prediction correct for given species
-        sp = dataset.inv_spec[specs_label]
-        tracker[sp][0] += rec_spc[1]
-        # note given species seen
-        tracker[sp][1] += 1
-        tot_rec_spc.append(rec_spc[0])
-        tot_rec_gen.append(rec_gen[0])
-        tot_rec_fam.append(rec_fam[0])
+            prec['family'].append(precision_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            rec['family'].append(recall_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            acc['family'].append(accuracy_per_example(all_fams, fams, device))    
+            # note number of times this species was seen total
+            yg, yhatg = get_fnp_vector(gens, all_gens)
+            per_gen = update_lab_dict(yg, yhatg, per_gen, inv_gen)
+            per_gen[inv_gen[gens_label]][1] += 1    
+            yf, yhatf = get_fnp_vector(fams, all_fams)
+            per_fam = update_lab_dict(yf, yhatf, per_fam, inv_fam)    
+            per_fam[inv_fam[fams_label]][1] += 1  
+        elif params.params.model == 'SpecOnly':
+            (specs) = model(batch.float()) 
+            prec['species'].append(precision_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            rec['species'].append(recall_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            acc['species'].append(accuracy_per_example(all_specs, specs, device))
+            ys, yhats = get_fnp_vector(specs, all_specs)
+            per_spec = update_lab_dict(ys, yhats, per_spec, inv_spec)
+            # note number of times this species was seen total
+            per_spec[inv_spec[specs_label]][1] += 1
+        else:
+            (specs, gens, fams) = model(batch.float()) 
+            prec['species'].append(precision_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            rec['species'].append(recall_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            acc['species'].append(accuracy_per_example(all_specs, specs, device))
 
-        tot_rec1_spc.append(rec_spc[1]) 
-        tot_rec1_gen.append(rec_gen[1]) 
-        tot_rec1_fam.append(rec_fam[1]) 
+            prec['genus'].append(precision_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            rec['genus'].append(recall_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            acc['genus'].append(accuracy_per_example(all_gens, gens, device))
 
+            prec['family'].append(precision_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            rec['family'].append(recall_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            acc['family'].append(accuracy_per_example(all_fams, fams, device))    
 
+            ys, yhats = get_fnp_vector(specs, all_specs)
+            per_spec = update_lab_dict(ys, yhats, per_spec, inv_spec)
+            # note number of times this species was seen total
+            per_spec[inv_spec[specs_label]][1] += 1
+            yg, yhatg = get_fnp_vector(gens, all_gens)
+            per_gen = update_lab_dict(yg, yhatg, per_gen, inv_gen)
+            per_gen[inv_gen[gens_label]][1] += 1    
+            yf, yhatf = get_fnp_vector(fams, all_fams)
+            per_fam = update_lab_dict(yf, yhatf, per_fam, inv_fam)    
+            per_fam[inv_fam[fams_label]][1] += 1    
     tock = time.time()
-    diff = tock - tick
-    md = diff / 60
-    print("time to run is {} and {} mins".format(diff, md))
-    #print(sum(tot_prec_spc)/len(tot_prec_spc), sum(tot_prec_gen)/len(tot_prec_gen), sum(tot_prec_fam)/len(tot_prec_fam))
-    print(sum(tot_rec_spc)/len(tot_rec_spc), sum(tot_rec_gen)/len(tot_rec_gen), sum(tot_rec_fam)/len(tot_rec_fam))
-    print(sum(tot_rec1_spc)/len(tot_rec1_spc), sum(tot_rec1_gen)/len(tot_rec1_gen), sum(tot_rec1_fam)/len(tot_rec1_fam))
-    filer = config_name.split('/')[-1].split('.json')[0]
-    e = '' if epoch is None else str(epoch)
-    filer = base_dir + 'inference/' + filer + e +'.pkl'
-    print(filer)
+    print("took ", ((tock-tick)/60), " minutes for device ", device)
+    
+    
+    # save to disk
+    filename = config_name.split('.json')[0] + name
+    # make sure it's a unique file name    
+    other_versions = glob.glob(base_dir + '' + filename + '.pkl')
+    if len(other_versions) > 0:
+        filename = filename + (len(other_versions) + 1)
+    filename = base_dir + '' + filename + '.pkl'
+    print('saving to ', filename)
     tosave = {
-     #   'tot_prec_spc' : tot_prec_spc,
-     #   'tot_prec_gen' : tot_prec_gen,
-     #   'tot_prec_fam' : tot_prec_fam,
-        'tot_rec_spc' : tot_rec_spc,
-        'tot_rec_gen' : tot_rec_gen,
-        'tot_rec_fam' : tot_rec_fam,
-        'tracker': tracker,
-        'tot_rec1_spc' : tot_rec1_spc,
-        'tot_rec1_gen' : tot_rec1_gen,
-        'tot_rec1_fam' : tot_rec1_fam,
+            'per_spec' : per_spec,
+            'per_gen' :  per_gen,
+            'per_fam' :  per_fam,
+            'prec' :  prec,
+            'rec' :  rec,
+            'acc' :  acc
     }
-    with open(filer, 'wb') as f:
+    with open(filename, 'wb') as f:
         pickle.dump(tosave, f,)
-#     return tot_prec_spc, tot_prec_gen, tot_prec_fam, tot_rec_spc, tot_rec_gen, tot_rec_fam, tot_rec1_spc, tot_rec1_gen, tot_rec1_fam, 
 
-# config_names = [
-#     # joint single
-#     #flatnet + skipnet + mlp
 
-#                  'joint_multiple_plant_cali_FlatNet_all_satellite_only_joint_mul_flatimg.json'
-#                 , 'joint_multiple_plant_cali_FlatNet_all_rasters_image_joint_mul_flatras.json' # running    
-#                 , 'joint_multiple_plant_cali_SkipFullFamNet_all_satellite_rasters_sheet_joint_multiple_goodras.json' # running           
-#                 , 'joint_multiple_plant_cali_MLP_Family_Genus_fam_gen_rasters_point_joint_mul_mlp_famgen.json'
-#                 , 'joint_multiple_plant_cali_MLP_Family_Genus_Species_all_rasters_point_joint_mul_mlp_famgenspec.json'
-#                 , 'joint_multiple_plant_cali_MLP_Family_just_fam_rasters_point_joint_mul_mlp_fam.json'
+
+
+
+
+# note the metrics for this species
+# For each label calc the summation of true positives (tp ), true negatives (tnj), false positives (fp ), and false negatives
+# true positives: classes in intersection
+# false positives: classes in yhat_topk that are not in all_specs
+# false negatives: classes in all_specs that are not in yhat_topk
+# true negatives: classes not in yhat_topk that are not in all_specs
+# 
+#    yhat         y
+#    1            0 FP
+#    0            0 TN
+#    0            1 FN
+#    1            1 TP
+# So I need the two X species long vectors of binary classification
+# loop through those vectors, call the dict to convert to species string
+# name,then add to which of the two based on value
+# need a method that you call with specs, all_specs to convert to these two vectors
+# then loop through the vector and do ^
+# turn this into a method where I pass the dict in
+# for the time being, don't wory about batching, will cross that bridge if too slow
+def eval_model(config_name, base_dir, device='cpu', test=True, outputs='all'):
+    print('setting up parameters')
+    params = Run_Params(cfg_path=config_name, base_dir=paths.AZURE_DIR)
+    state = params.get_recent_model()
+    dataset = run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold)
+    train_samp, test_samp, idxs = run.better_split_train_test(dataset, .1)            
+    train_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, train_samp, params.params.model, None)
+    test_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, test_samp, params.params.model, None)    
+    model = run.setup_model(params.params.model, dataset)
+    model.load_state_dict(state['model_state_dict'])
+    model = model.to(device)    
+    des = params.get_most_recent_des()
+    # TODO: does not handle models with different style outputs ell
+    inv_spec = des['inv_spec']
+    inv_gen = {v: k for k, v in des['gen_dict'].items()}
+    inv_fam = {v: k for k, v in des['fam_dict'].items()}
+    name = None
+    if test:
+        print('inferring on test set')
+        sampler = test_loader.sampler
+        dataset = test_loader.dataset        
+        name = 'test'
+    else:
+        print('inferring on train set')        
+        sampler = train_loader.sampler
+        dataset = train_loader.dataset        
+        name = 'train'
+    tick = time.time()
+    # get unique species from dataset
+    # one entry in per_spec for each species, sub-dict is one
+    # entry per prec, rec, acc
+    per_spec = init_perlabel_dict(inv_spec)
+    per_gen = init_perlabel_dict(inv_gen)
+    per_fam = init_perlabel_dict(inv_fam)
+    prec = {'species' : [], 'genus': [], 'family' : []}
+    rec = {'species' : [], 'genus': [], 'family' : []}
+    acc = {'species' : [], 'genus': [], 'family' : []}
+    for i, idx in enumerate(sampler):
+        (specs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+        weight = dataset.spec_freqs[specs_label]
+        # unseen data performance
+        # see how slow it is, if very slow can add batching
+        all_specs = torch.tensor(all_specs, device=device)
+        all_gens = torch.tensor(all_gens, device=device)
+        all_fams = torch.tensor(all_fams, device=device)
+        batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
+        if params.params.model == 'MLP_Family':
+            (fams) = model(batch.float()) 
+            prec['family'].append(precision_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            rec['family'].append(recall_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            acc['family'].append(accuracy_per_example(all_fams, fams, device))    
+            yf, yhatf = get_fnp_vector(fams, all_fams)
+            per_fam = update_lab_dict(yf, yhatf, per_fam, inv_fam)    
+            per_fam[inv_fam[fams_label]][1] += 1  
+        elif params.params.model == 'MLP_Family_Genus':
+            (fams, gens) = model(batch.float()) 
+            prec['genus'].append(precision_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            rec['genus'].append(recall_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            acc['genus'].append(accuracy_per_example(all_gens, gens, device))
+
+            prec['family'].append(precision_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            rec['family'].append(recall_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            acc['family'].append(accuracy_per_example(all_fams, fams, device))    
+            # note number of times this species was seen total
+            yg, yhatg = get_fnp_vector(gens, all_gens)
+            per_gen = update_lab_dict(yg, yhatg, per_gen, inv_gen)
+            per_gen[inv_gen[gens_label]][1] += 1    
+            yf, yhatf = get_fnp_vector(fams, all_fams)
+            per_fam = update_lab_dict(yf, yhatf, per_fam, inv_fam)    
+            per_fam[inv_fam[fams_label]][1] += 1  
+        elif params.params.model == 'SpecOnly':
+            (specs) = model(batch.float()) 
+            prec['species'].append(precision_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            rec['species'].append(recall_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            acc['species'].append(accuracy_per_example(all_specs, specs, device))
+            ys, yhats = get_fnp_vector(specs, all_specs)
+            per_spec = update_lab_dict(ys, yhats, per_spec, inv_spec)
+            # note number of times this species was seen total
+            per_spec[inv_spec[specs_label]][1] += 1
+        else:
+            (specs, gens, fams) = model(batch.float()) 
+            prec['species'].append(precision_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            rec['species'].append(recall_per_example(all_specs, specs, specs_label, dataset.spec_freqs[specs_label], device))
+            acc['species'].append(accuracy_per_example(all_specs, specs, device))
+
+            prec['genus'].append(precision_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            rec['genus'].append(recall_per_example(all_gens, gens, gens_label, dataset.gen_freqs[gens_label], device))
+            acc['genus'].append(accuracy_per_example(all_gens, gens, device))
+
+            prec['family'].append(precision_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            rec['family'].append(recall_per_example(all_fams, fams, fams_label, dataset.fam_freqs[fams_label], device))
+            acc['family'].append(accuracy_per_example(all_fams, fams, device))    
+
+            ys, yhats = get_fnp_vector(specs, all_specs)
+            per_spec = update_lab_dict(ys, yhats, per_spec, inv_spec)
+            # note number of times this species was seen total
+            per_spec[inv_spec[specs_label]][1] += 1
+            yg, yhatg = get_fnp_vector(gens, all_gens)
+            per_gen = update_lab_dict(yg, yhatg, per_gen, inv_gen)
+            per_gen[inv_gen[gens_label]][1] += 1    
+            yf, yhatf = get_fnp_vector(fams, all_fams)
+            per_fam = update_lab_dict(yf, yhatf, per_fam, inv_fam)    
+            per_fam[inv_fam[fams_label]][1] += 1    
+    tock = time.time()
+    print("took ", ((tock-tick)/60), " minutes for device ", device)
     
-# #         , 'joint_single_plant_cali_FlatNet_all_rasters_image_joint_sing_flat_ras.json'
-# #                , 'joint_single_plant_cali_FlatNet_all_satellite_only_joint_sing_flat_img.json'
-
     
-# #                 , 'joint_single_plant_cali_SkipFullFamNet_all_satellite_only_joint_single_img.json'    
-    
-# #                , 'joint_single_plant_cali_MLP_Family_Genus_fam_gen_rasters_point_joint_sing_mlp_famgen.json'
-# #                , 'joint_single_plant_cali_MLP_Family_Genus_Species_all_rasters_point_joint_sing_mlp_famgenspec.json'
-# #                , 'joint_single_plant_cali_MLP_Family_just_fam_rasters_point_joint_sing_mlp_fam.json'    
-
-# ]
-
-# tomorrow_configs = [
-#                 'joint_multiple_plant_cali_SkipFullFamNet_all_satellite_rasters_sheet_joint_multiple_goodras.json' # running   
-#                 ,'joint_single_plant_cali_SkipFullFamNet_all_rasters_image_joint_single_ras.json'# running
-#                 , 'joint_multiple_plant_cali_FlatNet_all_rasters_image_joint_mul_flatras.json' # running
-#                 , 'joint_multiple_plant_cali_SkipFullFamNet_all_satellite_only_joint_multiple_goodras.json'
-#                 , 'joint_multiple_plant_cali_SkipFullFamNet_all_satellite_rasters_image_joint_multiple_badras.json'
-#     # queued but may not get to it
-#                , 'joint_single_plant_cali_SkipFullFamNet_all_satellite_rasters_image_joint_single_badras.json'
-#                , 'joint_single_plant_cali_SkipFullFamNet_all_satellite_rasters_sheet_joint_single_goodras.json'    
-#                 # GeoCLEF/nets/joint_multiple/plant/cali/SkipFullFamNet/all/satellite_only    
-#                 # GeoCLEF/nets/joint_multiple/plant/cali/SkipFullFamNet/all/rasters_image 
-#                 # GeoCLEF/nets/joint_multiple/plant/cali/SkipFullFamNet/all/satellite_rasters_image
-# ]
-# grab_old_version = [
-    
-# # GeoCLEF/nets/joint_multiple/plant/cali/SkipFullFamNet/all/satellite_only    
-# # GeoCLEF/nets/joint_multiple/plant/cali/SkipFullFamNet/all/rasters_image 
-# # GeoCLEF/nets/joint_multiple/plant/cali/SkipFullFamNet/all/satellite_rasters_image    
-
-# ]
-
-
-# for config in config_names:
-#     eval_model(config)
+    # save to disk
+    filename = config_name.split('.json')[0] + name
+    # make sure it's a unique file name    
+    other_versions = glob.glob(base_dir + '' + filename + '.pkl')
+    if len(other_versions) > 0:
+        filename = filename + (len(other_versions) + 1)
+    filename = base_dir + '' + filename + '.pkl'
+    print('saving to ', filename)
+    tosave = {
+            'per_spec' : per_spec,
+            'per_gen' :  per_gen,
+            'per_fam' :  per_fam,
+            'prec' :  prec,
+            'rec' :  rec,
+            'acc' :  acc
+    }
+    with open(filename, 'wb') as f:
+        pickle.dump(tosave, f,)
