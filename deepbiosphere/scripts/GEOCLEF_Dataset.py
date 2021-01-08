@@ -20,6 +20,15 @@ from deepbiosphere.GLC.environmental_raster_glc import Raster, PatchExtractor
 import warnings
 warnings.filterwarnings("ignore")
 
+
+def load_dataset_pandas(base_dir, organism, region, observation, threshold):
+    obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
+    obs.fillna('nan', inplace=True)
+    if 'species' not in obs.columns:
+        obs = utils.add_taxon_metadata(base_dir, obs, organism)
+    return obs
+
+
 def xy_2_range_center(pix_res, x, y):
     half = pix_res /2
     xmin, xmax = x-half, x+half
@@ -112,7 +121,7 @@ def get_raster_image_obs(lat_lon, affine, rasters, nan, normalize, pix_res):
     # if the range of the rasters in other dimensions is out of bounds, then it's a dataset error and return
     
     elif xmin < 0 or xmax > rasters.shape[1] or ymax > rasters.shape[2]:
-        print("riperoni out of bounds")
+        print("riperoni, out of bounds")
         print(xmin, xmax, ymin, ymax, rasters.shape)
         exit(1), "{} is outside bounds of env raster image!".format(lat_lon)
     else: 
@@ -383,18 +392,33 @@ def get_inference_labels(observation, obs, idx):
         all_gen = obs[idx,  all_gen_idx]
         all_fam = obs[idx,  all_fam_idx]            
         return specs_label, gens_label, fams_label, all_spec, all_gen, all_fam
-    
+
+def fast_apply(df, func, column, new_column=None):
+    if new_column == None:
+        new_column = column
+    to_apply = df[column].values
+    applied = [func(i) for i in to_apply]
+    df[new_column] = applied
+#     return NotImplementedError
+
+# TODO: apply  is slow, use something faster in pandas
 def reformat_data(joint_obs):
-    if 'all_specs' in joint_obs.columns and not isinstance(joint_obs.all_specs[0], list) or not isinstance(joint_obs.all_specs[0], set):
-        joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
-    if 'all_gens' in joint_obs.columns and not isinstance(joint_obs.all_gens[0], list) or not isinstance(joint_obs.all_specs[0], set):    
-        joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
-    if 'all_fams' in joint_obs.columns and not isinstance(joint_obs.all_fams[0], list) or not isinstance(joint_obs.all_specs[0], set):
-        joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
-    if 'lat_lon' in joint_obs.columns and not isinstance(joint_obs.lat_lon.iloc[0], tuple) or not isinstance(joint_obs.lat_lon.iloc[0], object):        
-        joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
-    if 'extra_ids' in joint_obs.columns and not isinstance(joint_obs.extra_ids, list) or not isinstance(joint_obs.all_specs[0], set):
-        joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
+    if 'all_specs' in joint_obs.columns and (not isinstance(joint_obs.all_specs[0], list) or not isinstance(joint_obs.all_specs[0], set)):
+        fast_apply(joint_obs, parse_string_to_string, 'all_specs')
+        assert(type(joint_obs['all_specs'][0]) == list), 'fast_apply  didnt work'
+#         joint_obs.all_specs = joint_obs.all_specs.apply(lambda x: parse_string_to_string(x))
+    if 'all_gens' in joint_obs.columns and (not isinstance(joint_obs.all_gens[0], list) or not isinstance(joint_obs.all_specs[0], set)):    
+        fast_apply(joint_obs, parse_string_to_string, 'all_gens')
+#         joint_obs.all_gens = joint_obs.all_gens.apply(lambda x: parse_string_to_string(x))
+    if 'all_fams' in joint_obs.columns and (not isinstance(joint_obs.all_fams[0], list) or not isinstance(joint_obs.all_specs[0], set)):
+        fast_apply(joint_obs, parse_string_to_string, 'all_fams')
+#         joint_obs.all_fams = joint_obs.all_fams.apply(lambda x: parse_string_to_string(x))
+    if 'lat_lon' in joint_obs.columns and (not isinstance(joint_obs.lat_lon.iloc[0], tuple) or not isinstance(joint_obs.lat_lon.iloc[0], object)):
+        fast_apply(joint_obs, parse_string_to_tuple, 'lat_lon')
+#         joint_obs.lat_lon = joint_obs.lat_lon.apply(lambda x: parse_string_to_tuple(x))
+    if 'extra_ids' in joint_obs.columns and (not isinstance(joint_obs.extra_ids, list) or not isinstance(joint_obs.all_specs[0], set)):
+        fast_apply(joint_obs, parse_string_to_string, 'extra_ids')
+#         joint_obs.extra_ids = joint_obs.extra_ids.apply(lambda x: parse_string_to_string(x))
     return joint_obs    
     
 def get_gbif_observations(base_dir, organism, region, observation, threshold):
