@@ -78,6 +78,11 @@ arguments = {
     'num_species' : {'type' : int, 'help' : 'for building dataset, if want to cut to top K species, set this option', 'default': -1}
 }
 
+def setup_pretrained_dirs(base_dir):
+    if not os.path.exists("{}nets/pretrained/".format(base_dir)):
+        os.makedirs("{}nets/pretrained/".format(base_dir))
+    return "{}nets/pretrained/".format(base_dir)
+
 def setup_main_dirs(base_dir):
     '''sets up output, nets, and param directories for saving results to'''
     if not os.path.exists("{}configs/".format(base_dir)):
@@ -196,7 +201,7 @@ class Run_Params():
             print("grabbing model at {}".format(epoch))
             for m in sorted_mods:
                 if "_e{}".format(epoch) in m:
-                    return torch.load(most_recent, map_location=device)
+                    return torch.load(m, map_location=device)
         print("no adequate model found!")
         return None
 

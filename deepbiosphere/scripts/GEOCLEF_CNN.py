@@ -216,6 +216,38 @@ class SkipFullFamNet(nn.Module):
         return(spec, gen, fam)
 
     
+# create supermodel from torchvision    
+    
+# TODO: use torchvision to get pretrained VGGNet, ResNet
+# also TODO: get un-trained ResNet
+# problem: have to figure out how to load paramters for pretrained in properly then add s,g,f layers
+
+# reimplement standard VGGNet with Hsu initialization here
+class VGGNet(nn.Module):
+    def __init__(self, species, families, genuses, num_channels):
+        super(FlatNet, self).__init__()
+        self.categories=species
+        self.species = species
+        self.families = families
+        self.genuses = genuses
+        self.num_channels=num_channels
+      
+        # in channels, out channels, kernel size, stride, padding, dilation
+        self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
+        self.conv2 = nn.Conv2d(64, 128, 3,1,1)
+        self.conv3 = nn.Conv2d(128, 256, 3,1,1)
+        self.conv4 = nn.Conv2d(256, 256, 3,1,1)        
+        self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
+        self.pool2 = nn.MaxPool2d(2, 2)
+                               
+        self.pool5 = nn.MaxPool2d(5, 5)
+        self.chokepoint = 256*6*6
+        self.famfc = nn.Linear(self.chokepoint, self.families) 
+        self.genfc = nn.Linear(self.chokepoint, self.genuses)
+        self.specfc = nn.Linear(self.chokepoint, self.species) 
+
+    
+    
 class FlatNet(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
@@ -228,6 +260,8 @@ class FlatNet(nn.Module):
         self.families = families
         self.genuses = genuses
         self.num_channels=num_channels
+      
+        # in channels, out channels, kernel size, stride, padding, dilation
         self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
         self.conv2 = nn.Conv2d(64, 128, 3,1,1)
         self.conv3 = nn.Conv2d(128, 256, 3,1,1)
@@ -241,7 +275,8 @@ class FlatNet(nn.Module):
         self.genfc = nn.Linear(self.chokepoint, self.genuses)
         self.specfc = nn.Linear(self.chokepoint, self.species) 
         
-        
+    # typical conv block is conv relu conv relu maxpool
+    # for resnet: conv, batchnorm, relu, etc.
     def forward(self, x): 
         x = self.pool2(F.relu(self.conv1(x)))
         x = self.pool2(F.relu(self.conv2(x)))
@@ -249,6 +284,7 @@ class FlatNet(nn.Module):
         x = self.pool2(F.relu(self.conv3(x)))
         x = self.pool5(F.relu(self.conv4(x)))
         #x = self.pool5(F.relu(self.conv5(x)))
+        # TODO: see how big final layer of VGGNet is
         x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
         #TODO: relu help or not?
         fam = self.famfc(x)
@@ -480,3 +516,26 @@ class OGNoFamNet(nn.Module):
 #         gen = F.relu(self.genfc(fam))
         spec = self.specfc(gen)
         return(spec, gen)
+
+    
+def get_pretrained_models(base_dir):
+    
+    # this code works with a version of torch that's compatible with python 3.5, 
+    # specifically torch==1.2.0 and tv==0.4.0
+    # the versions that are on calc are torch==1.4.0 and tv==0.5.0
+    # TODO: see if this works on calc too
+
+    # url grabbed from below on 1/8/2021
+    # https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
+    pret_resnet = "https://download.pytorch.org/models/resnet18-5c106cde.pth"
+    # urls grabbed from below on 1/8/2021
+    # https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py
+    pret_vggnet = "https://download.pytorch.org/models/vgg11-bbd30ac9.pth"
+    pret_vggbn = "https://download.pytorch.org/models/vgg11_bn-6002323d.pth"
+    base_dir = config.setup_pretrained_dirs(base_dir)
+    res_dir = base_dir + 'ResNet/'
+    vgg_dir = base_dir + 'VGGNet/'
+    torch.hub.set_dir(base_dir)
+    torch.utils.model_zoo.load_url(pret_resnet, model_dir=res_dir)
+    torch.utils.model_zoo.load_url(pret_vggnet, model_dir=vgg_dir)
+    torch.utils.model_zoo.load_url(pret_vggbn, model_dir=vgg_dir) 
