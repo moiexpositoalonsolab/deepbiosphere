@@ -76,7 +76,7 @@ def VGG_11(pretrained, batch_norm, species, families, genera, arch_type, base_di
     else:
         return vgg.vgg11_bn(species, genera, families, base_dir, arch_type, pretrained)
 
-def VGG_16(pretrained, batch_norm, species, families, genera, arch_type):
+def VGG_16(pretrained, batch_norm, species, families, genera, arch_type, base_dir):
     # convert pretrained to bool
     # convert batch_norm to bool
     # initialize right network with arch_type and num_channels
@@ -202,133 +202,29 @@ class MLP_Family_Genus_Species(nn.Module):
         self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
         self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
         self.mlp_fam = nn.Linear(self.mlp_choke2, self.families)
-        self.mlp_gen = nn.Linear(self.families, self.genera)
-        self.mlpout = nn.Linear(self.genera, self.species)
+        self.mlp_gen = nn.Linear(self.mlp_choke2, self.genera)
+        self.mlpout = nn.Linear(self.mlp_choke2, self.species)
         
     def forward(self, rasters):
         # pass images through CNN
         x = F.relu(self.mlp1(rasters))
         x = F.relu(self.mlp2(x))
         fam = self.mlp_fam(F.relu(x))
-        gen = self.mlp_gen(F.relu(fam))
-        spec = self.mlpout(F.relu(gen))        
+        gen = self.mlp_gen(F.relu(x))
+        spec = self.mlpout(F.relu(x))        
         return spec, gen, fam
 
     
     # -------- Joint Models ------------- #
     
     # TODO: modify this into a jointly trained model
-class MixNet(nn.Module):
-    """
-    Checking - it requires more training time, 1 layer more 
-    """
-    def __init__(self, species, families, genera, num_channels, env_rasters):
-    #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
-        super(MixNet, self).__init__()
-        self.categories=species
-        self.species = species
-        self.families = families
-        self.genera = genera
-        self.num_channels=num_channels
-        self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
-        self.conv2 = nn.Conv2d(64, 128, 3,1,1)
-        self.conv3 = nn.Conv2d(128, 256, 3,1,1)
-        self.conv4 = nn.Conv2d(256, 256, 3,1,1)        
-        self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.pool5 = nn.MaxPool2d(5, 5)
-        self.cnn_choke1 = 256
-        self.cnn_choke2 = 128
-        self.mlp_choke1 = 64
-        self.mlp_choke2 = 128
-        self.bottleneck = self.mlp_choke2 + self.cnn_choke2
-        self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
-        self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
-        self.fc1 = nn.Linear(256 * 6 * 6, self.cnn_choke1)
-        self.fc2 = nn.Linear(self.cnn_choke1, self.cnn_choke2) 
-        self.famfc = nn.Linear(self.bottleneck, self.families) 
-        # does this add the values together or 
-        self.genfc = nn.Linear(self.bottleneck+self.families, self.genera)
-        self.specfc = nn.Linear(self.bottleneck+self.genera + self.families, self.species) 
-        
-        
-    def forward(self, img, rasters):
-        # pass images through CNN
-        x = self.pool2(F.relu(self.conv1(img)))
-        x = self.pool2(F.relu(self.conv2(x)))
-        #x = F.relu(self.conv2(x))
-        x = self.pool2(F.relu(self.conv3(x)))
-        x = F.relu(self.conv4(x))
-        x = self.pool5(x)
-        #x = self.pool5(F.relu(self.conv5(x)))
-        x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        # pass raster data through MLP
-        y = F.relu(self.mlp1(rasters))
-        y = F.relu(self.mlp2(y))
-        combined = torch.cat([x,y],1)
-        fam = F.relu(self.famfc(combined))
-        gen = F.relu(self.genfc(torch.cat([combined, fam] ,1)))
-        spec = self.specfc(torch.cat([combined, gen, fam], 1))
-        return(spec, gen, fam)    
-    
-class MixFullNet(nn.Module):
-    """
-    Checking - it requires more training time, 1 layer more 
-    """
-    
-    def __init__(self, species, families, genera, num_channels, env_rasters):
-    #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
-        super(MixFullNet, self).__init__()
-        self.categories=species
-        self.species = species
-        self.families = families
-        self.genera = genera
-        self.num_channels=num_channels
-        self.conv1 = nn.Conv2d(self.num_channels, 64, 7,1,1) # try a kernel of size 7 like TNN model
-        self.conv2 = nn.Conv2d(64, 128, 3,1,1)
-        self.conv3 = nn.Conv2d(128, 256, 3,1,1)
-        self.conv4 = nn.Conv2d(256, 256, 3,1,1)        
-        self.conv5 = nn.Conv2d(256, 512, 3,1,1)        
-        self.pool2 = nn.MaxPool2d(2, 2)
-        self.pool5 = nn.MaxPool2d(5, 5)
-        
-        self.chokepoint = 256*6*6
 
-
-        self.mlp_choke1 = 48
-        self.mlp_choke2 = 96
-
-        self.bottleneck = self.mlp_choke2 + self.chokepoint
-        self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
-        self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
-        self.famfc = nn.Linear(self.bottleneck, self.families) 
-        # does this add the values together or 
-        self.genfc = nn.Linear(self.bottleneck+self.families, self.genera)
-        self.specfc = nn.Linear(self.bottleneck+self.genera + self.families, self.species) 
-        
-        
-    def forward(self, img, rasters):
-        # pass images through CNN
-        x = self.pool2(F.relu(self.conv1(img)))
-        x = self.pool2(F.relu(self.conv2(x)))
-        #x = F.relu(self.conv2(x))
-        x = self.pool2(F.relu(self.conv3(x)))
-        x = F.relu(self.conv4(x))
-        x = self.pool5(x)
-        #x = self.pool5(F.relu(self.conv5(x)))
-        x = x.view(x.shape[0], x.shape[1]*x.shape[2]*x.shape[3])
-        # pass raster data through MLP
-        y = F.relu(self.mlp1(rasters))
-        y = F.relu(self.mlp2(y))
-        combined = torch.cat([x,y],1)
-        fam = F.relu(self.famfc(combined))
-        gen = F.relu(self.genfc(torch.cat([combined, fam] ,1)))
-        spec = self.specfc(torch.cat([combined, gen, fam], 1))
-        return(spec, gen, fam)    
+def Joint_VGG11_MLP(species, genera, families, base_dir, batch_norm, arch_type, pretrained, env_rasters):
+    return vgg.joint_vgg11(species, genera, families, base_dir, batch_norm, arch_type, env_rasters, pretrained)
     
 
+def Joint_VGG16_MLP(species, genera, families, base_dir, batch_norm, arch_type, pretrained, env_rasters):
+    return vgg.joint_vgg16(species, genera, families, base_dir, batch_norm, arch_type, env_rasters, pretrained)
     
     
     # ------------ Helper Methods ------------- # 

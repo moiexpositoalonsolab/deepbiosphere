@@ -13,34 +13,51 @@ def main(ARGS):
     dset = dataset.Bioclim_Rasters_Point(ARGS.base_dir, 'plant', 'cali', 'min_max', 'joint_multiple')
     # base_dir, organism, region, normalize, observation):
     # obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
-    occs = pd.read_csv('{}occurrences/joint_multiple_obs_cali_plant_train.csv'.format(ARGS.base_dir))
-    most_freq = occs.species.value_counts().keys()[:10]
-    most_freq_ids = [dset.spec_dict[m] for m in most_freq]
+    occs = pd.read_csv('{}occurrences/joint_multiple_obs_cali_plant_train_4.csv'.format(ARGS.base_dir))
+#     most_freq = occs.species.value_counts().keys()[:10]
+#     most_freq_ids = [dset.spec_dict[m] for m in most_freq]
     obs = dset.obs
     rasters = dset.rasters
     affine = dset.affine
-    lenlen=0
-    for i, ob in enumerate(obs):
-        sp_id = ob[1]
-        if sp_id in most_freq_ids:
-            lenlen += 1
-    rebuilt = np.zeros([22, lenlen])
-    # print(rebuilt.shape)
-    tracker = 0
-    for i, ob in enumerate(obs):
-        lat_lon = ob[7]
-        sp_id = ob[1]
-        if sp_id in most_freq_ids:
-            env_rasters = dataset.get_raster_point_obs(lat_lon, dset.affine, dset.rasters, dset.nan, dset.normalize, dset.lat_min, dset.lat_max, dset.lon_min, dset.lon_max)
-            rebuilt[0, tracker] = sp_id
-            ind = 1
-	
-            for ras in env_rasters:
-        #         print(len(env_rasters))
-                rebuilt[ind, tracker] = ras
-                ind+=1
-            tracker += 1
-    dframe = pd.DataFrame(rebuilt.T,index=np.arange(lenlen), columns=['spec_id', 'bio_1', 'bio_2','bio_3','bio_4','bio_5', 'bio_6', 'bio_7','bio_8','bio_9','bio_10', 'bio_11', 'bio_12','bio_13','bio_14','bio_15','bio_16', 'bio_17','bio_18','bio_19','lat', 'lon'])
+    if top10:
+        lenlen=0
+        for i, ob in enumerate(obs):
+            sp_id = ob[1]
+            if sp_id in most_freq_ids:
+                lenlen += 1
+        rebuilt = np.zeros([22, lenlen])
+        # print(rebuilt.shape)
+        tracker = 0
+        for i, ob in enumerate(obs):
+            lat_lon = ob[7]
+            sp_id = ob[1]
+            if sp_id in most_freq_ids:
+                env_rasters = dataset.get_raster_point_obs(lat_lon, dset.affine, dset.rasters, dset.nan, dset.normalize, dset.lat_min, dset.lat_max, dset.lon_min, dset.lon_max)
+                rebuilt[0, tracker] = sp_id
+                ind = 1
+
+                for ras in env_rasters:
+            #         print(len(env_rasters))
+                    rebuilt[ind, tracker] = ras
+                    ind+=1
+                tracker += 1
+        dframe = pd.DataFrame(rebuilt.T,index=np.arange(lenlen), columns=['spec_id', 'bio_1', 'bio_2','bio_3','bio_4','bio_5', 'bio_6', 'bio_7','bio_8','bio_9','bio_10', 'bio_11', 'bio_12','bio_13','bio_14','bio_15','bio_16', 'bio_17','bio_18','bio_19','lat', 'lon'])
+    else: 
+        env = []
+        labs = []
+        for i, stuff in enumerate(train_dataset):
+
+            (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters) = stuff
+            env.append(env_rasters)
+            labs.append([specs_label, gens_label, fams_label, all_spec, all_gen, all_fam])
+        train_samp, test_samp, idxs = better_split_train_test(train_dataset, val_split)        
+        dframe_env = pd.DataFrame(env, index=np.arange(len(labs)), columns=['bio_1', 'bio_2','bio_3','bio_4','bio_5', 'bio_6', 'bio_7','bio_8','bio_9','bio_10', 'bio_11', 'bio_12','bio_13','bio_14','bio_15','bio_16', 'bio_17','bio_18','bio_19','lat', 'lon'])
+        dframe_lab = pd.DataFrame(labs, index=np.arange(len(labs)), columns = ['specs_label', 'gens_label', 'fams_label', 'all_spec', 'all_gen', 'all_fam'])
+        dframe_big = pd.concat([dframe_env, dframe_lab], axis=1)
+        dframe_test = dframe_big[idxs['test']]
+        dframe_train = dframe_big[idxs['train']]
+
+        
 
     # X=data[['sepal length', 'sepal width', 'petal length', 'petal width']]  # Features
     X=dframe.loc[:, dframe.columns != 'spec_id']# dframe[~'spec_id']  # Labels

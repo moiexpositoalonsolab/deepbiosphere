@@ -1,4 +1,5 @@
 import deepbiosphere.scripts.GEOCLEF_Utils as utils
+from deepbiosphere.scripts.GEOCLEF_Utils import torch_intersection, recall_per_example, accuracy_per_example, precision_per_example
 from deepbiosphere.scripts import GEOCLEF_CNN as nets
 import glob
 import torch
@@ -14,7 +15,87 @@ import matplotlib.pyplot as plt
 import time
 import pickle
 
+def get_alpha_diversity(base_dir, config_name, device='cpu'):
+    params = Run_Params(cfg_path=config_name, base_dir=base_dir)
+    state = params.get_recent_model()
+    des = params.get_most_recent_des()
+    
+    if 'top10' in config_name:
+        topk = 10
+    else:
+        topk = -1
+    dataset = run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, topk)
+    train_samp, test_samp, idxs = run.better_split_train_test(dataset, .1)            
+    train_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, train_samp, params.params.model, None)
+    test_loader = run.setup_dataloader(dataset, params.params.dataset, params.params.batch_size, 0, test_samp, params.params.model, None)    
+    model = run.setup_model(params.params.model, dataset)
+    model.load_state_dict(state['model_state_dict'])
+    model = model.to(device)    
+    results = Dataset.get_gbif_observations(base_dir, params.params.organism, params.params.region, params.params.observation, params.params.threshold, topk)
 
+    results["spc_richness"] = None
+    results["gen_richness"] = None
+    results["fam_richness"] = None
+    
+    sampler = train_loader.sampler
+    dataset = train_loader.dataset        
+    tick = time.time()
+    print('start infering')
+    for i, idx in enumerate(sampler):
+        (specs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+        # unseen data performance
+        # see how slow it is, if very slow can add batching
+        batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
+
+        (specs, gens, fams) = model(batch.float()) 
+        all_specs = torch.tensor(all_specs, device=device)
+        all_gens = torch.tensor(all_gens, device=device)
+        all_fams = torch.tensor(all_fams, device=device)
+        
+        _, spec_guess = get_fnp_vector(specs, all_specs)
+#         print(spec_guess)
+#         import pdb; pdb.set_trace()
+        results.at[idx, "spc_richness"] = sum(spec_guess[0])
+        
+        _, gen_guess = get_fnp_vector(gens, all_gens)
+        results.at[idx, "gen_richness"] = sum(gen_guess[0])
+        
+        _, fam_guess = get_fnp_vector(fams, all_fams)
+        results.at[idx, "fam_richness"] = sum(fam_guess[0])
+                                   
+    sampler = test_loader.sampler
+    dataset = test_loader.dataset        
+    for i, idx in enumerate(sampler):
+        (specs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs) = dataset.infer_item(idx)    
+        # unseen data performance
+        # see how slow it is, if very slow can add batching
+        batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
+
+        (specs, gens, fams) = model(batch.float()) 
+        all_specs = torch.tensor(all_specs, device=device)
+        all_gens = torch.tensor(all_gens, device=device)
+        all_fams = torch.tensor(all_fams, device=device)
+        
+        _, spec_guess = get_fnp_vector(specs, all_specs)
+        results.at[idx, "spc_richness"] = sum(spec_guess[0])
+        
+        _, gen_guess = get_fnp_vector(gens, all_gens)
+        results.at[idx, "gen_richness"] = sum(gen_guess[0])
+        
+        _, fam_guess = get_fnp_vector(fams, all_fams)
+        results.at[idx, "fam_richness"] = sum(fam_guess[0])                                   
+    tock = time.time()
+    print("took ", ((tock-tick)/60), " minutes for device ", device)
+    filename = config_name.split('.json')[0] + 'richness'
+    # make sure it's a unique file name    
+    other_versions = glob.glob(base_dir + '' + filename + '.csv')
+    if len(other_versions) > 0:
+        filename = filename + (len(other_versions) + 1)
+    filename = base_dir + 'inference/' + filename + '.csv'
+    results.to_csv(filename)                               
+                                   
+                                   
+                                   
 
 def pandas_inference(base_dir, config_name, test=True, device='cpu'):
     print(config_name)
@@ -137,18 +218,6 @@ def run_inf_on_taxon(results, taxon, idx, labels, guess, toplabel, weight, devic
     return results
 
 
-# not batched version!!
-# t1 should model output, t2 should be label for batch dims to work
-# https://stackoverflow.com/questions/55110047/finding-non-intersection-of-two-pytorch-tensors
-def torch_intersection(t1, t2, device):
-    
-    indices = torch.zeros_like(t2, dtype = torch.uint8, device = device)
-    if len(t2.shape) > 1:
-        raise TypeError; 'will index incorrectly across tensors'
-    for i, elem in zip(np.arange(len(t2)), t2):
-        indices[i] = (t1 == elem).sum()
-    intersection = t2[indices]  
-    return intersection
 
 def get_fnp_vector(guess, lab):
     guess = torch.sigmoid(guess)
@@ -186,41 +255,6 @@ def update_lab_dict(y, yhat, label_dict, inv_dict):
             label_dict[inv_dict[i]][0]['fn'] += 1       
     return label_dict
 
-# so sigmoiding doesn't really change the output, getting rid of it
-def recall_per_example(lab, guess, actual, weight, device='cpu'):
-
-    maxk = len(lab)
-    pred, idxs = torch.topk(guess, maxk)
-    intersection = torch_intersection(idxs, lab, device)
-    recall = len(intersection)/maxk
-    top1_rec = (intersection == actual).sum()
-    top1_rec_weight = float(top1_rec)/float(weight)
-    return recall, top1_rec.tolist(), top1_rec_weight, intersection.tolist()
-
-
-# so sigmoiding doesn't really change the output, getting rid of it
-def accuracy_per_example(lab, guess, device='cpu'):
-    
-    guess = torch.sigmoid(guess)
-    yhat_size = (guess > .5).sum()
-    pred, idxs = torch.topk(guess, yhat_size)
-    
-    intersection = torch_intersection(idxs, lab, device)
-    union = torch.unique(torch.cat([idxs[0], lab]))
-    return float(len(intersection))/len(union), intersection.tolist(), union.tolist()
-
-# NEW threshold is .5 and we will pass the values through sigmoid to convert the distro
-# to a proability for each class
-def precision_per_example(lab, guess, actual, weight, device='cpu', thres=.5):
-    
-    guess = torch.sigmoid(guess)
-    yhat_size = (guess > .5).sum()
-    pred, idxs = torch.topk(guess, yhat_size)
-    overlap = torch_intersection(idxs, lab, device)
-    prec = float(len(overlap))/ float(yhat_size) if yhat_size > 0 else 0.0
-    top1_prec = (overlap == actual).sum()
-    top1_prec_weight = float(top1_prec)/float(weight)    
-    return prec, top1_prec.tolist(), top1_prec_weight, overlap.tolist()
 
 # note the metrics for this species
 # For each label calc the summation of true positives (tp ), true negatives (tnj), false positives (fp ), and false negatives

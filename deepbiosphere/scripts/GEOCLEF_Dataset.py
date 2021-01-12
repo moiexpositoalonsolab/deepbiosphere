@@ -67,6 +67,8 @@ def get_us_bioclim(base_dir):
     ras_paths = glob.glob(rasters)
     return ras_paths
 
+dataset_means = (111.27668932654558, 115.84299163319858, 104.88420063186129, 132.9687599226994)
+
 raster_metadata = {
     'bio_1': {'min_val': -116, 'max_val': 259, 'nan': -2147483647, 'new_nan': -117, 'mu': 101, 'sigma': 58},
     'bio_2': {'min_val': -53, 'max_val': 361, 'nan': -2147483647, 'new_nan': -54, 'mu': 131, 'sigma': 28},
@@ -267,7 +269,8 @@ def freq_from_dict(f_dict):
     return [freq for (sp_id, freq) in sorted(list(f_dict.items()), key=lambda x:x[0])]    
 
 def get_shapes(id_, pth, altitude):
-    tens = utils.image_from_id(id_, pth, altitude)
+    #image_from_id(id_, pth, means, altitude=False, sub_mean=True)
+    tens = utils.image_from_id(id_, pth, dataset_means, altitude=altitude)
     # channels, width, height
     return tens.shape[0], tens.shape[1], tens.shape[2]
 
@@ -503,8 +506,7 @@ class HighRes_Satellite_Images_Only(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
-
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, images)
     
@@ -514,7 +516,7 @@ class HighRes_Satellite_Images_Only(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
 
         specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)
@@ -580,7 +582,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
@@ -593,7 +595,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
@@ -804,7 +806,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_image_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.width)
@@ -819,7 +821,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_image_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.width)
@@ -894,7 +896,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_sheet_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.width, self.height)
@@ -907,7 +909,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_sheet_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.width, self.height)
