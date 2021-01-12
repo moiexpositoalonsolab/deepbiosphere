@@ -290,15 +290,11 @@ def _vgg(arch: str, cfg: str, batch_norm: bool, pretrained: str, base_dir : str,
     # I should be able to deal with model architecture here b/c load_state_dict should keymatch properly
     if pretrained is not 'none':
         kwargs['init_weights'] = False
-    print("IN VGG arch type is ", arch_type)
     if arch_type == 'plain':
-        print('in plain')
         model = VGG(make_layers(cfgs[cfg], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, **kwargs)
     elif arch_type == 'remove_fc':
-        print('in remove_fc')        
         model = VGG_No_FC(make_layers(cfgs[cfg], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, **kwargs)
     else:
-        print('in in feat-ext')                
         model = VGG_Scaled_FC(make_layers(cfgs[cfg], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, **kwargs)
     if pretrained != 'none':
         # going to be lazy and use load_state_dict_from_url, might change in the future

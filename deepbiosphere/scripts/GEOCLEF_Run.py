@@ -1062,7 +1062,6 @@ if __name__ == "__main__":
     args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type', 'num_species', 'batch_norm', 'pretrained', 'arch_type']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
-    print(ARGS)
     print('epoch', ARGS.epoch)
     print('load from config ', ARGS.load_from_config)
     if ARGS.load_from_config is not None:

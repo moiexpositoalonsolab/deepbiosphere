@@ -71,7 +71,6 @@ def VGG_11(pretrained, batch_norm, species, families, genera, arch_type, base_di
     # deal with extra band for pretrained
     # initialize right network with arch_type and num_channels
     # check if feature extraction or finetuning
-    print("IN CNN FILE", pretrained, batch_norm, arch_type)
     if batch_norm:
         return vgg.vgg11(species, genera, families, base_dir, arch_type, pretrained)
     else:
