@@ -98,15 +98,12 @@ def setup_model(model, train_dataset, pretrained, batch_norm, arch_type):
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens
     print("----- model ----")
+    print("model name is ", model)
     if model == 'RandomForest':
         raise NotImplementedError
     elif model == 'SVM':
         raise NotImplementedError
     # some flavor of convnet architecture
-    elif model == 'MixNet':
-        return cnn.MixNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels, env_rasters=train_dataset.num_rasters)
-    elif model == 'MixFullNet':
-        return cnn.MixFullNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels, env_rasters=train_dataset.num_rasters)
     elif model == 'ResNet':
         raise NotImplementedError
     elif model == 'VGG_11':
@@ -114,13 +111,17 @@ def setup_model(model, train_dataset, pretrained, batch_norm, arch_type):
     elif model == 'VGG_16':
         return cnn.VGG_16(pretrained, batch_norm, num_specs, num_fams, num_gens, arch_type, train_dataset.base_dir)
     elif model == 'FlatNet':
-        return cnn.FlatNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)
+        return cnn.FlatNet(species=num_specs, families=num_fams, genera=num_gens, num_channels=train_dataset.channels)
+    elif model == 'Joint_VGG11_MLP':
+        return cnn.Joint_VGG11_MLP(num_specs, num_gens, num_fams, train_dataset.base_dir, batch_norm, arch_type, pretrained, train_dataset.num_rasters)
+    elif model == 'Joint_VGG16_MLP':
+        return cnn.Joint_VGG16_MLP(num_specs, num_gens, num_fams, train_dataset.base_dir, batch_norm, arch_type, pretrained, train_dataset.num_rasters)
     elif model == 'MLP_Family':
         return cnn.MLP_Family(families=num_fams, env_rasters=train_dataset.num_rasters)
     elif model == 'MLP_Family_Genus':
-        return cnn.MLP_Family_Genus(families=num_fams, genuses=num_gens, env_rasters=train_dataset.num_rasters)    
+        return cnn.MLP_Family_Genus(families=num_fams, genera=num_gens, env_rasters=train_dataset.num_rasters)    
     elif model == 'MLP_Family_Genus_Species':
-        return cnn.MLP_Family_Genus_Species(families=num_fams, genuses=num_gens, species=num_specs, env_rasters=train_dataset.num_rasters)    
+        return cnn.MLP_Family_Genus_Species(families=num_fams, genera=num_gens, species=num_specs, env_rasters=train_dataset.num_rasters)
     elif model == 'SpecOnly':
         return cnn.SpecOnly(species=num_specs, num_channels=train_dataset.channels)
     else: 
@@ -356,29 +357,66 @@ def test_single_obs_batch(test_loader, tb_writer, device, net, epoch):
  
     #TODO: fix to work with recall_per_example
 def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
-    with tqdm(total=len(test_loader), unit="batch") as prog:
-        allspec = []
-        allgen = []
-        allfam = []
-        for i, (specs_label, gens_label, fams_label, imgs, env_rasters) in enumerate(test_loader):
-            imgs = imgs.to(device)
-            env_rasters = torch.from_numpy(env_rasters).to(device)
-            (outputs, gens, fams) = net(env_rasters.float(), env_rasters.float()) 
-            specaccs, totspec_accs = utils.num_corr_matches(outputs, specs_lab) # magic no from CELF2020
-            genaccs, totgen_accs = utils.num_corr_matches(gens, gens_label) # magic no from CELF2020                        
-            famaccs, totfam_accs = utils.num_corr_matches(fams, fams_label) # magic no from CELF2020  
-            #TODO: add other accuracy metrics??
-            prog.set_description("mean accuracy across batch: {acc0}".format(acc0=specaccs.mean()))
-            prog.update(1)          
-            if tb_writer is not None:
-                tb_writer.add_scalar("test/avg_spec_accuracy", specaccs.mean(), epoch)
-                tb_writer.add_scalar("test/avg_gen_accuracy", genaccs.mean(), epoch)
-                tb_writer.add_scalar("test/avg_fam_accuracy", famaccs.mean(), epoch)                        
-            allspec.append(totspec_accs)
-            allgen.append(totgen_accs)
-            allfam.append(totfam_accs)
+
+    allspecrec = []
+    allspecprec = []
+    allspecacc = []
+    allspecrectop1 = []
+    allspecprectop1 = []
+    allgenacc = []
+    allfamacc = []
+    
+    allspec = []
+    allgen = []
+    allfam = []
+    
+    sampler = test_loader.sampler
+    dataset = test_loader.dataset
+    with tqdm(total=len(sampler), unit="example") as prog:
+        for i, idx in enumerate(sampler):
+            (specs_label, gens_label, fams_label, all_specs, all_gens, all_fams, loaded_imgs, env_rasters) = dataset.infer_item(idx)  
+            imgs = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
+            env_rasters = torch.from_numpy(np.expand_dims(env_rasters, axis=0)).to(device)            
+            (outputs, gens, fams) = net(imgs.float(), env_rasters.float()) 
+            
+            
+
+            spec_weight = dataset.spec_freqs[specs_label]
+            all_specs = torch.tensor(all_specs, device=device)
+            all_gens = torch.tensor(all_gens, device=device)
+            all_fams = torch.tensor(all_fams, device=device)            
+            specrec, specrectop1, _, _ = utils.recall_per_example(all_specs, outputs, specs_label, spec_weight, device)
+            specprec, specprectop, _, _ = utils.precision_per_example(all_specs, outputs, specs_label, spec_weight, device)
+            specacc, _, _ = utils.accuracy_per_example(all_specs, outputs) 
+            genacc, _, _ = utils.accuracy_per_example(all_gens, gens) 
+            famacc, _, _ = utils.accuracy_per_example(all_fams, fams) 
+            
+            allspecrec.append(specrec)
+            allspecprec.append(specprec)
+            allspecacc.append(specacc)
+            allspecrectop1.append(specrectop1)
+            allspecprectop1.append(specprectop)
+            allgenacc.append(genacc)
+            allfamacc.append(famacc)
+            prog.set_description("mean recall across batch: {acc0}".format(acc0=specrec))
+            prog.update(1)                               
+            allspec.append((specrec, specprec, specacc, specrectop1, specprectop))
+            allfam.append(famacc)
+            allgen.append(genacc)
+        print("species recall {}, precision {}, and accuracy {}".format(mean(allspecrec), mean(allspecprec), mean(allspecacc)))
+        if tb_writer is not None:
+            tb_writer.add_scalar("test/avg_fam_accuracy", mean(allfamacc) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_accuracy", mean(allspecacc) * 100, epoch)            
+            tb_writer.add_scalar("test/avg_gen_accuracy", mean(allgenacc) * 100, epoch) 
+            tb_writer.add_scalar("test/avg_spec_prec_top1", mean(allspecprectop1) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_rec_top1", mean(allspecrectop1) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_recall", mean(allspecrec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_precision", mean(allspecprec) * 100, epoch) 
+
     prog.close()
     return allfam, allgen, allspec
+  
+
                                                        
                                                        
 def test_single_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
@@ -564,15 +602,18 @@ def test_single_obs_rastersonly_famgen(test_loader, tb_writer, device, net, epoc
 
 def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
     
+    allspecrec = []
+    allspecprec = []
+    allspecacc = []
+    allspecrectop1 = []
+    allspecprectop1 = []
+    allgenacc = []
+    allfamacc = []
+    
     allspec = []
     allgen = []
     allfam = []
-    all_grec = []
-    all_frec = []
-    all_srec = []    
-    all_tg = []
-    all_tf = []    
-    all_ts = []
+    
     sampler = test_loader.sampler
     dataset = test_loader.dataset
     with tqdm(total=len(sampler), unit="example") as prog:
@@ -587,32 +628,37 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
 
             batch = torch.from_numpy(np.expand_dims(loaded_imgs, axis=0)).to(device)
             (outputs, gens, fams) = net(batch.float())
-            fam_weight = dataset.fam_freqs[fams_label]
-            gen_weight = dataset.gen_freqs[gens_label]
             spec_weight = dataset.spec_freqs[specs_label]
-            famrec, famtop1 = utils.recall_per_example(fams, all_fams, fams_label, fam_weight) # magic no from CELF2020  
-            genrec, gentop1 = utils.recall_per_example(gens, all_gens, gens_label, gen_weight) # magic no from CELF2020  
-            specrec, spectop1 = utils.recall_per_example(outputs, all_specs, specs_label, spec_weight) # magic no from CELF2020
-#             import pdb; pdb.set_trace()s
+            all_specs = torch.tensor(all_specs, device=device)
+            all_gens = torch.tensor(all_gens, device=device)
+            all_fams = torch.tensor(all_fams, device=device)            
+            specrec, specrectop1, _, _ = utils.recall_per_example(all_specs, outputs, specs_label, spec_weight, device)
+            specprec, specprectop, _, _ = utils.precision_per_example(all_specs, outputs, specs_label, spec_weight, device)
+            specacc, _, _ = utils.accuracy_per_example(all_specs, outputs) 
+            genacc, _, _ = utils.accuracy_per_example(all_gens, gens) 
+            famacc, _, _ = utils.accuracy_per_example(all_fams, fams) 
             
-            all_grec.append(genrec)
-            all_frec.append(famrec)
-            all_srec.append(specrec)
-            all_tg.append(gentop1)
-            all_tf.append(famtop1)
-            all_ts.append(spectop1)
+            allspecrec.append(specrec)
+            allspecprec.append(specprec)
+            allspecacc.append(specacc)
+            allspecrectop1.append(specrectop1)
+            allspecprectop1.append(specprectop)
+            allgenacc.append(genacc)
+            allfamacc.append(famacc)
             prog.set_description("mean recall across batch: {acc0}".format(acc0=specrec))
             prog.update(1)                               
-            allspec.append((specrec, spectop1))
-            allfam.append(( famrec, famtop1 ))
-            allgen.append(( genrec, gentop1 ))
+            allspec.append((specrec, specprec, specacc, specrectop1, specprectop))
+            allfam.append(famacc)
+            allgen.append(genacc)
+        print("species recall {}, precision {}, and accuracy {}".format(mean(allspecrec), mean(allspecprec), mean(allspecacc)))
         if tb_writer is not None:
-            tb_writer.add_scalar("test/avg_fam_recall", mean(all_frec) * 100, epoch)
-            tb_writer.add_scalar("test/avg_fam_top1_recall", mean(all_tf) * 100, epoch) 
-            tb_writer.add_scalar("test/avg_gen_recall", mean(all_grec) * 100, epoch)
-            tb_writer.add_scalar("test/avg_gen_top1_recall", mean(all_tg) * 100, epoch)
-            tb_writer.add_scalar("test/avg_spec_recall", mean(all_srec) * 100, epoch)
-            tb_writer.add_scalar("test/avg_spec_top1_recall", mean(all_ts) * 100, epoch) 
+            tb_writer.add_scalar("test/avg_fam_accuracy", mean(allfamacc) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_accuracy", mean(allspecacc) * 100, epoch)            
+            tb_writer.add_scalar("test/avg_gen_accuracy", mean(allgenacc) * 100, epoch) 
+            tb_writer.add_scalar("test/avg_spec_prec_top1", mean(allspecprectop1) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_rec_top1", mean(allspecrectop1) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_recall", mean(allspecrec) * 100, epoch)
+            tb_writer.add_scalar("test/avg_spec_precision", mean(allspecprec) * 100, epoch) 
             
     prog.close()
     return allfam, allgen, allspec
@@ -684,12 +730,10 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
             specophs = nepoch
             genpoch = nepoch * 2
             fampoch = nepoch 
-            # 
-
-
 
             # mixed data model MLP of environmental rasters + cnn of satellite imagery data
             if dataset == 'satellite_rasters_point':
+
                 (specs_lab, gens_lab, fams_lab, batch, rasters) = ret
                 if loss == 'all':
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')
@@ -700,9 +744,11 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                     elif epoch >= fampoch and epoch < genpoch:
                         # family and genus
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'fam_gen') 
-                    else:
+                    elif loss == 'just_spec':
                         # all 3 / spec only
                         tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')                    
+                    else: # all the custom loss names
+                        tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')                        
                 elif loss == 'sequential':
                     
                     if epoch < fampoch:
@@ -721,8 +767,8 @@ def train_batch(dataset, train_loader, device, optimizer, net, spec_loss, gen_lo
                     # cnn model that goes straight from cnn to species outpute layer
                 elif model == 'SpecOnly':
                     tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'species')
-                else: # loss is none, random forest baseline
-                    raise NotImplemented
+                else: # loss is custom
+                    tot_loss, loss_spec, loss_gen, loss_fam = forward_one_example_rasters(specs_lab, gens_lab, fams_lab, batch, rasters, optimizer, net, spec_loss, gen_loss, fam_loss, device, 'all')    
             elif model == 'SpecOnly':
                 (specs_lab, gens_lab, fams_lab, batch) = ret
                 tot_loss, loss_spec = forward_one_example_speconly(specs_lab, batch, optimizer, net, spec_loss, device)
@@ -885,6 +931,7 @@ def forward_one_example(specs_lab, gens_lab, fams_lab, batch, optimizer, net, sp
     return total_loss, loss_spec, loss_gen, loss_fam
 
 
+
 def train_model(ARGS, params):
 
     print("torch version {}".format(torch.__version__))
@@ -953,10 +1000,10 @@ def train_model(ARGS, params):
     if ARGS.toy_dataset:
 
         test_dataset = copy.deepcopy(train_dataset)
-        train_dataset.obs = train_dataset.obs[:1000]
-        test_dataset.obs = test_dataset.obs[1000:2000]
-        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes,  SubsetRandomSampler(np.arange(1000)), ARGS.model, joint_collate_fn)
-        test_loader = setup_dataloader(test_dataset, params.params.dataset, batch_size, ARGS.processes, SubsetRandomSampler(np.arange(1000)), ARGS.model, joint_collate_fn)
+        train_dataset.obs = train_dataset.obs[:100]
+        test_dataset.obs = test_dataset.obs[100:200]
+        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes,  SubsetRandomSampler(np.arange(100)), ARGS.model, joint_collate_fn)
+        test_loader = setup_dataloader(test_dataset, params.params.dataset, batch_size, ARGS.processes, SubsetRandomSampler(np.arange(100)), ARGS.model, joint_collate_fn)
         
     else:
         train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model, joint_collate_fn)
@@ -989,7 +1036,7 @@ def train_model(ARGS, params):
         net.train()
         print("before batch")
         
-        tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.observation, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, tot_epoch, epoch, params.params.loss)
+        tot_loss_meter, spec_loss_meter, gen_loss_meter, fam_loss_meter, step = train_batch(params.params.dataset, train_loader, device, optimizer, net, spec_loss, gen_loss, fam_loss, tb_writer, step, params.params.model, tot_epoch, epoch, params.params.loss)
         print('after batch')
         #TODO change back!!!
         if not ARGS.toy_dataset:

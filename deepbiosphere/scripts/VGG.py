@@ -96,6 +96,103 @@ class VGG(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
                 
+class Joint_VGG(nn.Module):
+
+    def __init__(
+        self,
+        features: nn.Module,
+        pretrained: str,
+        num_spec : int,
+        num_gen : int,
+        num_fam : int,
+        env_rasters : int,        
+        init_weights : bool = True,
+    ) -> None:
+        super(Joint_VGG, self).__init__()
+
+        self.pretrained = pretrained
+        self.num_spec = num_spec
+        self.num_gen = num_gen
+        self.num_fam = num_fam
+        self.env_rasters = env_rasters
+        self.mlp_choke1 = 64
+        self.mlp_choke2 = 128
+
+        
+        
+        # https://stackoverflow.com/questions/62629114/how-to-modify-resnet-50-with-4-channels-as-input-using-pre-trained-weights-in-py        
+        if pretrained == 'finetune':
+            # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
+            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3) 
+            # initialize He-style
+            nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(self.conv4band.bias, 0)                        
+
+        self.features = features
+        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+        
+        self.intermediate1 = nn.Sequential(
+            nn.Linear(512 * 7 * 7, 4096),
+            nn.BatchNorm1d(4096),
+            nn.ReLU(True),
+            nn.Dropout(),
+        )
+        self.mlp = nn.Sequential(
+            nn.Linear(env_rasters, self.mlp_choke1),
+            nn.Linear(self.mlp_choke1, self.mlp_choke2),
+            nn.Linear(self.mlp_choke2, 4096),
+            nn.BatchNorm1d(4096),
+            nn.ReLU(True),
+        )
+        self.intermediate2 = nn.Sequential(
+            nn.Linear(4096, 4096), 
+            nn.ReLU(True),
+            nn.Dropout()
+        )
+        self.spec = nn.Linear(4096, num_spec)
+        self.gen = nn.Linear(4096, num_gen)
+        self.fam = nn.Linear(4096, num_fam)
+        if init_weights:
+            self._initialize_weights()
+
+    def forward(self, x: torch.Tensor, rasters: torch.Tensor) -> torch.Tensor:
+        
+        if self.pretrained == 'finetune':
+            x = self.conv4band(x)
+        # cheap trick to get around channels dimension problem, but ah well
+        # just cut out the infrared band since regular pre-trained model can
+        # only handle RGB
+        elif self.pretrained == 'feat_ext':
+            x = x[:,:3]
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.intermediate1(x)
+        rasters = self.mlp(rasters)
+        x = x + rasters
+        x = self.intermediate2(x)
+        spec = self.spec(x)
+        gen = self.gen(x)
+        fam = self.fam(x)
+        
+        
+        
+        return (spec, gen, fam)
+
+    def _initialize_weights(self) -> None:
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)                
+                
                 
 class VGG_No_FC(nn.Module):
 
@@ -257,8 +354,9 @@ def set_parameter_requires_grad(model):
     for param in model.parameters():
         param.requires_grad = False
 
-def make_layers(cfg: List[Union[str, int]], pretrained : str, batch_norm: bool = False) -> nn.Sequential:
-    layers: List[nn.Module] = []
+def make_layers(cfg: List[Union[str, int]], pretrained : str, batch_norm: bool = False):
+#     layers: List[nn.Module] = []
+    layers = []
     if pretrained == 'none':
         in_channels = 4 # use all RGB-I if training from scratch
     else:
@@ -277,7 +375,8 @@ def make_layers(cfg: List[Union[str, int]], pretrained : str, batch_norm: bool =
     return nn.Sequential(*layers)
 
 
-cfgs: Dict[str, List[Union[str, int]]] = {
+# cfgs: Dict[str, List[Union[str, int]]] = {
+cfgs = {
     'A': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
     'B': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
     'D': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
@@ -298,7 +397,7 @@ def _vgg(arch: str, cfg: str, batch_norm: bool, pretrained: str, base_dir : str,
         print('in remove_fc')        
         model = VGG_No_FC(make_layers(cfgs[cfg], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, **kwargs)
     else:
-        print('in in feat-ext')                
+        print('in in scale_fc')                
         model = VGG_Scaled_FC(make_layers(cfgs[cfg], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, **kwargs)
     if pretrained != 'none':
         # going to be lazy and use load_state_dict_from_url, might change in the future
@@ -315,6 +414,28 @@ def _vgg(arch: str, cfg: str, batch_norm: bool, pretrained: str, base_dir : str,
         set_parameter_requires_grad(model.intermediate)        
 
     return model
+
+# since going to only train from scratch with joint_vgg for now, can bypass creating a _joint_vgg method
+# although if the pretraining seems to help, will add that on later
+def joint_vgg11(num_spec : int, num_gen : int, num_fam : int, base_dir : str, batch_norm : bool, arch_type : str, env_rasters : int, pretrained: str = 'none',  progress: bool = True, **kwargs: Any):
+    r"""VGG 11-layer model (configuration "A") from
+    `"Very Deep Convolutional Networks For Large-Scale Image Recognition" <https://arxiv.org/pdf/1409.1556.pdf>`._
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return Joint_VGG(make_layers(cfgs['A'], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, env_rasters=env_rasters, **kwargs)
+
+# since going to only train from scratch with joint_vgg for now, can bypass creating a _joint_vgg method
+# although if the pretraining seems to help, will add that on later
+def joint_vgg16(num_spec : int, num_gen : int, num_fam : int, base_dir : str, batch_norm : bool, arch_type : str, env_rasters : int, pretrained: str = 'none',  progress: bool = True, **kwargs: Any):
+    r"""VGG 11-layer model (configuration "A") from
+    `"Very Deep Convolutional Networks For Large-Scale Image Recognition" <https://arxiv.org/pdf/1409.1556.pdf>`._
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return Joint_VGG(make_layers(cfgs['D'], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, env_rasters=env_rasters, **kwargs)
 
 
 def vgg11(num_spec : int, num_gen : int, num_fam : int, base_dir : str, arch_type : str, pretrained: str = 'none', progress: bool = True, **kwargs: Any):

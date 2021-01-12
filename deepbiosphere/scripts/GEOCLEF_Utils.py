@@ -170,6 +170,21 @@ def recall_per_batch(output, target, actual):
         top1_rec.append(top1_recall.item())
     return recall, tot_rec, top1_rec, tot_top1
         
+    
+
+# not batched version!!
+# t1 should model output, t2 should be label for batch dims to work
+# https://stackoverflow.com/questions/55110047/finding-non-intersection-of-two-pytorch-tensors
+def torch_intersection(t1, t2, device):
+    
+    indices = torch.zeros_like(t2, dtype = torch.uint8, device = device)
+    if len(t2.shape) > 1:
+        raise TypeError; 'will index incorrectly across tensors'
+    for i, elem in zip(np.arange(len(t2)), t2):
+        indices[i] = (t1 == elem).sum()
+    intersection = t2[indices]  
+    return intersection
+
 def recall_per_example_classes(lab, guess, actual):
     """ calculates recall per example. Returns multi-label recall + top 1 recall + all correctly predicted classes"""
     # recall
@@ -181,18 +196,42 @@ def recall_per_example_classes(lab, guess, actual):
     top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
     return recall, top1_recall, corr_id
     
-    
-def recall_per_example(guess, lab, actual, weight, weighted=True):
-    # recall
+
+# so sigmoiding doesn't really change the output, getting rid of it
+def recall_per_example(lab, guess, actual, weight, device='cpu'):
+
     maxk = len(lab)
     pred, idxs = torch.topk(guess, maxk)
-    guessed = set(idxs.tolist()[0])
-    eq = len(list(guessed & set(lab)))
-    recall = eq / maxk
-    top1_recall = len(list(guessed  & {actual}))
-    if weighted:
-        top1_recall = top1_recall / weight
-    return recall, top1_recall
+    intersection = torch_intersection(idxs, lab, device)
+    recall = len(intersection)/maxk
+    top1_rec = (intersection == actual).sum()
+    top1_rec_weight = float(top1_rec)/float(weight)
+    return recall, top1_rec.tolist(), top1_rec_weight, intersection.tolist()
+
+
+# so sigmoiding doesn't really change the output, getting rid of it
+def accuracy_per_example(lab, guess, device='cpu'):
+    
+    guess = torch.sigmoid(guess)
+    yhat_size = (guess > .5).sum()
+    pred, idxs = torch.topk(guess, yhat_size)
+    
+    intersection = torch_intersection(idxs, lab, device)
+    union = torch.unique(torch.cat([idxs[0], lab]))
+    return float(len(intersection))/len(union), intersection.tolist(), union.tolist()
+
+# NEW threshold is .5 and we will pass the values through sigmoid to convert the distro
+# to a proability for each class
+def precision_per_example(lab, guess, actual, weight, device='cpu', thres=.5):
+    
+    guess = torch.sigmoid(guess)
+    yhat_size = (guess > .5).sum()
+    pred, idxs = torch.topk(guess, yhat_size)
+    overlap = torch_intersection(idxs, lab, device)
+    prec = float(len(overlap))/ float(yhat_size) if yhat_size > 0 else 0.0
+    top1_prec = (overlap == actual).sum()
+    top1_prec_weight = float(top1_prec)/float(weight)    
+    return prec, top1_prec.tolist(), top1_prec_weight, overlap.tolist()
 
 def num_corr_matches(output, target, actual):
     tot_acc = []
@@ -229,11 +268,15 @@ def subpath_2_img_noalt(pth, subpath, id_):
     np_img = np_img[:,:,:4]
     return np.transpose(np_img,(2, 0, 1))
 
-def image_from_id(id_, pth, altitude=True):
+def image_from_id(id_, pth, means, altitude=False, sub_mean=True):
     # make sure image and path are for same region
     cdd, ab, cd = id_2_file(id_)
     subpath = "patches_{}/{}/{}/".format('fr', cd, ab) if id_ >= 10000000 else "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
-    return subpath_2_img(pth, subpath, id_) if altitude else subpath_2_img_noalt(pth, subpath, id_)
+    img = subpath_2_img(pth, subpath, id_) if altitude else subpath_2_img_noalt(pth, subpath, id_)
+    if sub_mean:
+        for i, (channel, mean) in enumerate(zip(means, img)):
+            img[i,:,:] = mean - channel
+    return img
 
 def subpath_2_img(pth, subpath, id_):
     alt = "{}{}{}_alti.npy".format(pth, subpath, id_)

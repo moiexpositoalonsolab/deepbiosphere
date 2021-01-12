@@ -36,7 +36,7 @@ choices = {
     'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec', 
              'MultiLabelMarginLoss', 'BCEWithLogits','BrierPresenceOnly','BrierAll','CrossEntropyPresenceOnly','AsymmetricLoss','AsymmetricLossOptimized'
              ],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet', 'VGG_11',  'VGG_16'],
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet', 'VGG_11',  'VGG_16', 'Joint_VGG11_MLP', 'Joint_VGG16_MLP'],
     'normalize' : ['normalize', 'min_max', 'none'],
     'loss_type' : ['none', 'mean', 'sum'],
     'arch_type' : ['plain', 'remove_fc', 'scale_fc'],
