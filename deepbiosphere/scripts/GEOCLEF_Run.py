@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 import math
 from tqdm import tqdm
+
 from deepbiosphere.scripts import GEOCLEF_CNN as cnn
 from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
 from deepbiosphere.scripts import GEOCLEF_Loss as losses
@@ -91,34 +92,27 @@ def setup_dataset(observation, base_dir, organism, region, normalize, altitude, 
         raise NotImplementedError
 
         
-def setup_model(model, train_dataset):
+def setup_model(model, train_dataset, pretrained, batch_norm, arch_type):
 
     num_specs = train_dataset.num_specs
     num_fams = train_dataset.num_fams
     num_gens = train_dataset.num_gens
-    print(num_specs, num_fams, num_gens)
     print("----- model ----")
-    if model == 'SVM':
-        raise NotImplementedError
-    elif model == 'RandomForest':
+    if model == 'RandomForest':
         raise NotImplementedError
     elif model == 'SVM':
         raise NotImplementedError
     # some flavor of convnet architecture
-    elif model == 'OGNoFamNet':
-        return cnn.OGNoFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)        
-    elif model == 'OGNet':
-        return cnn.OGNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)        
-    elif model == 'SkipFCNet':
-        return cnn.SkipFCNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)        
-    elif model == 'SkipNet':
-        return cnn.SkipNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)        
     elif model == 'MixNet':
         return cnn.MixNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels, env_rasters=train_dataset.num_rasters)
     elif model == 'MixFullNet':
         return cnn.MixFullNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels, env_rasters=train_dataset.num_rasters)
-    elif model == 'SkipFullFamNet':
-        return cnn.SkipFullFamNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)
+    elif model == 'ResNet':
+        raise NotImplementedError
+    elif model == 'VGG_11':
+        return  cnn.VGG_11(pretrained, batch_norm, num_specs, num_fams, num_gens, arch_type, train_dataset.base_dir)
+    elif model == 'VGG_16':
+        return cnn.VGG_16(pretrained, batch_norm, num_specs, num_fams, num_gens, arch_type, train_dataset.base_dir)
     elif model == 'FlatNet':
         return cnn.FlatNet(species=num_specs, families=num_fams, genuses=num_gens, num_channels=train_dataset.channels)
     elif model == 'MLP_Family':
@@ -924,7 +918,8 @@ def train_model(ARGS, params):
     num_gens = train_dataset.num_gens    
     start_epoch = None
     step = None 
-    net = setup_model(params.params.model, train_dataset)
+    # pretrained, batch_norm, arch_type):
+    net = setup_model(params.params.model, train_dataset, params.params.pretrained, params.params.batch_norm, params.params.arch_type)
     net.to(device)
     optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
     
@@ -1063,7 +1058,8 @@ def train_model(ARGS, params):
         tb_writer.close()
 
 if __name__ == "__main__":
-    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type', 'num_species']
+    np.testing.suppress_warnings()
+    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type', 'num_species', 'batch_norm', 'pretrained', 'arch_type']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
     print(ARGS)
@@ -1073,7 +1069,5 @@ if __name__ == "__main__":
         params = config.Run_Params(ARGS.base_dir, ARGS)
     else:
         params = config.Run_Params(ARGS.base_dir, ARGS)
-
-    print(type(params), type(ARGS))
     params.setup_run_dirs(ARGS.base_dir)
     train_model(ARGS, params)

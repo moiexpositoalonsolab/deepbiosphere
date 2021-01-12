@@ -36,9 +36,11 @@ choices = {
     'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec', 
              'MultiLabelMarginLoss', 'BCEWithLogits','BrierPresenceOnly','BrierAll','CrossEntropyPresenceOnly','AsymmetricLoss','AsymmetricLossOptimized'
              ],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet'],
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet', 'VGG_11',  'VGG_16'],
     'normalize' : ['normalize', 'min_max', 'none'],
-    'loss_type' : ['none', 'mean', 'sum']
+    'loss_type' : ['none', 'mean', 'sum'],
+    'arch_type' : ['plain', 'remove_fc', 'scale_fc'],
+    'pretrained' : ['none', 'feat_ext', 'finetune'],    
     
 }
 choices = SimpleNamespace(**choices)
@@ -63,6 +65,8 @@ arguments = {
     'loss': {'choices':choices.loss, 'required': ('--load_from_config' not in sys.argv)},
     'loss_type': {'choices':choices.loss_type, 'default' : 'mean'},    
     'threshold' : {'dest':'threshold', 'type':int,'help' : "how many observations must a species at least have to be added to the dataset", 'default':4},
+    'arch_type' : {'choices':choices.arch_type, 'help' : 'which CNN architecture to use for ResNet and VGGNet', 'default' : 'plain'},
+    'pretrained' : {'choices' : choices.pretrained, 'help' : 'what kind of pretrained neural network to use (if pretrained at all)', 'default' : 'none'},    
     # optional arguments
     'processes': {'type':int, 'help':"how many worker processes to use for data loading",'default':1},    
     'seed': {'type':int, 'help':"random seed to use"},
@@ -75,13 +79,18 @@ arguments = {
     'from_scratch': {'dest':'from_scratch', 'help': 'if you want to restart training from scratch and rebuild everything, set this flag', 'action':'store_true'},
     'census' : {'dest':'census', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'},
     'ecoregions_only' : {'dest':'ecoregions_only', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'},
-    'num_species' : {'type' : int, 'help' : 'for building dataset, if want to cut to top K species, set this option', 'default': -1}
+    'num_species' : {'type' : int, 'help' : 'for building dataset, if want to cut to top K species, set this option', 'default': -1},
+    'batch_norm' : {'dest' : 'batch_norm', 'help' : 'whether or not batch norm was used for training the network', 'action' : 'store_true'},
+
+    
+
 }
 
 def setup_pretrained_dirs(base_dir):
     if not os.path.exists("{}nets/pretrained/".format(base_dir)):
         os.makedirs("{}nets/pretrained/".format(base_dir))
     return "{}nets/pretrained/".format(base_dir)
+
 
 def setup_main_dirs(base_dir):
     '''sets up output, nets, and param directories for saving results to'''
@@ -131,7 +140,7 @@ class Run_Params():
             self.params = load_parameters(abs_path)
             self.base_dir = ARGS.base_dir
         else:
-            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.loss, ARGS.dataset, ARGS.exp_id) 
+            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.loss, ARGS.dataset, ARGS.exp_id)
             params = {
                 'lr': ARGS.lr,
                 'observation': ARGS.observation,
@@ -147,9 +156,11 @@ class Run_Params():
                 'no_altitude' : ARGS.no_alt,
                 'dataset' : ARGS.dataset,
                 'threshold' : ARGS.threshold,
-                'loss_type' : ARGS.loss_type
+                'loss_type' : ARGS.loss_type,
+                'pretrained' : ARGS.pretrained,
+                'batch_norm' : ARGS.batch_norm,
+                'arch_type' : ARGS.arch_type,
             }
-
             with open(cfg_path, 'w') as fp:
                 json.dump(params, fp)
             self.params = SimpleNamespace(**params)
