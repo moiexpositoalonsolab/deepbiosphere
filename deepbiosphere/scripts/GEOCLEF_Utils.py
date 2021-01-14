@@ -339,16 +339,19 @@ def clean_all_models(base_dir, data='nets', num_2_keep=5):
             srted = sort_by_epoch(pths)
             to_keep = srted[-num_2_keep:]
             to_toss = srted[:-num_2_keep]
-            assert len(to_keep) > 0, "missing models!"
-            if len(to_toss) > 0:
-                print("removing epochs {} to {} and keeping epochs {} to {} of model {}".format(
-                    strip_to_epoch([to_toss[0]])[0], 
-                    strip_to_epoch([to_toss[-1]])[0],
-                    strip_to_epoch([to_keep[0]])[0], 
-                    strip_to_epoch([to_keep[-1]])[0],
-                    path_to_cfgname(run)))
-                for to_remove in to_toss:
-                    os.remove(to_remove)
+            if len(to_keep) > 0:
+                print("missing models for {}".format(run))
+                pass
+            else:
+                if len(to_toss) > 0:
+                    print("removing epochs {} to {} and keeping epochs {} to {} of model {}".format(
+                        strip_to_epoch([to_toss[0]])[0], 
+                        strip_to_epoch([to_toss[-1]])[0],
+                        strip_to_epoch([to_keep[0]])[0], 
+                        strip_to_epoch([to_keep[-1]])[0],
+                        path_to_cfgname(run)))
+                    for to_remove in to_toss:
+                        os.remove(to_remove)
         print("\n")
     
 def sort_by_epoch(paths, reversed=False):    
