@@ -7,13 +7,17 @@ import numpy as np
 import torch.nn.functional as F
 from torch.nn import Module as Module
 from collections import OrderedDict
-# from src.models.tresnet.layers.anti_aliasing import AntiAliasDownsampleLayer
-# from .layers.avg_pool import FastAvgPool2d
-# from .layers.general_layers import SEModule, SpaceToDepthModule
-#from inplace_abn import InPlaceABN
-
+from inplace_abn import InPlaceABN
+import deepbiosphere.scripts.GEOCLEF_Config as config
 
 # from inplace_abn import ABN
+
+model_files = {
+    'MSCOCO_TResnetL': 'MS_COCO_TRresNet_L_448_86.6.pth',
+}
+
+
+
 
 class bottleneck_head(nn.Module):
     def __init__(self, num_features, num_classes, bottleneck_features=200):
@@ -132,7 +136,8 @@ class Bottleneck(Module):
 
 class TResNet(Module):
 
-    def __init__(self, layers, in_chans=3, num_classes=1000, width_factor=1.0,
+    
+    def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, width_factor=1.0,
                  do_bottleneck_head=False,bottleneck_features=512):
         super(TResNet, self).__init__()
 
@@ -141,7 +146,22 @@ class TResNet(Module):
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
+        self.pretrained = pretrained
+        self.num_spec = num_spec
+        self.num_gen = num_gen
+        self.num_fam = num_fam        
+        
         # TResnet stages
+        if pretrained == 'finetune':
+            # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
+            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3) 
+            in_chans = 3
+            # initialize He-style
+            nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(self.conv4band.bias, 0)
+        elif pretrained == 'feat_ext':
+            in_chans = 3
+        
         self.inplanes = int(64 * width_factor)
         self.planes = int(64 * width_factor)
         conv1 = conv2d_ABN(in_chans * 16, self.planes, stride=1, kernel_size=3)
@@ -154,7 +174,7 @@ class TResNet(Module):
         layer4 = self._make_layer(Bottleneck, self.planes * 8, layers[3], stride=2, use_se=False,
                                   anti_alias_layer=anti_alias_layer)  # 7x7
 
-        # body
+        #
         self.body = nn.Sequential(OrderedDict([
             ('SpaceToDepth', space_to_depth),
             ('conv1', conv1),
@@ -166,15 +186,18 @@ class TResNet(Module):
         # head
         self.embeddings = []
         self.global_pool = nn.Sequential(OrderedDict([('global_pool_layer', global_pool_layer)]))
-        self.num_features = (self.planes * 8) * Bottleneck.expansion
+        self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
+        print("num features is ", self.num_features)
+        # Ignore this for now, code will break for bottleneck_head but don't think will use
         if do_bottleneck_head:
             fc = bottleneck_head(self.num_features, num_classes,
                                  bottleneck_features=bottleneck_features)
         else:
-            fc = nn.Linear(self.num_features , num_classes)
+            self.spec = nn.Linear(self.num_features, num_spec)
+            self.gen = nn.Linear(self.num_features, num_gen)
+            self.fam = nn.Linear(self.num_features, num_fam)        
 
-        self.head = nn.Sequential(OrderedDict([('fc', fc)]))
-
+        # get rid of this and instead put in place f, g, spec fcs
         # model initilization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -211,41 +234,222 @@ class TResNet(Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        
+        if self.pretrained == 'finetune':
+            x = self.conv4band(x)        
+        elif self.pretrained == 'feat_ext':
+            x = x[:,:3]
+        if self.pretrained != 'none':
+            x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
         x = self.body(x)
         self.embeddings = self.global_pool(x)
-        logits = self.head(self.embeddings)
-        return logits
+        spec = self.spec(self.embeddings)
+        gen = self.gen(self.embeddings)
+        fam = self.fam(self.embeddings)
+        return (spec, gen, fam)
+    
+    
+    
+    
+
+class Joint_TResNet(Module):
+
+    
+    def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, width_factor=1.0,
+                 do_bottleneck_head=False,bottleneck_features=512):
+        super(Joint_TResNet, self).__init__()
+
+        # JIT layers
+        space_to_depth = SpaceToDepthModule()
+        anti_alias_layer = AntiAliasDownsampleLayer
+        global_pool_layer = FastAvgPool2d(flatten=True)
+
+        self.pretrained = pretrained
+        self.num_spec = num_spec
+        self.num_gen = num_gen
+        self.num_fam = num_fam        
+        self.env_rasters = env_rasters
+        self.mlp_choke1 = 64
+        self.mlp_choke2 = 128        
+        if pretrained != 'none':
+            raise NotImplementedError("pretrained joint model hasn't been implemented yet!")
+        # TResnet stages
+        if pretrained == 'finetune':
+            # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
+            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3) 
+            in_chans = 3
+            # initialize He-style
+            nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(self.conv4band.bias, 0)
+        elif pretrained == 'feat_ext':
+            in_chans = 3
+        
+        self.inplanes = int(64 * width_factor)
+        self.planes = int(64 * width_factor)
+        conv1 = conv2d_ABN(in_chans * 16, self.planes, stride=1, kernel_size=3)
+        layer1 = self._make_layer(BasicBlock, self.planes, layers[0], stride=1, use_se=True,
+                                  anti_alias_layer=anti_alias_layer)  # 56x56
+        layer2 = self._make_layer(BasicBlock, self.planes * 2, layers[1], stride=2, use_se=True,
+                                  anti_alias_layer=anti_alias_layer)  # 28x28
+        layer3 = self._make_layer(Bottleneck, self.planes * 4, layers[2], stride=2, use_se=True,
+                                  anti_alias_layer=anti_alias_layer)  # 14x14
+        layer4 = self._make_layer(Bottleneck, self.planes * 8, layers[3], stride=2, use_se=False,
+                                  anti_alias_layer=anti_alias_layer)  # 7x7
+
+        #
+        self.body = nn.Sequential(OrderedDict([
+            ('SpaceToDepth', space_to_depth),
+            ('conv1', conv1),
+            ('layer1', layer1),
+            ('layer2', layer2),
+            ('layer3', layer3),
+            ('layer4', layer4)]))
+
+        # head
+        self.embeddings = []
+        self.global_pool = nn.Sequential(OrderedDict([('global_pool_layer', global_pool_layer)]))
+        self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
+        print("num features is ", self.num_features) # 2048!
+        # Ignore this for now, code will break for bottleneck_head but don't think will use
+#         if do_bottleneck_head:
+#             fc = bottleneck_head(self.num_features, num_classes,
+#                                  bottleneck_features=bottleneck_features)
+#         else:
+        
+        self.intermediate1 = nn.Sequential(
+            nn.BatchNorm1d(2048),
+            nn.ReLU(True),
+#             nn.Dropout(),
+        )
+        
+        
+        
+        self.mlp = nn.Sequential(
+            nn.Linear(env_rasters, self.mlp_choke1),
+            nn.Linear(self.mlp_choke1, self.mlp_choke2),
+            nn.Linear(self.mlp_choke2, 2048),
+            nn.BatchNorm1d(2048),
+            nn.ReLU(True),
+        )        
+        
+        self.intermediate2 = nn.Sequential(
+            nn.Linear(2048 * 2, 2048), 
+            nn.ReLU(True),
+#             nn.Dropout() # may need to remove???
+        )
+        self.spec = nn.Linear(2048, num_spec)
+        self.gen = nn.Linear(2048, num_gen)
+        self.fam = nn.Linear(2048, num_fam)
+        
+#         self.spec = nn.Linear(self.num_features, num_spec)
+#         self.gen = nn.Linear(self.num_features, num_gen)
+#         self.fam = nn.Linear(self.num_features, num_fam)        
+
+        # get rid of this and instead put in place f, g, spec fcs
+        # model initilization
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, InPlaceABN):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+        # residual connections special initialization
+        for m in self.modules():
+            if isinstance(m, BasicBlock):
+                m.conv2[1].weight = nn.Parameter(torch.zeros_like(m.conv2[1].weight))  # BN to zero
+            if isinstance(m, Bottleneck):
+                m.conv3[1].weight = nn.Parameter(torch.zeros_like(m.conv3[1].weight))  # BN to zero
+            if isinstance(m, nn.Linear): m.weight.data.normal_(0, 0.01)
+
+    def _make_layer(self, block, planes, blocks, stride=1, use_se=True, anti_alias_layer=None):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            layers = []
+            if stride == 2:
+                # avg pooling before 1x1 conv
+                layers.append(nn.AvgPool2d(kernel_size=2, stride=2, ceil_mode=True, count_include_pad=False))
+            layers += [conv2d_ABN(self.inplanes, planes * block.expansion, kernel_size=1, stride=1,
+                                  activation="identity")]
+            downsample = nn.Sequential(*layers)
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample, use_se=use_se,
+                            anti_alias_layer=anti_alias_layer))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks): layers.append(
+            block(self.inplanes, planes, use_se=use_se, anti_alias_layer=anti_alias_layer))
+        return nn.Sequential(*layers)
+
+    def forward(self, x, rasters):
+        
+        if self.pretrained == 'finetune':
+            x = self.conv4band(x)        
+        elif self.pretrained == 'feat_ext':
+            x = x[:,:3]
+        if self.pretrained != 'none':
+            x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
+        x = self.body(x)
+#         self.embeddings = self.global_pool(x)
+        x = self.global_pool(x)
+#         x = torch.flatten(self.embeddings, 1)
+        x = torch.flatten(x, 1)
+        
+        x = self.intermediate1(x)
+        rasters = self.mlp(rasters)
+        x = torch.cat((x, rasters), dim=1)
+        x = self.intermediate2(x)
+        spec = self.spec(x)
+        gen = self.gen(x)
+        fam = self.fam(x)
+        return (spec, gen, fam)
 
 
-def TResnetM(model_params):
+def set_parameter_requires_grad(model):
+    for param in model.parameters():
+        param.requires_grad = False
+        
+def _tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_fam : int, base_dir : str, width_factor : int
+) -> TResNet:
+    in_chans = 4
+    model = TResNet(layers, in_chans, pretrained, num_spec, num_gen, num_fam, width_factor=width_factor)
+    if pretrained != 'none':
+        if arch == 'TResNetL':
+            # going to be lazy and use load_state_dict_from_url, might change in the future
+            dirr = config.setup_pretrained_dirs(base_dir) + 'TResNet/'
+            file = dirr + model_files['MSCOCO_TResnetL']
+            state = torch.load(file, map_location='cpu')
+            model.load_state_dict(state['model'], strict=False)
+        else:
+            raise NotImplementedError('no pretrained model on disk for this architecture yet!')
+        
+    if pretrained == 'feat_ext':
+        set_parameter_requires_grad(model.body)        
+ 
+    return model
+
+def Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters):
+    return Joint_TResNet([3, 4, 11, 3], 4, pretrained, num_spec, num_gen, num_fam, env_rasters)
+
+def TResnetM(pretrained, num_spec, num_gen, num_fam, base_dir):
     """Constructs a medium TResnet model.
     """
-    in_chans = 3
-    num_classes = model_params['num_classes']
-    model = TResNet(layers=[3, 4, 11, 3], num_classes=num_classes, in_chans=in_chans)
-    return model
+    
+    return _tresnet('TResNetM', [3, 4, 11, 3], pretrained, num_spec, num_gen, num_fam, base_dir, width_factor=1.0)
 
 
-def TResnetL(model_params):
+def TResnetL(pretrained, num_spec, num_gen, num_fam, base_dir):
     """Constructs a large TResnet model.
     """
-    in_chans = 3
-    num_classes = model_params['num_classes']
-    do_bottleneck_head = model_params['args'].do_bottleneck_head
-    model = TResNet(layers=[4, 5, 18, 3], num_classes=num_classes, in_chans=in_chans, width_factor=1.2,
-                    do_bottleneck_head=do_bottleneck_head)
-    return model
+    return _tresnet('TResNetL', [4, 5, 18, 3], pretrained, num_spec, num_gen, num_fam, base_dir, width_factor=1.2)
 
 
-def TResnetXL(model_params):
+
+
+def TResnetXL(pretrained, num_spec, num_gen, num_fam, base_dir):
     """Constructs a xlarge TResnet model.
     """
-    in_chans = 3
-    num_classes = model_params['num_classes']
-    model = TResNet(layers=[4, 5, 24, 3], num_classes=num_classes, in_chans=in_chans, width_factor=1.3)
-
-    return model
-
+    return _tresnet('TResNetXL', [4, 5, 24, 3], pretrained, num_spec, num_gen, num_fam, base_dir, width_factor=1.3)
 
 
 class AntiAliasDownsampleLayer(nn.Module):
@@ -274,11 +478,13 @@ class DownsampleJIT(object):
 
         filt = (a[:, None] * a[None, :]).clone().detach()
         filt = filt / torch.sum(filt)
-        self.filt = filt[None, None, :, :].repeat((self.channels, 1, 1, 1)).cuda().half()
+        # ah, there's the offending cuda, in filt!
+        self.filt = filt[None, None, :, :].repeat((self.channels, 1, 1, 1)).half()
 
     def __call__(self, input: torch.Tensor):
         if input.dtype != self.filt.dtype:
             self.filt = self.filt.float() 
+        self.filt = self.filt.to(input.device)
         input_pad = F.pad(input, (1, 1, 1, 1), 'reflect')
         return F.conv2d(input_pad, self.filt, stride=2, padding=0, groups=input.shape[1])
 

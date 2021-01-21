@@ -22,7 +22,7 @@ from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
 from deepbiosphere.scripts import GEOCLEF_Loss as losses
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
-
+from deepbiosphere.scripts.GEOCLEF_Dataset import dataset_means
 
 
 
@@ -104,8 +104,14 @@ def setup_model(model, train_dataset, pretrained, batch_norm, arch_type):
     elif model == 'SVM':
         raise NotImplementedError
     # some flavor of convnet architecture
-    elif model == 'ResNet':
-        raise NotImplementedError
+    elif model == 'ResNet_18':
+        return cnn.ResNet_18(pretrained, arch_type, num_specs, num_gens, num_fams, train_dataset.base_dir)
+    elif model == 'ResNet_34':
+        return cnn.ResNet_34(pretrained, arch_type, num_specs, num_gens, num_fams, train_dataset.base_dir)    
+    elif model == 'TResNet_M':
+        return cnn.TResNet_M(pretrained, num_specs, num_gens, num_fams, train_dataset.base_dir)
+    elif model == 'TResNet_L':
+        return cnn.TResNet_L(pretrained, num_specs, num_gens, num_fams, train_dataset.base_dir)
     elif model == 'VGG_11':
         return  cnn.VGG_11(pretrained, batch_norm, num_specs, num_fams, num_gens, arch_type, train_dataset.base_dir)
     elif model == 'VGG_16':
@@ -116,6 +122,10 @@ def setup_model(model, train_dataset, pretrained, batch_norm, arch_type):
         return cnn.Joint_VGG11_MLP(num_specs, num_gens, num_fams, train_dataset.base_dir, batch_norm, arch_type, pretrained, train_dataset.num_rasters)
     elif model == 'Joint_VGG16_MLP':
         return cnn.Joint_VGG16_MLP(num_specs, num_gens, num_fams, train_dataset.base_dir, batch_norm, arch_type, pretrained, train_dataset.num_rasters)
+    elif model == 'Joint_ResNet_18':
+        return cnn.Joint_ResNet_18(pretrained, num_specs, num_gens, num_fams, train_dataset.num_rasters)
+    elif model == 'Joint_TResNet_M':
+        return cnn.Joint_TResNet_M(pretrained, num_specs, num_gens, num_fams, train_dataset.num_rasters)
     elif model == 'MLP_Family':
         return cnn.MLP_Family(families=num_fams, env_rasters=train_dataset.num_rasters)
     elif model == 'MLP_Family_Genus':
@@ -940,6 +950,7 @@ def train_model(ARGS, params):
     device = torch.device("cuda:{dev}".format(dev=ARGS.device) if ARGS.device  >= 0 else "cpu")
     print('using device: {device}'.format(device=device))
     if ARGS.device >= 0:
+        torch.cuda.set_device(device)
         print("current device: {dev} current device name: {name}".format(dev=torch.cuda.current_device(), name=torch.cuda.get_device_name(torch.cuda.current_device())))
     print("current host: {host}".format(host=socket.gethostname()))
     batch_size=params.params.batch_size
@@ -969,7 +980,13 @@ def train_model(ARGS, params):
     net = setup_model(params.params.model, train_dataset, params.params.pretrained, params.params.batch_norm, params.params.arch_type)
     net.to(device)
     optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
-    
+    # hacky way to get pretrained tresnet to have correct image scaling...
+    # not ideal but it gets the job done
+    print("~~~~~~ DONT  FORGET TO CHECK IF PARAMETERS CHANGE ~~~~~~")
+    if params.params.pretrained != 'none' and 'TResNet' in params.params.model:
+        # change mean subtraction to match what pretrained tresnet expects
+        print("WE ARE CHANGING SOME PARAMETERS")
+        train_dataset.dataset_means = dataset_means['none']
     if ARGS.from_scratch or not ARGS.load_from_config:
         start_epoch = 0
         step = 0         
@@ -1092,7 +1109,8 @@ def train_model(ARGS, params):
                 'inv_spec' : train_dataset.inv_spec, 
                 'spec_dict' : train_dataset.spec_dict, 
                 'gen_dict' : train_dataset.gen_dict, 
-                'fam_dict': train_dataset.fam_dict
+                'fam_dict': train_dataset.fam_dict,
+                'image_means': train_dataset.dataset_means
             }
             desiderata_path = params.build_abs_desider_path(epoch)
             with open(desiderata_path, 'wb') as f:

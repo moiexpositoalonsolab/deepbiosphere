@@ -14,7 +14,6 @@ import pandas as pd
 import numpy as np
 from torch.utils.data import Dataset
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
-from deepbiosphere.GLC.environmental_raster_glc import Raster, PatchExtractor
 
 # Ignore warnings
 import warnings
@@ -67,7 +66,10 @@ def get_us_bioclim(base_dir):
     ras_paths = glob.glob(rasters)
     return ras_paths
 
-dataset_means = (111.27668932654558, 115.84299163319858, 104.88420063186129, 132.9687599226994)
+dataset_means = {
+        "imagenet" : (111.27668932654558, 115.84299163319858, 104.88420063186129, 132.9687599226994),
+        "none" : (0,0,0,0)
+                }
 
 raster_metadata = {
     'bio_1': {'min_val': -116, 'max_val': 259, 'nan': -2147483647, 'new_nan': -117, 'mu': 101, 'sigma': 58},
@@ -257,19 +259,19 @@ def subpath_2_img(pth, subpath, id_):
 #     return np.transpose(np_img,(2, 0, 1))
 
 
-def image_from_id(id_, pth, altitude=True):
-    # make sure image and path are for same region
-    cdd, ab, cd = utils.id_2_file(id_)
-    subpath = "patches_{}/{}/{}/".format('fr', cd, ab) if id_ >= 10000000 else "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
-    return subpath_2_img(pth, subpath, id_) if altitude else utils.subpath_2_img_noalt(pth, subpath, id_)
+# def image_from_id(id_, pth, altitude=True):
+#     # make sure image and path are for same region
+#     cdd, ab, cd = utils.id_2_file(id_)
+#     subpath = "patches_{}/{}/{}/".format('fr', cd, ab) if id_ >= 10000000 else "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
+#     return subpath_2_img(pth, subpath, id_) if altitude else utils.subpath_2_img_noalt(pth, subpath, id_)
 
 def freq_from_dict(f_dict):
     list(f_dict.items())
     # sort frequency list by species_id (key of dict)
     return [freq for (sp_id, freq) in sorted(list(f_dict.items()), key=lambda x:x[0])]    
 
-def get_shapes(id_, pth, altitude):
-    #image_from_id(id_, pth, means, altitude=False, sub_mean=True)
+def get_shapes(id_, pth, altitude, dataset_means):
+    
     tens = utils.image_from_id(id_, pth, dataset_means, altitude=altitude)
     # channels, width, height
     return tens.shape[0], tens.shape[1], tens.shape[2]
@@ -460,12 +462,13 @@ ids_idx = 7
 
 # just the high resolution satellite imagery
 class HighRes_Satellite_Images_Only(Dataset):
-    def __init__(self, base_dir, organism, region, observation, altitude, threshold, topk):
+    def __init__(self, base_dir, organism, region, observation, altitude, threshold, topk, sub_mean='imagenet'):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
         self.altitude = altitude
         self.observation = observation
+        self.dataset_means = dataset_means[sub_mean]
         obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         obs.fillna('nan', inplace=True)
         if 'species' not in obs.columns:
@@ -493,7 +496,7 @@ class HighRes_Satellite_Images_Only(Dataset):
         self.test = obs[obs.test].index.tolist()
         self.train = obs[~obs.test].index.tolist()        
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'extra_ids']].values
-        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude, self.dataset_means)
         self.channels = channels
         self.width = width
         self.height = height
@@ -506,7 +509,7 @@ class HighRes_Satellite_Images_Only(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, altitude=self.altitude)
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, images)
     
@@ -516,20 +519,21 @@ class HighRes_Satellite_Images_Only(Dataset):
             idx = idx.tolist()
         # obs is of shape [id, species_id, genus, family]    
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, altitude=self.altitude)
 
         specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images)
 
     # the high resolution satellite imagery + the pointwise observation environmental rasters
 class HighRes_Satellite_Rasters_Point(Dataset):
-    def __init__(self, base_dir, organism, region, observation, altitude, normalize, threshold, topk):
+    def __init__(self, base_dir, organism, region, observation, altitude, normalize, threshold, topk, sub_mean='imagenet'):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
         self.altitude = altitude
         self.normalize = normalize
         self.observation = observation
+        self.dataset_means = dataset_means[sub_mean]
         obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         rasterpath = "{}rasters".format(self.base_dir)
         self.rasters, self.affine, obs, self.nan = get_bioclim_rasters(base_dir, region, normalize, obs)
@@ -566,7 +570,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
 
-        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude, self.dataset_means)
         self.channels = channels
         self.width = width
         self.height = height
@@ -582,7 +586,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
@@ -595,7 +599,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, dataset_means, altitude=self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
@@ -613,6 +617,7 @@ class Bioclim_Rasters_Point(Dataset):
         self.organism = organism
         self.channels = None
         self.normalize = normalize
+        self.dataset_means = None
         self.observation = observation
         obs = get_gbif_observations(base_dir,organism, region, observation, threshold, topk)
         rasterpath = "{}rasters".format(self.base_dir)
@@ -787,7 +792,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         self.test = obs[obs.test].index.tolist()
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
-        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude, self.dataset_means)
         self.pix_res = width
         assert width == height, "the width and height of input images dont match!"
         self.channels = channels + self.num_rasters
@@ -877,7 +882,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         self.test = obs[obs.test].index.tolist()
         # convert to numpy
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
-        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude)
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude, self.dataset_means)
         self.pix_res = width
         assert width == height, "the width and height of input images dont match!"
         self.channels = channels + self.num_rasters

@@ -118,7 +118,8 @@ class Joint_VGG(nn.Module):
         self.mlp_choke1 = 64
         self.mlp_choke2 = 128
 
-        
+        if pretrained != 'none':
+            raise NotImplementedError("pretrained joint model hasn't been implemented yet!")
         
         # https://stackoverflow.com/questions/62629114/how-to-modify-resnet-50-with-4-channels-as-input-using-pre-trained-weights-in-py        
         if pretrained == 'finetune':
@@ -135,7 +136,7 @@ class Joint_VGG(nn.Module):
             nn.Linear(512 * 7 * 7, 4096),
             nn.BatchNorm1d(4096),
             nn.ReLU(True),
-            nn.Dropout(),
+#             nn.Dropout(),
         )
         self.mlp = nn.Sequential(
             nn.Linear(env_rasters, self.mlp_choke1),
@@ -145,9 +146,9 @@ class Joint_VGG(nn.Module):
             nn.ReLU(True),
         )
         self.intermediate2 = nn.Sequential(
-            nn.Linear(4096, 4096), 
+            nn.Linear(4096 * 2, 4096), 
             nn.ReLU(True),
-            nn.Dropout()
+#             nn.Dropout() # may need to remove???
         )
         self.spec = nn.Linear(4096, num_spec)
         self.gen = nn.Linear(4096, num_gen)
@@ -169,7 +170,7 @@ class Joint_VGG(nn.Module):
         x = torch.flatten(x, 1)
         x = self.intermediate1(x)
         rasters = self.mlp(rasters)
-        x = x + rasters
+        x = torch.cat((x, rasters), dim=1)
         x = self.intermediate2(x)
         spec = self.spec(x)
         gen = self.gen(x)

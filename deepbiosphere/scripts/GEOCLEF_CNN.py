@@ -12,6 +12,8 @@ import operator
 from functools import reduce
 import deepbiosphere.scripts.GEOCLEF_Config as config
 import deepbiosphere.scripts.VGG as vgg
+import deepbiosphere.scripts.ResNet as resnet
+import deepbiosphere.scripts.TResNet as tresnet
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -59,11 +61,18 @@ class SpecOnly(nn.Module):
 # problem: have to figure out how to load paramters for pretrained in properly then add s,g,f layers
 
 # reimplement standard VGGNet with Hsu initialization here
-def ResNet(pretrained, species, families, genera, num_channels, arch_type):
+def ResNet_18(pretrained, arch_type, species, genera, families, base_dir):
     # convert pretrained to bool
     # initialize right network with arch_type and num_channels
     # check if feature extraction or finetuning
-    raise NotImplementedError
+    return resnet.resnet18(pretrained, arch_type, species, genera, families, base_dir)
+    
+    
+def ResNet_34(pretrained, arch_type, species, genera, families, base_dir):
+    # convert pretrained to bool
+    # initialize right network with arch_type and num_channels
+    # check if feature extraction or finetuning
+    return resnet.resnet34(pretrained, arch_type, species, genera, families, base_dir)    
     
 def VGG_11(pretrained, batch_norm, species, families, genera, arch_type, base_dir):
     # convert pretrained to bool
@@ -86,7 +95,17 @@ def VGG_16(pretrained, batch_norm, species, families, genera, arch_type, base_di
     else:
         return vgg.vgg16_bn(species, genera, families, base_dir, arch_type, pretrained)
 
+def Joint_TResNet_M(pretrained, num_spec, num_gen, num_fam, env_rasters):
+    return tresnet.Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters)
 
+def Joint_ResNet_18(pretrained, num_spec, num_gen, num_fam, env_rasters):
+    return resnet.joint_resnet18(pretrained, num_spec, num_gen, num_fam, env_rasters)
+    
+def TResNet_M(pretrained, num_spec, num_gen, num_fam, base_dir):
+    return tresnet.TResnetM(pretrained, num_spec, num_gen, num_fam, base_dir)
+    
+def TResNet_L(pretrained, num_spec, num_gen, num_fam, base_dir):
+    return tresnet.TResnetL(pretrained, num_spec, num_gen, num_fam, base_dir)
     
     # TODO: fix to have normal convblock nature, well this is kind of a copy of VGGNet architecture in a way?
     # may just move forward with VGGNet  from now on
