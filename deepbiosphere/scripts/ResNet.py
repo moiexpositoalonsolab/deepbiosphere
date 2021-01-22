@@ -359,9 +359,10 @@ class Joint_ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
+        # TODO: change to just batchnorm 512,
         self.intermediate1 = nn.Sequential(
-            nn.Linear(512 * block.expansion, 1024),
-            nn.BatchNorm1d(1024),
+#             nn.Linear(512 * block.expansion, 1024),
+            nn.BatchNorm1d(512),
             nn.ReLU(True),
 #             nn.Dropout(),
         )
@@ -370,13 +371,13 @@ class Joint_ResNet(nn.Module):
         self.mlp = nn.Sequential(
             nn.Linear(env_rasters, self.mlp_choke1),
             nn.Linear(self.mlp_choke1, self.mlp_choke2),
-            nn.Linear(self.mlp_choke2, 1024),
-            nn.BatchNorm1d(1024),
+            nn.Linear(self.mlp_choke2, 512),
+            nn.BatchNorm1d(512),
             nn.ReLU(True),
         )        
         
         self.intermediate2 = nn.Sequential(
-            nn.Linear(1024 * 2, 2048), 
+            nn.Linear(1024, 2048), 
             nn.ReLU(True),
 #             nn.Dropout() # may need to remove???
         )

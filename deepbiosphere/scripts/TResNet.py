@@ -317,7 +317,8 @@ class Joint_TResNet(Module):
 #         else:
         
         self.intermediate1 = nn.Sequential(
-            nn.BatchNorm1d(2048),
+            nn.Linear(self.num_featuers, 2048),
+            nn.BatchNorm1d(2048), # this breaks for other architectures TODO add fc layer, convert down
             nn.ReLU(True),
 #             nn.Dropout(),
         )
