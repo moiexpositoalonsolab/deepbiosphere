@@ -271,8 +271,6 @@ class Joint_TResNet(Module):
         self.env_rasters = env_rasters
         self.mlp_choke1 = 64
         self.mlp_choke2 = 128        
-        if pretrained != 'none':
-            raise NotImplementedError("pretrained joint model hasn't been implemented yet!")
         # TResnet stages
         if pretrained == 'finetune':
             # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
@@ -309,16 +307,11 @@ class Joint_TResNet(Module):
         self.embeddings = []
         self.global_pool = nn.Sequential(OrderedDict([('global_pool_layer', global_pool_layer)]))
         self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
-        print("num features is ", self.num_features) # 2048!
-        # Ignore this for now, code will break for bottleneck_head but don't think will use
-#         if do_bottleneck_head:
-#             fc = bottleneck_head(self.num_features, num_classes,
-#                                  bottleneck_features=bottleneck_features)
-#         else:
+        print("num features is ", self.num_features) 
         
         self.intermediate1 = nn.Sequential(
-            nn.Linear(self.num_featuers, 2048),
-            nn.BatchNorm1d(2048), # this breaks for other architectures TODO add fc layer, convert down
+            nn.Linear(self.num_features, 2048),
+            nn.BatchNorm1d(2048),
             nn.ReLU(True),
 #             nn.Dropout(),
         )
@@ -333,20 +326,16 @@ class Joint_TResNet(Module):
             nn.ReLU(True),
         )        
         
+        self.choke = 2048
         self.intermediate2 = nn.Sequential(
-            nn.Linear(2048 * 2, 2048), 
+            nn.Linear(2048 * 2, self.choke), # todo: try different powers of 2 here 
             nn.ReLU(True),
 #             nn.Dropout() # may need to remove???
         )
-        self.spec = nn.Linear(2048, num_spec)
-        self.gen = nn.Linear(2048, num_gen)
-        self.fam = nn.Linear(2048, num_fam)
-        
-#         self.spec = nn.Linear(self.num_features, num_spec)
-#         self.gen = nn.Linear(self.num_features, num_gen)
-#         self.fam = nn.Linear(self.num_features, num_fam)        
-
-        # get rid of this and instead put in place f, g, spec fcs
+        self.spec = nn.Linear(self.choke, num_spec)
+        self.gen = nn.Linear(self.choke, num_gen)
+        self.fam = nn.Linear(self.choke, num_fam)
+  
         # model initilization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -429,8 +418,32 @@ def _tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_f
  
     return model
 
-def Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters):
-    return Joint_TResNet([3, 4, 11, 3], 4, pretrained, num_spec, num_gen, num_fam, env_rasters)
+def _joint_tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_fam : int, env_rasters : int, base_dir : str, width_factor : int
+) -> Joint_TResNet:
+    in_chans = 4
+    model = Joint_TResNet(layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, width_factor=width_factor)
+    if pretrained != 'none':
+        if arch == 'TResNetL':
+            # going to be lazy and use load_state_dict_from_url, might change in the future
+            dirr = config.setup_pretrained_dirs(base_dir) + 'TResNet/'
+            file = dirr + model_files['MSCOCO_TResnetL']
+            state = torch.load(file, map_location='cpu')
+            model.load_state_dict(state['model'], strict=False)
+        else:
+            raise NotImplementedError('no pretrained model on disk for this architecture yet!')
+        
+    if pretrained == 'feat_ext':
+        set_parameter_requires_grad(model.body)        
+ 
+    return model
+
+def Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
+    return _joint_tresnet('TResNetM', [3, 4, 11, 3], pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir, width_factor=1.0)
+    
+def Joint_TResNetL(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
+    return _joint_tresnet('TResNetL', [4, 5, 18, 3], pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir, width_factor=1.2)
+
+
 
 def TResnetM(pretrained, num_spec, num_gen, num_fam, base_dir):
     """Constructs a medium TResnet model.

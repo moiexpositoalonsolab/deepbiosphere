@@ -125,13 +125,18 @@ def setup_model(model, train_dataset, pretrained, batch_norm, arch_type):
     elif model == 'Joint_ResNet_18':
         return cnn.Joint_ResNet_18(pretrained, num_specs, num_gens, num_fams, train_dataset.num_rasters)
     elif model == 'Joint_TResNet_M':
-        return cnn.Joint_TResNet_M(pretrained, num_specs, num_gens, num_fams, train_dataset.num_rasters)
+        return cnn.Joint_TResNet_M(pretrained, num_specs, num_gens, num_fams, train_dataset.num_rasters, train_dataset.base_dir)
+    elif model == 'Joint_TResNet_L':
+        return cnn.Joint_TResNet_L(pretrained, num_specs, num_gens, num_fams, train_dataset.num_rasters, train_dataset.base_dir)    
     elif model == 'MLP_Family':
         return cnn.MLP_Family(families=num_fams, env_rasters=train_dataset.num_rasters)
     elif model == 'MLP_Family_Genus':
         return cnn.MLP_Family_Genus(families=num_fams, genera=num_gens, env_rasters=train_dataset.num_rasters)    
     elif model == 'MLP_Family_Genus_Species':
         return cnn.MLP_Family_Genus_Species(families=num_fams, genera=num_gens, species=num_specs, env_rasters=train_dataset.num_rasters)
+    elif model == 'Old_MLP_Family_Genus_Species':
+        return cnn.Old_MLP_Family_Genus_Species(families=num_fams, genera=num_gens, species=num_specs, env_rasters=train_dataset.num_rasters)    
+    
     elif model == 'SpecOnly':
         return cnn.SpecOnly(species=num_specs, num_channels=train_dataset.channels)
     else: 
@@ -140,11 +145,11 @@ def setup_model(model, train_dataset, pretrained, batch_norm, arch_type):
         
 def setup_dataloader(dataset, dtype,batch_size, processes, sampler, model, joint_collate_fn=None):
 
-    if joint_collate_fn is not None:
-        collate_fn = joint_collate_fn
-    
-    if dtype == 'satellite_rasters_point':
-        collate_fn = joint_raster_collate_fn
+    if joint_collate_fn is None:
+        if dtype == 'satellite_rasters_point':
+            collate_fn = joint_raster_collate_fn
+        else:
+            collate_fn = joint_collate_fn
     else:
         collate_fn = joint_collate_fn
     dataloader = DataLoader(dataset, batch_size, pin_memory=False, num_workers=processes, collate_fn=collate_fn, sampler=sampler, drop_last=False)
@@ -238,7 +243,8 @@ def joint_collate_fn(batch):
     all_fams = []
     imgs = []
     #(specs_label, gens_label, fams_label, images)  
-    for (spec, gen, fam, img) in batch:
+    
+    for (spec, gen, fam, img, _) in batch:
         specs_tens = torch.zeros(num_specs)
         specs_tens[spec] += 1
         all_specs.append(specs_tens)
@@ -261,7 +267,7 @@ def joint_raster_collate_fn(batch):
     imgs = []
     rasters = []
     #(specs_label, gens_label, fams_label, images, env_rasters)  
-    for (spec, gen, fam, img, raster) in batch:
+    for (spec, gen, fam, img, raster, _) in batch:
         specs_tens = torch.zeros(num_specs)
         specs_tens[spec] += 1
         all_specs.append(specs_tens)
@@ -983,6 +989,7 @@ def train_model(ARGS, params):
     # hacky way to get pretrained tresnet to have correct image scaling...
     # not ideal but it gets the job done
     print("~~~~~~ DONT  FORGET TO CHECK IF PARAMETERS CHANGE ~~~~~~")
+    # TODO: fix this, this is hella messy to have jeez
     if params.params.pretrained != 'none' and 'TResNet' in params.params.model:
         # change mean subtraction to match what pretrained tresnet expects
         print("WE ARE CHANGING SOME PARAMETERS")
@@ -1023,8 +1030,13 @@ def train_model(ARGS, params):
         test_loader = setup_dataloader(test_dataset, params.params.dataset, batch_size, ARGS.processes, SubsetRandomSampler(np.arange(100)), ARGS.model, joint_collate_fn)
         
     else:
-        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model, joint_collate_fn)
-        test_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, test_samp, ARGS.model, joint_collate_fn)
+        if params.params.dataset == 'satellite_rasters_point':
+            collate_fn = joint_raster_collate_fn
+        else:
+            collate_fn = joint_collate_fn
+        
+        train_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, train_samp, ARGS.model, collate_fn)
+        test_loader = setup_dataloader(train_dataset, params.params.dataset, batch_size, ARGS.processes, test_samp, ARGS.model, collate_fn)
  
 
     
@@ -1127,6 +1139,8 @@ if __name__ == "__main__":
     args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type', 'num_species', 'batch_norm', 'pretrained', 'arch_type']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
+    if ARGS.epoch < 0:
+        raise TypeError("must have a value set for the number of epochs to run the model")
     print('epoch', ARGS.epoch)
     print('load from config ', ARGS.load_from_config)
     if ARGS.load_from_config is not None:

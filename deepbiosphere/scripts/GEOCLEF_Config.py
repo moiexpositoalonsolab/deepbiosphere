@@ -36,11 +36,13 @@ choices = {
     'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec', 
              'MultiLabelMarginLoss', 'BCEWithLogits','BrierPresenceOnly','BrierAll','CrossEntropyPresenceOnly','AsymmetricLoss','AsymmetricLossOptimized'
              ],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet_18', 'ResNet_34', 'VGG_11',  'VGG_16', 'Joint_VGG11_MLP', 'Joint_VGG16_MLP', 'TResNet_M', 'TResNet_L', 'Joint_TResNet_M', 'Joint_ResNet_18'],
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet_18', 'ResNet_34', 'VGG_11',  'VGG_16', 'Joint_VGG11_MLP', 'Joint_VGG16_MLP', 'TResNet_M', 'TResNet_L', 'Joint_TResNet_M','Joint_TResNet_L', 'Joint_ResNet_18', 'Old_MLP_Family_Genus_Species', 'RandomForestClassifier'],
     'normalize' : ['normalize', 'min_max', 'none'],
     'loss_type' : ['none', 'mean', 'sum'],
     'arch_type' : ['plain', 'remove_fc', 'scale_fc'],
-    'pretrained' : ['none', 'feat_ext', 'finetune'],    
+    'pretrained' : ['none', 'feat_ext', 'finetune'],
+    'test_or_train' : ['test_only', 'train_only', 'test_and_train'],
+    'which_taxa' : ['spec_only', 'spec_gen_fam', 'gen_fam', 'spec_gen'],    
     
 }
 choices = SimpleNamespace(**choices)
@@ -52,7 +54,7 @@ arguments = {
     'load_from_config' : {'type':str, 'help':"set this option & provide filename to config if you want to run from config", 'required' : False},
     'base_dir': {'type':str, 'help':"what folder to read images from",'choices':choices.base_dir, 'required':True},
     'lr': {'type':float, 'help':"learning rate of model",'required':True},
-    'epoch': {'type':int, 'required':True, 'help':"how many epochs to train the model",'required':True},
+    'epoch': {'type':int,'help':"how many epochs to train the model if training and what epoch to run inference on if inferring. To run most recent model for inference, use value of -1.",'default':-1},
     'device': {'type':int, 'help':"which gpu to send model to, set -1 for cpu",'required':True},
     # only required if not loading from config
     'region': {'type':str, 'help':"which region to train on", 'choices':choices.region, 'required': ('--load_from_config' not in sys.argv) },
@@ -81,7 +83,9 @@ arguments = {
     'ecoregions_only' : {'dest':'ecoregions_only', 'help' : "use if filtering to the us census raster area", 'action' : 'store_true'},
     'num_species' : {'type' : int, 'help' : 'for building dataset, if want to cut to top K species, set this option', 'default': -1},
     'batch_norm' : {'dest' : 'batch_norm', 'help' : 'whether or not batch norm was used for training the network', 'action' : 'store_true'},
-
+        'test_or_train' : {'choices' : choices.test_or_train, 'help' : 'Run inference on just train, just test, or both', 'default' : 'test_only'},
+        'which_taxa' : {'choices' : choices.which_taxa, 'help' : 'Which taxonomic levels to use', 'default' : 'spec_only'},    
+    'n_trees': {'type':int,'help':"How many trees to build for random forest model",'default':20},
     
 
 }
@@ -103,6 +107,8 @@ def setup_main_dirs(base_dir):
 
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
+
+
         
 def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id):
     return "{}configs/{}.json".format(base_dir, build_config_name(observation, organism, region, model, loss, dataset, exp_id))
@@ -138,34 +144,55 @@ class Run_Params():
         elif ARGS.load_from_config is not None :
             abs_path = "{}configs/{}".format(base_dir, ARGS.load_from_config)
             self.params = load_parameters(abs_path)
+            if ARGS.batch_size is not None:
+                self.params.batch_size = ARGS.batch_size
             self.base_dir = ARGS.base_dir
         else:
             cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.loss, ARGS.dataset, ARGS.exp_id)
-            params = {
-                'lr': ARGS.lr,
-                'observation': ARGS.observation,
-                'organism' : ARGS.organism,
-                'region' : ARGS.region,
-                'model' : ARGS.model,
-                'exp_id' : ARGS.exp_id,
-                'seed' : ARGS.seed,
-                'batch_size' : ARGS.batch_size,
-                'loss' : ARGS.loss,
-                'normalize' : ARGS.normalize,
-                'unweighted' : ARGS.unweighted,
-                'no_altitude' : ARGS.no_alt,
-                'dataset' : ARGS.dataset,
-                'threshold' : ARGS.threshold,
-                'loss_type' : ARGS.loss_type,
-                'pretrained' : ARGS.pretrained,
-                'batch_norm' : ARGS.batch_norm,
-                'arch_type' : ARGS.arch_type,
-            }
+            
+            if ARGS.model == 'RandomForestClassifier':
+                params = {
+                    'observation': ARGS.observation,
+                    'organism' : ARGS.organism,
+                    'region' : ARGS.region,
+                    'model' : ARGS.model,
+                    'exp_id' : ARGS.exp_id,
+                    'seed' : ARGS.seed,
+                    'normalize' : ARGS.normalize,
+                    'unweighted' : ARGS.unweighted,
+                    'dataset' : ARGS.dataset,
+                    'threshold' : ARGS.threshold,
+                    'no_altitude' : ARGS.no_alt,
+                    'n_trees' : ARGS.n_trees,
+                }
+            else:
+                params = {
+                    'lr': ARGS.lr,
+                    'observation': ARGS.observation,
+                    'organism' : ARGS.organism,
+                    'region' : ARGS.region,
+                    'model' : ARGS.model,
+                    'exp_id' : ARGS.exp_id,
+                    'seed' : ARGS.seed,
+                    'batch_size' : ARGS.batch_size,
+                    'loss' : ARGS.loss,
+                    'normalize' : ARGS.normalize,
+                    'unweighted' : ARGS.unweighted,
+                    'no_altitude' : ARGS.no_alt,
+                    'dataset' : ARGS.dataset,
+                    'threshold' : ARGS.threshold,
+                    'loss_type' : ARGS.loss_type,
+                    'pretrained' : ARGS.pretrained,
+                    'batch_norm' : ARGS.batch_norm,
+                    'arch_type' : ARGS.arch_type,
+
+                }
             with open(cfg_path, 'w') as fp:
                 json.dump(params, fp)
             self.params = SimpleNamespace(**params)
             self.base_dir = ARGS.base_dir
-            self.setup_run_dirs(ARGS.base_dir)
+            if ARGS.model != 'RandomForestClassifier':
+                self.setup_run_dirs(ARGS.base_dir)
 
     def build_rel_path(self, base_dir, name):
         return "{}{}/{}/{}/{}/{}/{}/{}/".format(base_dir, name, self.params.observation, self.params.organism, self.params.region, self.params.model, self.params.loss, self.params.dataset)
