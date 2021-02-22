@@ -511,7 +511,7 @@ class HighRes_Satellite_Images_Only(Dataset):
         id_ = self.obs[idx, id_idx]
         images = utils.image_from_id(id_, self.base_dir, self.dataset_means, altitude=self.altitude)
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, images)
+        return (specs_label, gens_label, fams_label, images, idx)
     
     
     def infer_item(self, idx):
@@ -592,7 +592,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, images, env_rasters)
+        return (specs_label, gens_label, fams_label, images, env_rasters, idx)
 
     def infer_item(self, idx):
         if torch.is_tensor(idx):
@@ -670,7 +670,7 @@ class Bioclim_Rasters_Point(Dataset):
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, env_rasters)
+        return (specs_label, gens_label, fams_label, env_rasters, idx)
     def infer_item(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
@@ -680,7 +680,7 @@ class Bioclim_Rasters_Point(Dataset):
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
 
         specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters, idx)
     
     # just the environmental rasters as an image
 class Bioclim_Rasters_Image(Dataset):
@@ -740,7 +740,7 @@ class Bioclim_Rasters_Image(Dataset):
         env_rasters = get_raster_image_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.pix_res)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, env_rasters)
+        return (specs_label, gens_label, fams_label, env_rasters, idx)
     def infer_item(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
@@ -748,7 +748,7 @@ class Bioclim_Rasters_Image(Dataset):
         env_rasters = get_raster_image_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.pix_res)
 
         specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters)    
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, env_rasters, idx)    
     
 class HighRes_Satellite_Rasters_LowRes(Dataset):
     
@@ -820,7 +820,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, all_imgs)
+        return (specs_label, gens_label, fams_label, all_imgs, idx)
     def infer_item(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
@@ -835,7 +835,7 @@ class HighRes_Satellite_Rasters_LowRes(Dataset):
         
 
         specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, all_imgs)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, all_imgs, idx)
 
 class HighRes_Satellite_Rasters_Sheet(Dataset):
     def __init__(self, base_dir, organism, region, normalize, observation, altitude, threshold, topk):
@@ -908,7 +908,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         all_imgs = np.concatenate([images, env_rasters], axis=0)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, all_imgs)
+        return (specs_label, gens_label, fams_label, all_imgs, idx)
     def infer_item(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
@@ -921,4 +921,4 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
         all_imgs = np.concatenate([images, env_rasters], axis=0)
 
         specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
-        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, all_imgs)
+        return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, all_imgs, idx)

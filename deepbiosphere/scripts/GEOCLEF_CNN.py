@@ -95,8 +95,11 @@ def VGG_16(pretrained, batch_norm, species, families, genera, arch_type, base_di
     else:
         return vgg.vgg16_bn(species, genera, families, base_dir, arch_type, pretrained)
 
-def Joint_TResNet_M(pretrained, num_spec, num_gen, num_fam, env_rasters):
-    return tresnet.Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters)
+def Joint_TResNet_M(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
+    return tresnet.Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir)
+
+def Joint_TResNet_L(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
+    return tresnet.Joint_TResNetL(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir)
 
 def Joint_ResNet_18(pretrained, num_spec, num_gen, num_fam, env_rasters):
     return resnet.joint_resnet18(pretrained, num_spec, num_gen, num_fam, env_rasters)
@@ -233,6 +236,35 @@ class MLP_Family_Genus_Species(nn.Module):
         spec = self.mlpout(F.relu(x))        
         return spec, gen, fam
 
+    
+    
+class Old_MLP_Family_Genus_Species(nn.Module):
+    """
+    Checking - it requires more training time, 1 layer more 
+    """
+    def __init__(self, families, genera, species, env_rasters):
+    #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
+        super(Old_MLP_Family_Genus_Species, self).__init__()
+        self.families = families
+        self.genera = genera
+        self.species = species
+        self.env_rasters = env_rasters
+        self.mlp_choke1 = 64
+        self.mlp_choke2 = 128
+        self.mlp1 = nn.Linear(env_rasters, self.mlp_choke1)
+        self.mlp2 = nn.Linear(self.mlp_choke1, self.mlp_choke2)
+        self.mlp_fam = nn.Linear(self.mlp_choke2, self.families)
+        self.mlp_gen = nn.Linear(self.families, self.genera)
+        self.mlpout = nn.Linear(self.genera, self.species)
+        
+    def forward(self, rasters):
+        # pass images through CNN
+        x = F.relu(self.mlp1(rasters))
+        x = F.relu(self.mlp2(x))
+        fam = self.mlp_fam(F.relu(x))
+        gen = self.mlp_gen(F.relu(fam))
+        spec = self.mlpout(F.relu(gen))        
+        return spec, gen, fam
     
     # -------- Joint Models ------------- #
     
