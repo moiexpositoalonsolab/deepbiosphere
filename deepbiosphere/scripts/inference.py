@@ -283,7 +283,7 @@ def update_lab_dict(y, yhat, label_dict, inv_dict):
 # for the time being, don't wory about batching, will cross that bridge if too slow
 def eval_model_new(config_name, base_dir, device='cpu', test=True, outputs='all'):
     print('setting up parameters')
-    params = Run_Params(cfg_path=config_name, base_dir=paths.AZURE_DIR)
+    params = Run_Params(cfg_path=config_name, base_dir=base_dir)
     state = params.get_recent_model()
     dataset = run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, num_species=-1)
     # TODO: doesn't handle num_species right?

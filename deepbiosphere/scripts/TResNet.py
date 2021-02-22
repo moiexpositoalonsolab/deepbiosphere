@@ -7,7 +7,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch.nn import Module as Module
 from collections import OrderedDict
-from inplace_abn import InPlaceABN
+# from inplace_abn import InPlaceABN
 import deepbiosphere.scripts.GEOCLEF_Config as config
 
 # from inplace_abn import ABN
@@ -142,7 +142,7 @@ class TResNet(Module):
         super(TResNet, self).__init__()
 
         # JIT layers
-        space_to_depth = SpaceToDepthModule()
+        space_to_depth = SpaceToDepthModule() # TODO: remove
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
