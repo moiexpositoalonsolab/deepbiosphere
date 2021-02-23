@@ -36,7 +36,7 @@ choices = {
     'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec', 
              'MultiLabelMarginLoss', 'BCEWithLogits','BrierPresenceOnly','BrierAll','CrossEntropyPresenceOnly','AsymmetricLoss','AsymmetricLossOptimized'
              ],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet_18', 'ResNet_34', 'VGG_11',  'VGG_16', 'Joint_VGG11_MLP', 'Joint_VGG16_MLP', 'TResNet_M', 'TResNet_L', 'Joint_TResNet_M','Joint_TResNet_L', 'Joint_ResNet_18', 'Old_MLP_Family_Genus_Species', 'RandomForestClassifier', "MaxEnt"],
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet_18', 'ResNet_34', 'VGG_11',  'VGG_16', 'Joint_VGG11_MLP', 'Joint_VGG16_MLP', 'TResNet_M', 'TResNet_L', 'Joint_TResNet_M','Joint_TResNet_L', 'Joint_ResNet_18', 'New_MLP_Family_Genus_Species', 'RandomForestClassifier', 'MaxEnt'],
     'normalize' : ['normalize', 'min_max', 'none'],
     'loss_type' : ['none', 'mean', 'sum'],
     'arch_type' : ['plain', 'remove_fc', 'scale_fc'],
