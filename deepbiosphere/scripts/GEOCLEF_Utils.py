@@ -16,7 +16,12 @@ def dict_key_2_index(df, key):
 
 
 
-
+def dict_from_columns(df, key_col, val_col):
+    ret = {}
+    assert key_col in df.columns and val_col in df.columns
+    for key, val in zip(df[key_col], df[val_col]):
+        ret[key] = val
+    return ret
 
 # https://www.movable-type.co.uk/scripts/latlong.html
 def nmea_2_meters(lat1, lon1, lat2, lon2):
@@ -353,6 +358,13 @@ def clean_all_models(base_dir, data='nets', num_2_keep=5):
                     for to_remove in to_toss:
                         os.remove(to_remove)
         print("\n")
+        
+        
+def numpy_2_df(np_arr, columns, other_df=None, cols_2_steal=None):
+    df_arr = pd.DataFrame(np_arr, columns=columns)
+    if other_df is not None:
+        df_arr[cols_2_steal] = other_df[cols_2_steal]
+    return df_arr
     
 def sort_by_epoch(paths, reversed=False):    
     return sorted(paths, reverse=reversed,key= lambda x: (int(x.split('_e')[-1].split('.')[0])))
