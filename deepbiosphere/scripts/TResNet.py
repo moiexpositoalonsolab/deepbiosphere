@@ -7,7 +7,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch.nn import Module as Module
 from collections import OrderedDict
-# from inplace_abn import InPlaceABN
+from inplace_abn import InPlaceABN
 import deepbiosphere.scripts.GEOCLEF_Config as config
 
 # from inplace_abn import ABN

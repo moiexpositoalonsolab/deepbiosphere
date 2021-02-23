@@ -208,13 +208,13 @@ class MLP_Family_Genus(nn.Module):
         return fam, gen
     
        
-class MLP_Family_Genus_Species(nn.Module):
+class New_MLP_Family_Genus_Species(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
     """
     def __init__(self, families, genera, species, env_rasters):
     #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
-        super(MLP_Family_Genus_Species, self).__init__()
+        super(New_MLP_Family_Genus_Species, self).__init__()
         self.families = families
         self.genera = genera
         self.species = species
@@ -237,14 +237,14 @@ class MLP_Family_Genus_Species(nn.Module):
         return spec, gen, fam
 
     
-    
-class Old_MLP_Family_Genus_Species(nn.Module):
+    # switch up
+class MLP_Family_Genus_Species(nn.Module):
     """
     Checking - it requires more training time, 1 layer more 
     """
     def __init__(self, families, genera, species, env_rasters):
     #inspo: https://www.pyimagesearch.com/2019/02/04/keras-multiple-inputs-and-mixed-data/ 
-        super(Old_MLP_Family_Genus_Species, self).__init__()
+        super(MLP_Family_Genus_Species, self).__init__()
         self.families = families
         self.genera = genera
         self.species = species
