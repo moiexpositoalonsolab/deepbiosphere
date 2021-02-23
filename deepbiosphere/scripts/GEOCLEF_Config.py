@@ -110,7 +110,8 @@ def setup_main_dirs(base_dir):
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
 
-def build_inference_path(base_dir, model, dist_features, taxa, num_specs, dir=False):
+def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False):
+    
     if dir:
         return "{}inference/".format(base_dir)
     else:
@@ -118,10 +119,10 @@ def build_inference_path(base_dir, model, dist_features, taxa, num_specs, dir=Fa
             nsp = 'all_spec'
         else:
             nsp = "top_{}_spec".format(num_specs)
-        return "{}inference/{}".format(base_dir, build_inference_name(model, dist_features, taxa, nsp))
+        return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp))
     
-def build_inference_name(model, dist_features, taxa, num_species):
-    return "{}_{}_{}_{}_{}_{}_{}.csv".format(model, dist_features, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
+def build_inference_name(model, loss, exp_id, taxa, num_species):
+    return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
         
 def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id, dir=False):
     if dir:
@@ -280,12 +281,12 @@ class Run_Params():
 
     def get_all_inference(self, num_specs):
   
-        pth_spec = build_inference_path(self.base_dir, self.params.model, "*", 'species', num_specs)
-        pth_gen = build_inference_path(self.base_dir, self.params.model, "*", 'genus', num_specs)
-        pth_fam = build_inference_path(self.base_dir, self.params.model, "*", 'family', num_specs)
-        
-
+        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs)
+        pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs)
+        pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs)
+        print(pth_spec)
         pths_s = glob.glob(pth_spec)
+        print("s is ", pths_s)
         pths_g = glob.glob(pth_gen)
         pths_f = glob.glob(pth_fam)
         return pths_s, pths_g, pths_f

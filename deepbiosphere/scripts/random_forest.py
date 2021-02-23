@@ -2,6 +2,7 @@ from datetime import datetime
 import time
 import deepbiosphere.scripts.GEOCLEF_Run as run
 import pandas as pd
+from types import SimpleNamespace 
 from deepbiosphere.scripts.GEOCLEF_Config import paths, Run_Params
 import deepbiosphere.scripts.GEOCLEF_Config as config
 # Import train_test_split function
@@ -110,12 +111,12 @@ def random_forest(params, base_dir, num_species, processes):
     df_spec = utils.numpy_2_df(total_spec, spec_cols, obs, to_transfer)
     df_gen  = utils.numpy_2_df(total_gen, gen_cols, obs, to_transfer)
     df_fam  = utils.numpy_2_df(total_fam, fam_cols, obs, to_transfer)
-    spec_pth = config.build_inference_path(base_dir, params.params.model, "{}trees".format(params.params.n_trees), 'species', num_species)
-    gen_pth = config.build_inference_path(base_dir, params.params.model, "{}trees".format(params.params.n_trees), 'genus', num_species)
-    fam_pth = config.build_inference_path(base_dir, params.params.model, "{}trees".format(params.params.n_trees), 'family', num_species)
-    df_spec.to_csv(spec_pth)
-    df_gen.to_csv(gen_pth)
-    df_fam.to_csv(fam_pth)
+    pth_spec = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'species', num_species)
+    pth_gen = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'genus', num_species)
+    pth_fam = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'family', num_species)
+    df_spec.to_csv(pth_spec)
+    df_gen.to_csv(pth_gen)
+    df_fam.to_csv(pth_fam)
 
 
     Y_spec = Y[:,:dset.num_specs]
@@ -125,17 +126,42 @@ def random_forest(params, base_dir, num_species, processes):
     assert Y_gen.shape == (len(dset), dset.num_gens)
     assert Y_fam.shape == (len(dset), dset.num_fams)
     
+    # create config file for y-trues
+
+    paramss = {
+        'lr': 'none',
+        'observation': params.params.observation,
+        'organism' : params.params.organism,
+        'region' : params.params.region,
+        'model' : 'Ground_truth',
+        'exp_id' : params.params.exp_id,
+        'seed' : 'none',
+        'batch_size' : 'none',
+        'loss' : 'none',
+        'normalize' : 'none',
+        'unweighted' : 'none',
+        'no_alt' : 'none',
+        'dataset' : 'none',
+        'threshold' : 'none',
+        'loss_type' : 'none',
+        'pretrained' : 'none',
+        'batch_norm' : 'none',
+        'arch_type' : 'none',
+        'load_from_config' : None,
+        'base_dir' : base_dir
+    }
+
+    paramss = SimpleNamespace(**paramss)
+    ytrues = config.Run_Params(base_dir, paramss)
     ytru_spec = utils.numpy_2_df(Y_spec, spec_cols, obs, to_transfer)
     ytru_gen  = utils.numpy_2_df(Y_gen, gen_cols, obs, to_transfer)
     ytru_fam  = utils.numpy_2_df(Y_fam, fam_cols, obs, to_transfer)
-
-    spec_pth = config.build_inference_path(base_dir, 'ground_truth', "", 'species', num_species)
-    gen_pth = config.build_inference_path(base_dir, 'ground_truth', '', 'genus', num_species)
-    fam_pth = config.build_inference_path(base_dir, 'ground_truth', '', 'family', num_species)    
- 
-    ytru_spec.to_csv(spec_pth)
-    ytru_gen.to_csv(gen_pth)
-    ytru_fam.to_csv(fam_pth)
+    pth_spec = config.build_inference_path(base_dir, paramss.params.model, paramss.params.loss, paramss.params.exp_id, 'species', num_species)
+    pth_gen = config.build_inference_path(base_dir, paramss.params.model, paramss.params.loss, paramss.params.exp_id, 'genus', num_species)
+    pth_fam = config.build_inference_path(base_dir, paramss.params.model, paramss.params.loss, paramss.params.exp_id, 'family', num_species)
+    ytru_spec.to_csv(pth_spec)
+    ytru_gen.to_csv(pth_gen)
+    ytru_fam.to_csv(pth_fam)
     tock = time.time()
     print("took {} minutes to save data".format((tock-tick)/60))
     
