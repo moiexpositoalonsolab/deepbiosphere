@@ -456,7 +456,7 @@ all_sp_idx = 4
 all_gen_idx = 6
 all_fam_idx = 5
 lat_lon_idx = 7
-ids_idx = 7
+# ids_idx = 7
 
 
 
@@ -495,7 +495,7 @@ class HighRes_Satellite_Images_Only(Dataset):
         # convert to numpy
         self.test = obs[obs.test].index.tolist()
         self.train = obs[~obs.test].index.tolist()        
-        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'extra_ids']].values
+        self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
         channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude, self.dataset_means)
         self.channels = channels
         self.width = width

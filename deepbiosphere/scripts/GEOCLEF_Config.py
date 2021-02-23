@@ -36,7 +36,7 @@ choices = {
     'loss' : ['all', 'cumulative', 'sequential', 'just_fam', 'fam_gen', 'none', 'just_spec', 
              'MultiLabelMarginLoss', 'BCEWithLogits','BrierPresenceOnly','BrierAll','CrossEntropyPresenceOnly','AsymmetricLoss','AsymmetricLossOptimized'
              ],
-    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet_18', 'ResNet_34', 'VGG_11',  'VGG_16', 'Joint_VGG11_MLP', 'Joint_VGG16_MLP', 'TResNet_M', 'TResNet_L', 'Joint_TResNet_M','Joint_TResNet_L', 'Joint_ResNet_18', 'Old_MLP_Family_Genus_Species', 'RandomForestClassifier'],
+    'model': ['SkipNet', 'SkipFCNet', 'OGNet', 'OGNoFamNet', 'RandomForest', 'SVM', 'FCNet', 'MixNet', 'SkipFullFamNet', 'MixFullNet','SpecOnly', 'MLP_Family', 'MLP_Family_Genus', 'MLP_Family_Genus_Species', 'FlatNet', 'ResNet_18', 'ResNet_34', 'VGG_11',  'VGG_16', 'Joint_VGG11_MLP', 'Joint_VGG16_MLP', 'TResNet_M', 'TResNet_L', 'Joint_TResNet_M','Joint_TResNet_L', 'Joint_ResNet_18', 'Old_MLP_Family_Genus_Species', 'RandomForestClassifier', "MaxEnt"],
     'normalize' : ['normalize', 'min_max', 'none'],
     'loss_type' : ['none', 'mean', 'sum'],
     'arch_type' : ['plain', 'remove_fc', 'scale_fc'],
@@ -104,14 +104,30 @@ def setup_main_dirs(base_dir):
         os.makedirs("{}nets/".format(base_dir))
     if not os.path.exists("{}desiderata/".format(base_dir)):
         os.makedirs("{}desiderata/".format(base_dir))  
+    if not os.path.exists("{}inference/".format(base_dir)):
+        os.makedirs("{}inference/".format(base_dir))          
 
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
 
-
+def build_inference_path(base_dir, model, dist_features, taxa, num_specs, dir=False):
+    if dir:
+        return "{}inference/".format(base_dir)
+    else:
+        if num_specs < 0:
+            nsp = 'all_spec'
+        else:
+            nsp = "top_{}_spec".format(num_specs)
+        return "{}inference/{}".format(base_dir, build_inference_name(model, dist_features, taxa, nsp))
+    
+def build_inference_name(model, dist_features, taxa, num_species):
+    return "{}_{}_{}_{}_{}_{}_{}.csv".format(model, dist_features, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
         
-def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id):
-    return "{}configs/{}.json".format(base_dir, build_config_name(observation, organism, region, model, loss, dataset, exp_id))
+def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id, dir=False):
+    if dir:
+        return "{}configs/".format(base_dir)
+    else:
+        return "{}configs/{}.json".format(base_dir, build_config_name(observation, organism, region, model, loss, dataset, exp_id))
 
 def build_hyperparams_path(base_dir, exp_id):
     if not os.path.exists("{}desiderata/hyperparams/".format(base_dir)):
@@ -126,7 +142,11 @@ def load_parameters(abs_path):
         params = json.load(fp)
     params = SimpleNamespace(**params)
     return params
-
+def get_ground_truth(num_species, base_dir):
+    spec_pth = build_inference_path(base_dir, 'ground_truth', "", 'species', num_species)
+    gen_pth = build_inference_path(base_dir, 'ground_truth', '', 'genus', num_species)
+    fam_pth = build_inference_path(base_dir, 'ground_truth', '', 'family', num_species)    
+    return spec_pth, gen_pth, fam_pth
 
 class Run_Params():
     def __init__(self, base_dir, ARGS=None, cfg_path=None):
@@ -164,7 +184,22 @@ class Run_Params():
                     'threshold' : ARGS.threshold,
                     'no_altitude' : ARGS.no_alt,
                     'n_trees' : ARGS.n_trees,
+                    'loss' : ARGS.loss,                    
                 }
+            elif ARGS.model == 'MaxEnt':
+                params = {
+                    'observation': ARGS.observation,
+                    'organism' : ARGS.organism,
+                    'region' : ARGS.region,
+                    'model' : ARGS.model,
+                    'exp_id' : ARGS.exp_id,
+                    'dataset' : ARGS.dataset,
+                    'threshold' : ARGS.threshold,
+                    'loss' : ARGS.loss,
+                    'no_altitude' : ARGS.no_alt, 
+                    'normalize' : ARGS.normalize,
+                }
+
             else:
                 params = {
                     'lr': ARGS.lr,
@@ -243,9 +278,33 @@ class Run_Params():
         print("no adequate model found!")
         return None
 
+    def get_all_inference(self, num_specs):
+  
+        pth_spec = build_inference_path(self.base_dir, self.params.model, "*", 'species', num_specs)
+        pth_gen = build_inference_path(self.base_dir, self.params.model, "*", 'genus', num_specs)
+        pth_fam = build_inference_path(self.base_dir, self.params.model, "*", 'family', num_specs)
+        
+
+        pths_s = glob.glob(pth_spec)
+        pths_g = glob.glob(pth_gen)
+        pths_f = glob.glob(pth_fam)
+        return pths_s, pths_g, pths_f
+        
+        #TODO: doesn't handle bonus stuff properly
+    def get_most_recent_inference(self, num_species=-1):
+        sp, gen, fam = self.get_all_inference(num_species)
+    
+        assert len(sp) > 0 and len(gen)  > 0 and len(fam) > 0, "inference files missing for a taxa category!"
+        
+        sp.sort(key=os.path.getmtime, reverse=True)
+        gen.sort(key=os.path.getmtime, reverse=True)
+        fam.sort(key=os.path.getmtime, reverse=True)
+        
+        return sp[0], gen[0], fam[0]
+        
 
     def get_most_recent_des(self, epoch=None):
-        paths, epochs = self.get_all_desi('self.base_dir')
+        paths, epochs = self.get_all_desi()
         if epoch is not None:
             assert epoch in epochs, "incorrect epoch for this model!"
         if len(paths) <= 0:

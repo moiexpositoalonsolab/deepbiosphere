@@ -100,30 +100,22 @@ def random_forest(params, base_dir, num_species, processes):
     total_fam[idxs['train']] = train_fam
     print("saving data")
     tick = time.time()
-    df_spec = pd.DataFrame(total_spec)
-    df_gen = pd.DataFrame(total_gen)
-    df_fam = pd.DataFrame(total_fam)    
+    to_transfer = ['lat', 'lon', 'region', 'city', 'NA_L3NAME', 'US_L3NAME', 'NA_L2NAME', 'NA_L1NAME', 'test']    
     inv_gen = {v: k for k, v in dset.gen_dict.items()}
     inv_fam = {v: k for k, v in dset.fam_dict.items()}
-    df_spec.columns = [dset.inv_spec[i] for i in range(dset.num_specs)]
-    df_gen.columns = [inv_gen[i] for i in range(dset.num_gens)]
-    df_fam.columns = [inv_fam[i] for i in range(dset.num_fams)]
-    to_transfer = ['lat', 'lon', 'region', 'city', 'NA_L3NAME', 'US_L3NAME', 'NA_L2NAME', 'NA_L1NAME', 'test']
-    df_spec[to_transfer] = obs[to_transfer]
-    df_gen[to_transfer] = obs[to_transfer]
-    df_fam[to_transfer] = obs[to_transfer]    
+    spec_cols = [dset.inv_spec[i] for i in range(dset.num_specs)]
+    gen_cols = [inv_gen[i] for i in range(dset.num_gens)]
+    fam_cols = [inv_fam[i] for i in range(dset.num_fams)]    
     
-    if num_species < 0:
-        nsp = 'all_spec'
-    else:
-        nsp = "top_{}_spec".format(num_species)    
-    # get good name and save to csv
-    name_spec = "{}_{}_{}_{}_{}_{}_{}.csv".format("RandomForestClassifier", params.params.n_trees ,  'species' , nsp, datetime.now().day, datetime.now().month, datetime.now().year)
-    name_gen = "{}_{}_{}_{}_{}_{}_{}.csv".format("RandomForestClassifier", params.params.n_trees, 'genera' , nsp, datetime.now().day, datetime.now().month, datetime.now().year)
-    name_fam = "{}_{}_{}_{}_{}_{}_{}.csv".format("RandomForestClassifier", params.params.n_trees, 'family' , nsp, datetime.now().day, datetime.now().month, datetime.now().year,)
-    df_spec.to_csv(base_dir + '/inference/' + name_spec)
-    df_gen.to_csv(base_dir + '/inference/' +name_gen)
-    df_fam.to_csv(base_dir + '/inference/' + name_fam)       
+    df_spec = utils.numpy_2_df(total_spec, spec_cols, obs, to_transfer)
+    df_gen  = utils.numpy_2_df(total_gen, gen_cols, obs, to_transfer)
+    df_fam  = utils.numpy_2_df(total_fam, fam_cols, obs, to_transfer)
+    spec_pth = config.build_inference_path(base_dir, params.params.model, "{}trees".format(params.params.n_trees), 'species', num_species)
+    gen_pth = config.build_inference_path(base_dir, params.params.model, "{}trees".format(params.params.n_trees), 'genus', num_species)
+    fam_pth = config.build_inference_path(base_dir, params.params.model, "{}trees".format(params.params.n_trees), 'family', num_species)
+    df_spec.to_csv(spec_pth)
+    df_gen.to_csv(gen_pth)
+    df_fam.to_csv(fam_pth)
 
 
     Y_spec = Y[:,:dset.num_specs]
@@ -131,27 +123,19 @@ def random_forest(params, base_dir, num_species, processes):
     Y_fam = Y[:, (dset.num_specs + dset.num_gens):]
     assert Y_spec.shape == (len(dset), dset.num_specs)
     assert Y_gen.shape == (len(dset), dset.num_gens)
-    assert Y_fam.shape == (len(dset), dset.num_fams)    
-    ytru_spec = pd.DataFrame(Y_spec)
-    ytru_gen  = pd.DataFrame(Y_gen)
-    ytru_fam  = pd.DataFrame(Y_fam)
+    assert Y_fam.shape == (len(dset), dset.num_fams)
     
-    ytru_spec.columns = [dset.inv_spec[i] for i in range(dset.num_specs)]
-    ytru_gen.columns = [inv_gen[i] for i in range(dset.num_gens)]
-    ytru_fam.columns = [inv_fam[i] for i in range(dset.num_fams)]
-    to_transfer = ['lat', 'lon', 'region', 'city', 'NA_L3NAME', 'US_L3NAME', 'NA_L2NAME', 'NA_L1NAME', 'test']
-    ytru_spec[to_transfer] = obs[to_transfer]
-    ytru_gen[to_transfer] = obs[to_transfer]
-    ytru_fam[to_transfer] = obs[to_transfer]        
-    
+    ytru_spec = utils.numpy_2_df(Y_spec, spec_cols, obs, to_transfer)
+    ytru_gen  = utils.numpy_2_df(Y_gen, gen_cols, obs, to_transfer)
+    ytru_fam  = utils.numpy_2_df(Y_fam, fam_cols, obs, to_transfer)
 
-    # get good name and save to csv
-    name_spec = "ytrue_species_{}.csv".format(nsp)
-    name_gen = "ytrue_genus_{}.csv".format(nsp)
-    name_fam = "ytrue_family_{}.csv".format(nsp)    
-    ytru_spec.to_csv(base_dir + '/inference/' + name_spec)
-    ytru_gen.to_csv(base_dir + '/inference/' + name_gen)
-    ytru_fam.to_csv( base_dir + '/inference/' + name_fam)       
+    spec_pth = config.build_inference_path(base_dir, 'ground_truth', "", 'species', num_species)
+    gen_pth = config.build_inference_path(base_dir, 'ground_truth', '', 'genus', num_species)
+    fam_pth = config.build_inference_path(base_dir, 'ground_truth', '', 'family', num_species)    
+ 
+    ytru_spec.to_csv(spec_pth)
+    ytru_gen.to_csv(gen_pth)
+    ytru_fam.to_csv(fam_pth)
     tock = time.time()
     print("took {} minutes to save data".format((tock-tick)/60))
     
@@ -165,6 +149,6 @@ if __name__ == "__main__":
 #     ARGS['model'] = 'RandomForestClassifier'
     config.setup_main_dirs(ARGS.base_dir)
     params = config.Run_Params(ARGS.base_dir, ARGS)
-    
+    # TODO: make sure you can only set model to be random forest here    
     ARGS = config.parse_known_args(args)
     random_forest(params, ARGS.base_dir, ARGS.num_species, ARGS.processes)
