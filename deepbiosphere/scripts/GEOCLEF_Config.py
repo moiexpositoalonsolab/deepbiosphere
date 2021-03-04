@@ -90,6 +90,9 @@ arguments = {
 
 }
 
+def get_res_dir(args.base_dir):
+    return "{}/results/{}_{}_{}/".format(args.base_dir, datetime.now().day, datetime.now().month, datetime.now().year)
+
 def setup_pretrained_dirs(base_dir):
     if not os.path.exists("{}nets/pretrained/".format(base_dir)):
         os.makedirs("{}nets/pretrained/".format(base_dir))
@@ -110,7 +113,7 @@ def setup_main_dirs(base_dir):
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
 
-def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False):
+def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False, across_time=False):
     
     if dir:
         return "{}inference/".format(base_dir)
@@ -119,12 +122,15 @@ def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=Fal
             nsp = 'all_spec'
         else:
             nsp = "top_{}_spec".format(num_specs)
-        return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp))
+        return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp, across_time=across_time))
     
-def build_inference_name(model, loss, exp_id, taxa, num_species):
-    return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
+def build_inference_name(model, loss, exp_id, taxa, num_species, across_time=False):
+    if across_time:
+        return "{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, '*')
+    else:
+        return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
         
-def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id, dir=False):
+def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id, dir=False, across_time=False):
     if dir:
         return "{}configs/".format(base_dir)
     else:
@@ -159,7 +165,8 @@ class Run_Params():
         if cfg_path is not None:
             abs_path = "{}configs/{}".format(base_dir, cfg_path)
             self.params = load_parameters(abs_path)
-#             print(vars(params))
+            if self.params.model == "RandomForestClassifier":
+                self.params.loss = self.params.n_trees
             self.base_dir = base_dir
         # will hopefully short circuit out of check if args is None but cfg_path isn't    
         elif ARGS.load_from_config is not None :
@@ -185,7 +192,7 @@ class Run_Params():
                     'threshold' : ARGS.threshold,
                     'no_altitude' : ARGS.no_alt,
                     'n_trees' : ARGS.n_trees,
-                    'loss' : ARGS.loss,                    
+                    'loss' : ARGS.n_trees,  # sketchy I know but gets files to work                  
                 }
             elif ARGS.model == 'MaxEnt':
                 params = {
@@ -281,14 +288,17 @@ class Run_Params():
 
     def get_all_inference(self, num_specs):
   
-        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs)
-        pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs)
-        pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs)
-        print(pth_spec)
+        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, across_time=True)
+        pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs, across_time=True)
+        pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs, across_time=True)
+#         print('path to glob', pth_spec, pth_gen, pth_fam)
         pths_s = glob.glob(pth_spec)
-        print("s is ", pths_s)
+#         print("s is ", pths_s)
+
         pths_g = glob.glob(pth_gen)
         pths_f = glob.glob(pth_fam)
+#         print("g is ", pths_g)
+#         print("f is ", pths_f)                
         return pths_s, pths_g, pths_f
         
         #TODO: doesn't handle bonus stuff properly

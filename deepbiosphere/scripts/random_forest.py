@@ -5,6 +5,7 @@ import pandas as pd
 from types import SimpleNamespace 
 from deepbiosphere.scripts.GEOCLEF_Config import paths, Run_Params
 import deepbiosphere.scripts.GEOCLEF_Config as config
+import deepbiosphere.scripts.GEOCLEF_Utils as utils
 # Import train_test_split function
 from sklearn.model_selection import train_test_split
 from deepbiosphere.scripts import GEOCLEF_Dataset as dataset
@@ -48,9 +49,10 @@ def random_forest(params, base_dir, num_species, processes):
     
     tick = time.time()
     if params.params.unweighted:
-        class_weight = 'None'
+        class_weight = None
     else:
         class_weight = 'balanced'
+    
     clf = RandomForestClassifier(n_estimators=params.params.n_trees, verbose=3, n_jobs=processes, class_weight = class_weight)
     clf = clf.fit(Xtrain, Ytrain)
     tock = time.time()
@@ -156,9 +158,9 @@ def random_forest(params, base_dir, num_species, processes):
     ytru_spec = utils.numpy_2_df(Y_spec, spec_cols, obs, to_transfer)
     ytru_gen  = utils.numpy_2_df(Y_gen, gen_cols, obs, to_transfer)
     ytru_fam  = utils.numpy_2_df(Y_fam, fam_cols, obs, to_transfer)
-    pth_spec = config.build_inference_path(base_dir, paramss.params.model, paramss.params.loss, paramss.params.exp_id, 'species', num_species)
-    pth_gen = config.build_inference_path(base_dir, paramss.params.model, paramss.params.loss, paramss.params.exp_id, 'genus', num_species)
-    pth_fam = config.build_inference_path(base_dir, paramss.params.model, paramss.params.loss, paramss.params.exp_id, 'family', num_species)
+    pth_spec = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'species', num_species)
+    pth_gen = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'genus', num_species)
+    pth_fam = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'family', num_species)
     ytru_spec.to_csv(pth_spec)
     ytru_gen.to_csv(pth_gen)
     ytru_fam.to_csv(pth_fam)
