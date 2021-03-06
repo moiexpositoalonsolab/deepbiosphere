@@ -95,6 +95,7 @@ def run_metrics_and_longform(args):
     metrics.recall_score,
     metrics.f1_score,
     metrics.accuracy_score,
+    metrics.roc_auc_score
     ]
 
     # TODO: handle these bad boys
@@ -311,7 +312,7 @@ def run_metrics(df, y_true, y_obs, mets, score_idx, i):
 # probability weight metrics
     for met in mets:
         tick = time.time()
-        if met.__name__ == 'accuracy_score':
+        if met.__name__ == 'accuracy_score' or met.__name__ == 'roc_auc' :
             out = met(y_true, y_obs) 
         else:
             out = met(y_true, y_obs, average='weighted') 
