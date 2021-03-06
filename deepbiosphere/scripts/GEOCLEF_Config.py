@@ -43,6 +43,7 @@ choices = {
     'pretrained' : ['none', 'feat_ext', 'finetune'],
     'test_or_train' : ['test_only', 'train_only', 'test_and_train'],
     'which_taxa' : ['spec_only', 'spec_gen_fam', 'gen_fam', 'spec_gen'],    
+    'ecoregion' : ['NA_L1NAME','NA_L2NAME','NA_L3NAME','US_L3NAME']
     
 }
 choices = SimpleNamespace(**choices)
@@ -86,12 +87,17 @@ arguments = {
         'test_or_train' : {'choices' : choices.test_or_train, 'help' : 'Run inference on just train, just test, or both', 'default' : 'test_only'},
         'which_taxa' : {'choices' : choices.which_taxa, 'help' : 'Which taxonomic levels to use', 'default' : 'spec_only'},    
     'n_trees': {'type':int,'help':"How many trees to build for random forest model",'default':20},
-    
+    'config_path': {'type':str,'help':"relative (within base_dir) path to json of models to load",'required' : True},
+    'ecoregion': {'choices' : choices.ecoregion,'help':"which ecoregion to split the data into",'default' : 'NA_L3NAME'},
+    'pres_threshold': {'type' : float,'help':"what value to threshold the presence-absence of the model",'default' : 0.5},
 
 }
 
-def get_res_dir(args.base_dir):
-    return "{}/results/{}_{}_{}/".format(args.base_dir, datetime.now().day, datetime.now().month, datetime.now().year)
+def get_res_dir(base_dir):
+    dir = "{}results/{}_{}_{}/".format(base_dir, datetime.now().day, datetime.now().month, datetime.now().year)
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+    return dir
 
 def setup_pretrained_dirs(base_dir):
     if not os.path.exists("{}nets/pretrained/".format(base_dir)):
@@ -123,6 +129,11 @@ def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=Fal
         else:
             nsp = "top_{}_spec".format(num_specs)
         return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp, across_time=across_time))
+def extract_numspecs(infer_pth):
+    name = infer_pth.split('/')[-1]
+    import pdb; pdb.set_trace()
+    return name.split('_')[4] #TODO: if build_inference_name changes, this must change too
+#     "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
     
 def build_inference_name(model, loss, exp_id, taxa, num_species, across_time=False):
     if across_time:
@@ -143,7 +154,8 @@ def build_hyperparams_path(base_dir, exp_id):
 
 def load_parameters(abs_path):
 #     print(abs_path)
-    assert os.path.exists(abs_path), "this config doesn't exist on the system! If you would like to rebuild it, please provide CLI to do so"
+    if not os.path.exists(abs_path):
+        raise FileNotFoundError("this config {} doesn't exist on the system! If you would like to rebuild it, please provide CLI to do so".format(abs_path))
     print("loading param configs from {}".format(utils.path_to_cfgname(abs_path)))
     with open(abs_path, 'r') as fp:
         params = json.load(fp)

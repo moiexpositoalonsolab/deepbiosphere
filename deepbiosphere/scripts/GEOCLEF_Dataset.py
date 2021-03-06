@@ -436,13 +436,15 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold, to
     elif observation == 'single_single':
         observation = 'joint_single'
 #     print('madness')
-    if threshold is None:
-        obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
-    else:
-        obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
-        
     if topk > -1:
         obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}_top{}.csv".format(base_dir, observation, region, organism, threshold, topk)
+    else:
+        if threshold is None:
+            obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
+        else:
+            obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
+        
+
     print(obs_pth)
     assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)

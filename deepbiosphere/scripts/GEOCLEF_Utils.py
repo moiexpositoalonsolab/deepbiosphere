@@ -155,6 +155,126 @@ def mean_reciprocal_rank(lab, guess, total=True, norm=True):
             return (1/all_right.min())/normed
         else:
             return 1/all_right.min()    
+        
+def proba_intersect(ob_t, y_t, device):
+    
+    _, indxs_pred = torch.sort(ob_t, dim=1, descending = True)
+    to_get, indxs_pres = torch.sort(y_t, dim=1, descending = True)
+    mask = (to_get == 0.0)
+
+    pres = indxs_pres.masked_fill(mask, -1)
+    pred = indxs_pred.masked_fill(mask, -1)
+
+    inter = torch.full([pres.shape[0]], -1, device=device)
+    for i, (m, n) in enumerate(zip(pres, pred)):
+        mask1 = m >=0
+        a = torch.masked_select(m, mask1)
+        b = torch.masked_select(n, mask1)    
+        c = torch_intersection(a, b, device)
+        inter[i] = len(c)
+    del indxs_pred, to_get, indx_pred, mask, pres, pred
+    return inter
+
+# assumed y_t is already in pres/abs form
+def pres_intersect(ob_t, y_t):    
+    # only where both have the same species keep
+    sum = ob_t + y_t
+    int = (sum > 1)
+    del sum
+    return torch.sum(int, dim=1)
+
+
+def precision_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=False, alternate=False):
+# proba is presence absence vs proba data in obs_t and alernate is which interesection to use
+    
+    if proba:
+        if alternate:
+            top = proba_intersect(ob_t, y_t, device)
+#             ob_t = torch.sigmoid(ob_t)
+            # then threshold probability
+            ob_t = (ob_t > threshold).float()   
+            # something squirrely here
+            
+            bottom = torch.sum(ob_t, dim=1)            
+        else:
+#             ob_t = torch.sigmoid(ob_t)
+            # then threshold probability
+            ob_t = (ob_t > threshold).float()
+#             print(ob_t.sum(dim=1), y_t.sum(dim=1))
+            top = pres_intersect(ob_t, y_t).float()
+            bottom = torch.sum(ob_t, dim=1)
+    else: 
+            # needto threshold probas
+#         print(ob_t.sum(dim=1), y_t.sum(dim=1))            
+        if alternate:
+            raise NotImplementedError("can't do probability thresholding on presence only data!")
+        top = pres_intersect(ob_t, y_t).float()
+        bottom = torch.sum(ob_t, dim=1)
+#     print(top.dtype, bottom.dtype)
+    ans = torch.div(top, bottom)
+    # this relies on the assumption that all nans are 0-division
+    ans[ans != ans] = 0
+    return ans
+
+
+def recall_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=False, alternate=False):
+# proba is presence absence vs proba data in obs_t and alernate is which interesection to use
+    
+    if proba:
+        if alternate:
+            top = proba_intersect(ob_t, y_t, device)            
+        else:
+#             ob_t = torch.sigmoid(ob_t)
+            # then threshold probability
+            ob_t = (ob_t > threshold).float()
+#             print(ob_t.sum(dim=1), y_t.sum(dim=1))
+            top = pres_intersect(ob_t, y_t).float()
+
+    else: 
+            # needto threshold probas
+        if alternate:
+            raise NotImplementedError("can't do probability thresholding on presence only data!")
+        top = pres_intersect(ob_t, y_t).float()
+ 
+    bottom = torch.sum(y_t, dim=1)
+#     print(top, bottom)    
+    ans = torch.div(top, bottom)
+    # this relies on the assumption that all nans are 0-division
+    ans[ans != ans] = 0
+    return ans
+
+
+def f1_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=False, alternate=False):
+# proba is presence absence vs proba data in obs_t and alernate is which interesection to use
+    
+    
+    if proba:
+        if alternate:
+            top = proba_intersect(ob_t, y_t, device)
+#             ob_t = torch.sigmoid(ob_t)
+            # then threshold probability
+            ob_t = (ob_t > threshold).float()            
+            bottom1 = torch.sum(ob_t, dim=1)            
+        else:
+#             ob_t = torch.sigmoid(ob_t)
+            # then threshold probability
+            ob_t = (ob_t > threshold).float()
+            top = pres_intersect(ob_t, y_t).float()
+            bottom1 = torch.sum(ob_t, dim=1)
+    else: 
+            # needto threshold probas
+        if alternate:
+            raise NotImplementedError("can't do probability thresholding on presence only data!")
+        top = pres_intersect(ob_t, y_t).float()
+        bottom1 = torch.sum(ob_t, dim=1)
+       
+    bottom2 = torch.sum(y_t, dim=1)
+    # sum bottom1 and bottom2 along axis 1
+    bottom = bottom1 + bottom2
+    ans = torch.div(top, bottom)
+    # this relies on the assumption that all nans are 0-division
+    ans[ans != ans] = 0
+    return ans
 
 def recall_per_batch(output, target, actual):
 

@@ -1,50 +1,95 @@
+import os
+import json
 import time
 import gc
 import torch
+import shutil
 import pandas as pd
 import numpy as np
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Dataset as dataset
 from deepbiosphere.scripts import GEOCLEF_Config as config
 from deepbiosphere.scripts.GEOCLEF_Config import paths
+import deepbiosphere.scripts.GEOCLEF_Run as run
 import sklearn.metrics as metrics
 
 
-EXTRA_COLUMNS = ['NA_L1NAME',
- 'NA_L2NAME',
- 'NA_L3NAME',
- 'US_L3NAME',
- 'Unnamed: 0',
- 'city',
- 'lat',
- 'lon',
- 'region',
- 'test']
+EXTRA_COLUMNS = [
+    'NA_L1NAME',
+     'NA_L2NAME',
+     'NA_L3NAME',
+     'US_L3NAME',
+     'city',
+     'lat',
+     'lon',
+     'region',
+     'test'
+    ]
 
+# this assumes that all models we're running metrics on use the same dataset
+# and the same number of top species (num_species)s
+def run_metrics_and_longform(args):
 
-def run_metrics_and_longform(args, cfgs):
 
     # get directory for all these runs
     save_dir = config.get_res_dir(args.base_dir)
-    
-    
+    base_dir = args.base_dir
+    # take a relative path to a file within GeoCELF2020 that a file that contains a dict of the configs
+    # then, move this file into the results directory so that the names are saved with the resulting dataframes
+    cfg_pth = args.base_dir + args.config_path
+    filename = cfg_pth.split('/')[-1]
+    shutil.copyfile(cfg_pth, save_dir + filename)    
+    cfg_pth = save_dir + filename
+    with open(cfg_pth, 'r') as fp:
+        cfgs = json.load(fp)
     # load configs in
-    params = load_configs(cfgs)
+#     print(cfgs)
+#     print("---")
+    models = cfgs['models']
+    params = load_configs(models, base_dir)
+    g_t = load_configs({"ground_truth" : cfgs['ground_truth']}, base_dir)
+    prm = list(params.values())[0]
+    num_specs = args.num_species
+    dset= run.setup_dataset(prm.params.observation, args.base_dir, prm.params.organism, prm.params.region, prm.params.normalize, prm.params.no_altitude, prm.params.dataset, prm.params.threshold, num_species=num_specs)
     # load data from configs
-    all_df, ground_truth = load_data(params)
-    threshold = args.threshold
+    all_df, ground_truth = load_data(params, g_t['ground_truth'])
+ 
+    # add threshold parameter to file so it's saved for future use
+    if 'pres_threshold' not in cfgs.keys():
+        cfgs['pres_threshold'] = args.threshold
+        with open(cfg_pth, 'w') as fp:
+            json.dump(cfgs, fp)
+            fp.close()
+        threshold = args.pres_threshold
+    else: 
+        threshold = cfgs['pres_threshold']
+    if 'ecoregion' not in  cfgs.keys():
+        cfgs['ecoregion'] = args.ecoregion
+        with open(cfg_pth, 'w') as fp:
+            json.dump(cfgs, fp)
+            fp.close()
+        ecoregion = args.ecoregion
+    else:
+        ecoregion = cfgs['ecoregion']
+
     device = args.device
+    # check what indices are train / test
+    # check column labels are correct
+    # get rid of extra columns laying around
+    for name, dic in all_df.items():
+        for mod, df in dic.items():
+            if 'Unnamed: 0' in df.columns:
+                            df.pop( 'Unnamed: 0')
+    for taxa, df in ground_truth.items():
+        if 'Unnamed: 0' in df.columns:
+                df.pop( 'Unnamed: 0')
     # get labels of each unique taxa in data
-    species_columns = set(list(all_df['species'].values())[0].columns) - set(EXTRA_COLUMNS)
-    genus_columns = set(list(all_df['species'].values())[0].columns) - set(EXTRA_COLUMNS)
-    family_columns = set(list(all_df['species'].values())[0].columns) - set(EXTRA_COLUMNS)
-    taxa_names = {
-        'species' : species_columns,
-        'genus' : genus_columns,
-        'family' : family_columns
-    }
+#     print(all_df.keys(), "---")
+    taxa_names = check_colum_names(dset, all_df)
+    # convert logits and probabilities to presences and absences based on probabilities
     pres_df = pred_2_pres(all_df, taxa_names, device, threshold)
 
+    # metrics to use
     mets = [
     metrics.precision_score,
     metrics.recall_score,
@@ -53,10 +98,10 @@ def run_metrics_and_longform(args, cfgs):
     ]
 
     # TODO: handle these bad boys
-    mets_extra = [
-    metrics.roc_curve, # proba    
-    metrics.confusion_matrix # pres-abs
-    ]
+#     mets_extra = [
+#     metrics.roc_curve, # proba    
+#     metrics.confusion_matrix # pres-abs
+#     ]
     
     # run all per-label metrics globally
     per_spec_glob_mets = sklearn_per_taxa_overall(pres_df, ground_truth, mets, taxa_names)
@@ -64,41 +109,53 @@ def run_metrics_and_longform(args, cfgs):
     per_spec_glob_mets.to_csv(pth)
     
     # run all per-label metrics within ecoregions
-    ecoregion = 'NA_L3NAME;
+#     ecoregion = args.ecoregion
     per_spec_eco_mets = sklearn_per_taxa_ecoregion(pres_df, ground_truth, mets, taxa_names, ecoregion)
     pth = save_dir + "per_species_eco_{}.csv".format(ecoregion)
     per_spec_eco_mets.to_csv(pth)
 
-    # run all per-label metrics and preserve for all labels
+#     run all per-label metrics and preserve for all labels
     for taxa in pres_df.keys():
         per_spec_all = sklearn_per_taxa_individual(pres_df[taxa], ground_truth[taxa], taxa_names[taxa])
         pth = save_dir + "per_{}_by_{}.csv".format(taxa, taxa)
-        per_spec_all.to_csv(filename)
+        per_spec_all.to_csv(pth)
 
     # run all observation
     for taxa in pres_df.keys():
+#         print(taxa_names[taxa])
         per_obs_all = inhouse_per_observation(pres_df[taxa], ground_truth[taxa], taxa_names[taxa], args.device)
+        
         pth = save_dir + "per_obs_by_{}.csv".format(taxa)
-        per_obs_all.to_csv(filename)
+        print("saving to ", pth)
+        per_obs_all.to_csv(pth)
 
         # TODO: add mets_extra
     
-def load_configs(cfgs):
+def load_configs(cfgs, base_dir):
     # get these configs
     params = {}
     for name, cfg in cfgs.items():
+#         print(cfg)
         param = config.Run_Params(base_dir = base_dir, cfg_path = cfg)
         params[name] = param
     return params
     
     
-def load_data(params):    
+def load_data(params, ground_truth):    
     # load these configs' inference data
+    print("loading ground truth")
+    spt, gent, famt = ground_truth.get_most_recent_inference()
+    g_t = {
+        'species' : pd.read_csv(spt),
+        'genus' : pd.read_csv(gent),
+        'family' : pd.read_csv(famt)
+    }    
     data_s = {}
     data_g = {}
     data_f = {}
+    ground_truth  ={}
     for name, param in params.items():
-        print("model ", name)
+        print("loading model ", name)
         tick = time.time()
         sp, gen, fam = param.get_most_recent_inference()
         data_s[name] = pd.read_csv(sp)
@@ -111,16 +168,43 @@ def load_data(params):
         'genus' : data_g,
         'family' : data_f
     }
-    assert 'ground_truth' in params.keys(), "Must have ground truth labels available! Key name should be ground_truth"
-    ground_truth = {
-        'species' : all_df['species']['ground_truth'],
-        'genus' : all_df['genus']['ground_truth'],
-        'family' : all_df['family']['ground_truth']
+    
+    return all_df, g_t
+
+def check_colum_names(dset, all_df):
+    
+    species_columns, genus_columns, family_columns = None, None, None
+    for name, taxa in all_df.items():
+#         print("name is ", name)
+#         print("----")
+        col_labels = []        
+        for n, model in taxa.items():
+            col_labels.append(list(model.columns))
+        to_comp = col_labels[0]
+        for i in col_labels:
+            assert to_comp == i, "column names are not consistent!"
+        for i in col_labels:
+            if name == 'species':
+                specs = set(i) - set(EXTRA_COLUMNS)
+#                 print(len(specs), dset.num_specs)
+                assert len(specs) == dset.num_specs, "unexpected columns present in species inference file!"
+                species_columns = specs
+            elif name == 'genus':
+                specs = set(i) - set(EXTRA_COLUMNS)
+#                 print(len(specs), dset.num_gens)                      
+                assert len(specs) == dset.num_gens, "unexpected columns present in genus inference file!"
+                genus_columns = specs                
+            else:
+                specs = set(i) - set(EXTRA_COLUMNS)
+#                 print(len(specs), dset.num_fams)
+                assert len(specs) == dset.num_fams, "unexpected columns present in family inference file!"
+                family_columns = specs                
+    taxa_names = {
+        'species' : species_columns,
+        'genus' : genus_columns,
+        'family' : family_columns
     }
-
-    return all_df, ground_truth
-
-
+    return taxa_names
 
 # 1. convert predictions to presence / absence
 def pred_2_pres(all_df, taxa_names, device, threshold):
@@ -149,7 +233,7 @@ def pred_2_pres(all_df, taxa_names, device, threshold):
 
 
 # 1. convert predictions to probabilities
-pred_2_proba(all_df, taxa_names, device):
+def pred_2_proba(all_df, taxa_names, device):
     prob_df = {}
     for taxa, dic in all_df.items():
         new_dict = {}    
@@ -227,7 +311,10 @@ def run_metrics(df, y_true, y_obs, mets, score_idx, i):
 # probability weight metrics
     for met in mets:
         tick = time.time()
-        out = met(y_true, y_obs, average='weighted') 
+        if met.__name__ == 'accuracy_score':
+            out = met(y_true, y_obs) 
+        else:
+            out = met(y_true, y_obs, average='weighted') 
         idx = score_idx[met.__name__]
         df.iloc[i, idx] = out
         tock = time.time()
@@ -257,7 +344,7 @@ def sklearn_per_taxa_ecoregion(pres_df, ground_truth, mets, taxa_names, econame)
     
     # setting up dataframe
     num_models = len(list(pres_df.values())[0].keys())
-    num_taxa = len(prob_df)
+    num_taxa = len(pres_df)
     num_ecoregions = len(list(list(pres_df.values())[0].values())[0][econame].unique())
     num_rows = num_models * num_taxa *2 * num_ecoregions # the two is one for test, one for train
     score_name = [s.__name__ for s in mets]
@@ -327,7 +414,7 @@ def sklearn_per_taxa_individual(yo, yt, taxa_names):
     col_2_keep = list(taxa_names)
     df_names = score_name + col_2_keep
     metric_idx, model_idx, support_idx, test_idx = 0, 1, 2, 3
-    filler = np.full([num_rows, len(df_names)], 'NaN')
+    filler = np.full([num_rows, len(df_names)], 'NaNNANANANANANANANANAANANANANANANANAN')
 
     yt_test = yt[yt.test]
     yt_test = yt_test[col_2_keep]
@@ -432,10 +519,11 @@ def inhouse_per_observation(yo, yt, taxa_names, device):
     # this is really bad code but essentially to store as numpy array need to 
     # create numpy array as object and the longer the string the more digits you get yikes
     filler = np.full([num_rows, len(df_names)], 'NANANANANANANANANANANANAN')
+    df = list(yo.values())[0]
     test_names = ['test' if n else 'train' for n in df.test]
     lats = df.lat.tolist()
     lons = df.lon.tolist()
-    yt = yt[taxa_names]
+    yt = yt[list(taxa_names)]
     yt = yt.values
     yt_t = torch.tensor(yt)
     yt_t = yt_t.to(device)
@@ -445,11 +533,11 @@ def inhouse_per_observation(yo, yt, taxa_names, device):
 
         tick = time.time()
         modelname = [name] * num_obs
-        obs = df[taxa_names]
+        obs = df[list(taxa_names)]
         obs = obs.values
         obs_t = torch.tensor(obs)
         obs_t = obs_t.to(device)
-        ans = precision_per_obs(obs_t.float(), yt_t.float(), device=device)
+        ans = utils.precision_per_obs(obs_t.float(), yt_t.float(), device=device)
         ans = ans.cpu().numpy()
         metricname = ['precision'] * num_obs
         filler[i:i+num_obs, model_idx] = modelname
@@ -461,7 +549,7 @@ def inhouse_per_observation(yo, yt, taxa_names, device):
 
         i = i + num_obs
 
-        ans = recall_per_obs(obs_t.float(), yt_t.float(), device=device)
+        ans = utils.recall_per_obs(obs_t.float(), yt_t.float(), device=device)
         metricname = ['recall'] * num_obs
         filler[i:i+num_obs, model_idx] = modelname
         filler[i:i+num_obs, metric_idx] = metricname
@@ -471,7 +559,7 @@ def inhouse_per_observation(yo, yt, taxa_names, device):
         filler[i:i+num_obs, value_idx] = ans.cpu().numpy()
         i = i + num_obs
 
-        ans = f1_per_obs(obs_t.float(), yt_t.float(), device=device)
+        ans = utils.f1_per_obs(obs_t.float(), yt_t.float(), device=device)
         metricname = ['f1'] * num_obs
         filler[i:i+num_obs, model_idx] = modelname
         filler[i:i+num_obs, metric_idx] = metricname
@@ -491,21 +579,7 @@ def inhouse_per_observation(yo, yt, taxa_names, device):
         
         
 if __name__ == "__main__":
-    args = ['base_dir', 'threshold', 'device']
-    #  pipeline:
-# take in a config file that has 1. model configs to run? think about this... or maybe just run all models in /inference?
-# list the config names of the runs you want to plot
-    cfgs = {
-        'random_forest' : 'joint_multiple_plant_cali_RandomForestClassifier_40_rasters_point_for_real.json', # random forest
-       'joint_tresnet_m': 'joint_multiple_plant_cali_Joint_TResNet_M_AsymmetricLoss_satellite_rasters_point_joint_tresnet.json', # joint tresnet
-        'old_mlp' : 'joint_multiple_plant_cali_MLP_Family_Genus_Species_AsymmetricLossOptimized_rasters_point_redojoint_mul_mlp_famgenspec.json', # mid-trained old MLP
-        'maxent' : 'joint_multiple_plant_cali_MaxEnt_none_rasters_point_max_minus_5.json', # maxent
-        'new_mlp' : 'joint_multiple_plant_cali_MLP_Family_Genus_Species_AsymmetricLossOptimized_rasters_point_new_mlp.json',
-        'joint_tresnet_l_pret' : 'joint_multiple_plant_cali_Joint_TResNet_L_AsymmetricLossOptimized_satellite_rasters_point_joint_tresnet_l_pret.json',
-        'tresnet_l' :'joint_multiple_plant_cali_TResNet_L_AsymmetricLossOptimized_satellite_only_tresnet_l.json',
-        'tresnet_l_pret' :'joint_multiple_plant_cali_TResNet_L_AsymmetricLoss_satellite_only_tresnet_l_fine.json',
-        'tresnet_m' : 'joint_multiple_plant_cali_TResNet_M_AsymmetricLossOptimized_satellite_only_tresnet_m.json',
-        'ground_truth' : 'joint_multiple_plant_cali_Ground_truth_none_none_for_real.json'
-    }
+    
+    args = ['base_dir', 'pres_threshold', 'device', 'config_path', 'ecoregion', 'num_species']
     ARGS = config.parse_known_args(args)       
-    run_metrics_and_longform(ARGS, cfgs)
+    run_metrics_and_longform(ARGS)
