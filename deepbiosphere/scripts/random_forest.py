@@ -16,7 +16,7 @@ from sklearn import metrics
     
 def random_forest(params, base_dir, num_species, processes):
     
-    dset= run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, num_species=num_species)
+    dset= run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, num_species=num_species, excl_latlon=ARGS.excl_latlon)
     _, _, idxs = run.better_split_train_test(dset)
     obs = dataset.get_gbif_observations(base_dir, params.params.organism, params.params.region, params.params.observation, params.params.threshold, num_species)
     obs.fillna('nan', inplace=True)
@@ -29,7 +29,6 @@ def random_forest(params, base_dir, num_species, processes):
     for i, stuff in enumerate(dset):
 
         (all_spec, all_gen, all_fam, env_rasters, _) = stuff
-
         specs = np.zeros(dset.num_specs)
         specs[all_spec] += 1
         gens = np.zeros(dset.num_gens)
@@ -40,6 +39,7 @@ def random_forest(params, base_dir, num_species, processes):
         combined = np.concatenate([specs, gens, fams], axis=0)
         Y[i,:] = combined
     tock = time.time()
+    print("shape of dataset: ", X.shape, Y.shape )
     print("took ", tock-tick, " seconds to build dataset")
     
     
@@ -171,7 +171,7 @@ if __name__ == "__main__":
     # add CLI to nuke a whole model
     # add CLI to clean up all model files
 
-    args = ['base_dir', 'num_species', 'observation', 'organism', 'region', 'exp_id', 'seed', 'normalize', 'unweighted', 'dataset', 'threshold', 'model', 'load_from_config', 'loss', 'no_alt', 'n_trees', 'processes']
+    args = ['base_dir', 'num_species', 'observation', 'organism', 'region', 'exp_id', 'seed', 'normalize', 'unweighted', 'dataset', 'threshold', 'model', 'load_from_config', 'loss', 'no_alt', 'n_trees', 'processes', 'excl_latlon']
     # hacky set the model to be RandomForestCLassifier
     ARGS = config.parse_known_args(args)       
 #     ARGS['model'] = 'RandomForestClassifier'

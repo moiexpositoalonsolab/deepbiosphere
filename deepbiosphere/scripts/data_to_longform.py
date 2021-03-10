@@ -45,6 +45,7 @@ def run_metrics_and_longform(args):
     # load configs in
 #     print(cfgs)
 #     print("---")
+
     models = cfgs['models']
     params = load_configs(models, base_dir)
     g_t = load_configs({"ground_truth" : cfgs['ground_truth']}, base_dir)
@@ -105,31 +106,33 @@ def run_metrics_and_longform(args):
 #     ]
     
     # run all per-label metrics globally
+
     per_spec_glob_mets = sklearn_per_taxa_overall(pres_df, ground_truth, mets, taxa_names)
-    pth = save_dir + 'per_species_overall.csv'
+    pth = save_dir + "per_species_overall_{}.csv".format(cfgs['exp_id'])
+    print("saving to:", pth)    
     per_spec_glob_mets.to_csv(pth)
-    
+    print("global metrics done")
     # run all per-label metrics within ecoregions
 #     ecoregion = args.ecoregion
     per_spec_eco_mets = sklearn_per_taxa_ecoregion(pres_df, ground_truth, mets, taxa_names, ecoregion)
-    pth = save_dir + "per_species_eco_{}.csv".format(ecoregion)
+    pth = save_dir + "per_species_eco_{}_{}.csv".format(ecoregion, cfgs['exp_id'])
     per_spec_eco_mets.to_csv(pth)
-
+    print("per-ecoregion metrics done")
 #     run all per-label metrics and preserve for all labels
     for taxa in pres_df.keys():
         per_spec_all = sklearn_per_taxa_individual(pres_df[taxa], ground_truth[taxa], taxa_names[taxa])
-        pth = save_dir + "per_{}_by_{}.csv".format(taxa, taxa)
+        pth = save_dir + "per_{}_by_{}_{}.csv".format(taxa, taxa, cfgs['exp_id'])
         per_spec_all.to_csv(pth)
-
+    print("per-species metrics done")
     # run all observation
     for taxa in pres_df.keys():
 #         print(taxa_names[taxa])
         per_obs_all = inhouse_per_observation(pres_df[taxa], ground_truth[taxa], taxa_names[taxa], args.device)
         
-        pth = save_dir + "per_obs_by_{}.csv".format(taxa)
+        pth = save_dir + "per_obs_by_{}_{}.csv".format(taxa, cfgs['exp_id'])
         print("saving to ", pth)
         per_obs_all.to_csv(pth)
-
+    print("per-observation metrics done")
         # TODO: add mets_extra
     
 def load_configs(cfgs, base_dir):
@@ -583,4 +586,6 @@ if __name__ == "__main__":
     
     args = ['base_dir', 'pres_threshold', 'device', 'config_path', 'ecoregion', 'num_species']
     ARGS = config.parse_known_args(args)       
+    print(args)
     run_metrics_and_longform(ARGS)
+    

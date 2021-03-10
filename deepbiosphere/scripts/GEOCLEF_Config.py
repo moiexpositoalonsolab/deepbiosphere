@@ -90,7 +90,7 @@ arguments = {
     'config_path': {'type':str,'help':"relative (within base_dir) path to json of models to load",'required' : True},
     'ecoregion': {'choices' : choices.ecoregion,'help':"which ecoregion to split the data into",'default' : 'NA_L3NAME'},
     'pres_threshold': {'type' : float,'help':"what value to threshold the presence-absence of the model",'default' : 0.5},
-
+    'excl_latlon': {'dest' : 'excl_latlon', 'help' : 'whether to exclude the latitude and longitude of an observation for the rasters', 'action' : 'store_false'},
 }
 
 def get_res_dir(base_dir):
@@ -178,17 +178,24 @@ class Run_Params():
             abs_path = "{}configs/{}".format(base_dir, cfg_path)
             self.params = load_parameters(abs_path)
             if self.params.model == "RandomForestClassifier":
+                print("hello world")
                 self.params.loss = self.params.n_trees
             self.base_dir = base_dir
         # will hopefully short circuit out of check if args is None but cfg_path isn't    
         elif ARGS.load_from_config is not None :
             abs_path = "{}configs/{}".format(base_dir, ARGS.load_from_config)
             self.params = load_parameters(abs_path)
+            if self.params.model == "RandomForestClassifier":
+                self.params.loss = self.params.n_trees
             if ARGS.batch_size is not None:
                 self.params.batch_size = ARGS.batch_size
             self.base_dir = ARGS.base_dir
         else:
-            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.loss, ARGS.dataset, ARGS.exp_id)
+            if ARGS.model == 'RandomForestClassifier':
+                loss = ARGS.n_trees
+            else:
+                loss = ARGS.loss
+            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, loss, ARGS.dataset, ARGS.exp_id)
             
             if ARGS.model == 'RandomForestClassifier':
                 params = {
@@ -299,7 +306,8 @@ class Run_Params():
         return None
 
     def get_all_inference(self, num_specs):
-  
+        print("--------")
+        print(self.params)
         pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, across_time=True)
         pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs, across_time=True)
         pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs, across_time=True)
