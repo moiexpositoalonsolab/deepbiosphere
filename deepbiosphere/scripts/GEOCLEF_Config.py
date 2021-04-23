@@ -115,9 +115,16 @@ def setup_main_dirs(base_dir):
         os.makedirs("{}desiderata/".format(base_dir))  
     if not os.path.exists("{}inference/".format(base_dir)):
         os.makedirs("{}inference/".format(base_dir))          
+    if not os.path.exists("{}occurrences/".format(base_dir)):
+            os.makedirs("{}occurrences/".format(base_dir))                  
 
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
+
+
+def build_gbif_file(taxon, start_date, end_date, area, ext='json'):
+    return  "{}_{}_{}_{}.{}".format(taxon, start_date, end_date, area[0].replace('.', '_'), ext)
+    
 
 def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False, across_time=False):
     
