@@ -110,7 +110,7 @@ def setup_main_dirs(base_dir):
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
 
-def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False):
+def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False, glob=False):
     
     if dir:
         return "{}inference/".format(base_dir)
@@ -119,10 +119,13 @@ def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=Fal
             nsp = 'all_spec'
         else:
             nsp = "top_{}_spec".format(num_specs)
-        return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp))
+        return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp, glob))
     
-def build_inference_name(model, loss, exp_id, taxa, num_species):
-    return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
+def build_inference_name(model, loss, exp_id, taxa, num_species, glob=False):
+    if glob: 
+        return "{}_{}_{}_{}_{}*.csv".format(model, loss, exp_id, taxa, num_species)
+    else:
+        return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
         
 def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id, dir=False):
     if dir:
@@ -280,13 +283,11 @@ class Run_Params():
         return None
 
     def get_all_inference(self, num_specs):
-  
-        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs)
-        pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs)
-        pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs)
-        print(pth_spec)
+          # shouldn't this use the dir option?? #TODO
+        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, glob=True)
+        pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs, glob=True)
+        pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs, glob=True)
         pths_s = glob.glob(pth_spec)
-        print("s is ", pths_s)
         pths_g = glob.glob(pth_gen)
         pths_f = glob.glob(pth_fam)
         return pths_s, pths_g, pths_f
@@ -296,11 +297,13 @@ class Run_Params():
         sp, gen, fam = self.get_all_inference(num_species)
     
         assert len(sp) > 0 and len(gen)  > 0 and len(fam) > 0, "inference files missing for a taxa category!"
-        
+        print("sorting")
         sp.sort(key=os.path.getmtime, reverse=True)
+        print("species")
         gen.sort(key=os.path.getmtime, reverse=True)
+        print("genus")        
         fam.sort(key=os.path.getmtime, reverse=True)
-        
+        print("family")        
         return sp[0], gen[0], fam[0]
         
 
