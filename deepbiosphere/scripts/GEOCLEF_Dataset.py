@@ -131,19 +131,22 @@ def get_raster_image_obs(lat_lon, affine, rasters, nan, normalize, pix_res):
     else: 
         env_rasters = rasters[:,xmin:xmax,ymin:ymax]
     return env_rasters
-def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max):
+def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max, inc_latlon=True):
 
     x, y = latlon_2_idx(affine, lat_lon)
     env_rasters = rasters[:,x,y]
     if normalize == 'min_max':
         lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
         lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
-        env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
+        if inc_latlon:
+            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
 
     elif  normalize == 'normalize':
         raise NotImplementedError
     else:
-        env_rasters = np.append(env_rasters, [lat_lon[0], lat_lon[1]])    
+        if inc_latlon:
+            env_rasters = np.append(env_rasters, [lat_lon[0], lat_lon[1]])    
+            
     return env_rasters
 
 def get_raster_sheet_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max, width, height):
@@ -436,13 +439,15 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold, to
     elif observation == 'single_single':
         observation = 'joint_single'
 #     print('madness')
-    if threshold is None:
-        obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
-    else:
-        obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
-        
     if topk > -1:
         obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}_top{}.csv".format(base_dir, observation, region, organism, threshold, topk)
+    else:
+        if threshold is None:
+            obs_pth = "{}occurrences/{}_obs_{}_{}_train.csv".format(base_dir, observation, region, organism)
+        else:
+            obs_pth = "{}occurrences/{}_obs_{}_{}_train_{}.csv".format(base_dir, observation, region, organism, threshold)
+        
+
     print(obs_pth)
     assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)
@@ -526,7 +531,8 @@ class HighRes_Satellite_Images_Only(Dataset):
 
     # the high resolution satellite imagery + the pointwise observation environmental rasters
 class HighRes_Satellite_Rasters_Point(Dataset):
-    def __init__(self, base_dir, organism, region, observation, altitude, normalize, threshold, topk, sub_mean='imagenet'):
+    
+    def __init__(self, base_dir, organism, region, observation, altitude, normalize, threshold, topk,  inc_latlon=True, sub_mean='imagenet'):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -563,6 +569,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
         self.lon_min = obs.lon.min()        
+        self.inc_latlon = inc_latlon
         self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
         print("num rasters is ", self.num_rasters)
         self.train = obs[~obs.test].index.tolist()
@@ -589,7 +596,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         images = utils.image_from_id(id_, self.base_dir, self.dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
+        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.inc_latlon)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, images, env_rasters, idx)
@@ -602,7 +609,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
         images = utils.image_from_id(id_, self.base_dir, self.dataset_means, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
+        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.inc_latlon)
         # get labels
         specs_label, gens_label, fams_label, all_spec, all_gen, all_fam = get_inference_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, all_spec, all_gen, all_fam, images, env_rasters)    
@@ -611,7 +618,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
     # x, y = eniffa * (get_item_from_obs(obs,1)[1], 
     # just the environmental raster point value at a location
 class Bioclim_Rasters_Point(Dataset):
-    def __init__(self, base_dir, organism, region, normalize, observation, threshold, topk):
+    def __init__(self, base_dir, organism, region, normalize, observation, threshold, topk, inc_latlon=True):
         self.base_dir = base_dir
         self.region = region
         self.organism = organism
@@ -648,7 +655,11 @@ class Bioclim_Rasters_Point(Dataset):
         self.lon_max = obs.lon.max()
         self.lat_min = obs.lat.min()
         self.lon_min = obs.lon.min()        
-        self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
+        self.inc_latlon = inc_latlon
+        if self.inc_latlon:
+            self.num_rasters = self.rasters.shape[0]+ 2 # plus two because including the lat lon
+        else:
+            self.num_rasters = self.rasters.shape[0]
         print("num rasters is ", self.num_rasters)
         self.train = obs[~obs.test].index.tolist()
         self.test = obs[obs.test].index.tolist()
@@ -667,7 +678,7 @@ class Bioclim_Rasters_Point(Dataset):
             idx = idx.tolist()
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
-        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max)
+        env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.inc_latlon)
         # get labels
         specs_label, gens_label, fams_label = get_labels(self.observation, self.obs, idx)
         return (specs_label, gens_label, fams_label, env_rasters, idx)

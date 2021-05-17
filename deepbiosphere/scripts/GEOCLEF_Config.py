@@ -43,6 +43,7 @@ choices = {
     'pretrained' : ['none', 'feat_ext', 'finetune'],
     'test_or_train' : ['test_only', 'train_only', 'test_and_train'],
     'which_taxa' : ['spec_only', 'spec_gen_fam', 'gen_fam', 'spec_gen'],    
+    'ecoregion' : ['NA_L1NAME','NA_L2NAME','NA_L3NAME','US_L3NAME']
     
 }
 choices = SimpleNamespace(**choices)
@@ -86,9 +87,17 @@ arguments = {
         'test_or_train' : {'choices' : choices.test_or_train, 'help' : 'Run inference on just train, just test, or both', 'default' : 'test_only'},
         'which_taxa' : {'choices' : choices.which_taxa, 'help' : 'Which taxonomic levels to use', 'default' : 'spec_only'},    
     'n_trees': {'type':int,'help':"How many trees to build for random forest model",'default':20},
-    
-
+    'config_path': {'type':str,'help':"relative (within base_dir) path to json of models to load",'required' : True},
+    'ecoregion': {'choices' : choices.ecoregion,'help':"which ecoregion to split the data into",'default' : 'NA_L3NAME'},
+    'pres_threshold': {'type' : float,'help':"what value to threshold the presence-absence of the model",'default' : 0.5},
+    'excl_latlon': {'dest' : 'excl_latlon', 'help' : 'whether to exclude the latitude and longitude of an observation for the rasters', 'action' : 'store_false'},
 }
+
+def get_res_dir(base_dir):
+    dir = "{}results/{}_{}_{}/".format(base_dir, datetime.now().day, datetime.now().month, datetime.now().year)
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+    return dir
 
 def setup_pretrained_dirs(base_dir):
     if not os.path.exists("{}nets/pretrained/".format(base_dir)):
@@ -106,11 +115,16 @@ def setup_main_dirs(base_dir):
         os.makedirs("{}desiderata/".format(base_dir))  
     if not os.path.exists("{}inference/".format(base_dir)):
         os.makedirs("{}inference/".format(base_dir))          
+    if not os.path.exists("{}occurrences/".format(base_dir)):
+            os.makedirs("{}occurrences/".format(base_dir))                  
 
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
 
-def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False, glob=False):
+def build_gbif_file(taxon, start_date, end_date, area, ext='json'):
+    return  "{}_{}_{}_{}.{}".format(taxon, start_date, end_date, area[0].replace('.', '_'), ext)
+    
+def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False, across_time=False):
     
     if dir:
         return "{}inference/".format(base_dir)
@@ -119,15 +133,21 @@ def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=Fal
             nsp = 'all_spec'
         else:
             nsp = "top_{}_spec".format(num_specs)
-        return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp, glob))
+        return "{}inference/{}".format(base_dir, build_inference_name(model, loss, exp_id, taxa, nsp, across_time=across_time))
+def extract_numspecs(infer_pth):
+    name = infer_pth.split('/')[-1]
+    import pdb; pdb.set_trace()
+    return name.split('_')[4] #TODO: if build_inference_name changes, this must change too
+#     "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
     
-def build_inference_name(model, loss, exp_id, taxa, num_species, glob=False):
-    if glob: 
-        return "{}_{}_{}_{}_{}*.csv".format(model, loss, exp_id, taxa, num_species)
+def build_inference_name(model, loss, exp_id, taxa, num_species, across_time=False):
+    if across_time:
+        return "{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, '*')
+>>>>>>> ea5ff47f60436edc5fb2ea430b3fdc2b73caa097
     else:
         return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
         
-def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id, dir=False):
+def build_params_path(base_dir, observation, organism, region, model, loss, dataset, exp_id, dir=False, across_time=False):
     if dir:
         return "{}configs/".format(base_dir)
     else:
@@ -140,7 +160,8 @@ def build_hyperparams_path(base_dir, exp_id):
 
 def load_parameters(abs_path):
 #     print(abs_path)
-    assert os.path.exists(abs_path), "this config doesn't exist on the system! If you would like to rebuild it, please provide CLI to do so"
+    if not os.path.exists(abs_path):
+        raise FileNotFoundError("this config {} doesn't exist on the system! If you would like to rebuild it, please provide CLI to do so".format(abs_path))
     print("loading param configs from {}".format(utils.path_to_cfgname(abs_path)))
     with open(abs_path, 'r') as fp:
         params = json.load(fp)
@@ -162,17 +183,25 @@ class Run_Params():
         if cfg_path is not None:
             abs_path = "{}configs/{}".format(base_dir, cfg_path)
             self.params = load_parameters(abs_path)
-#             print(vars(params))
+            if self.params.model == "RandomForestClassifier":
+                print("hello world")
+                self.params.loss = self.params.n_trees
             self.base_dir = base_dir
         # will hopefully short circuit out of check if args is None but cfg_path isn't    
         elif ARGS.load_from_config is not None :
             abs_path = "{}configs/{}".format(base_dir, ARGS.load_from_config)
             self.params = load_parameters(abs_path)
+            if self.params.model == "RandomForestClassifier":
+                self.params.loss = self.params.n_trees
             if ARGS.batch_size is not None:
                 self.params.batch_size = ARGS.batch_size
             self.base_dir = ARGS.base_dir
         else:
-            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, ARGS.loss, ARGS.dataset, ARGS.exp_id)
+            if ARGS.model == 'RandomForestClassifier':
+                loss = ARGS.n_trees
+            else:
+                loss = ARGS.loss
+            cfg_path = build_params_path(ARGS.base_dir, ARGS.observation, ARGS.organism, ARGS.region, ARGS.model, loss, ARGS.dataset, ARGS.exp_id)
             
             if ARGS.model == 'RandomForestClassifier':
                 params = {
@@ -188,7 +217,7 @@ class Run_Params():
                     'threshold' : ARGS.threshold,
                     'no_altitude' : ARGS.no_alt,
                     'n_trees' : ARGS.n_trees,
-                    'loss' : ARGS.loss,                    
+                    'loss' : ARGS.n_trees,  # sketchy I know but gets files to work                  
                 }
             elif ARGS.model == 'MaxEnt':
                 params = {
@@ -283,13 +312,16 @@ class Run_Params():
         return None
 
     def get_all_inference(self, num_specs):
-          # shouldn't this use the dir option?? #TODO
-        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, glob=True)
-        pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs, glob=True)
-        pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs, glob=True)
+        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, across_time=True)
+        pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs, across_time=True)
+        pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs, across_time=True)
+#         print('path to glob', pth_spec, pth_gen, pth_fam)
         pths_s = glob.glob(pth_spec)
+#         print("s is ", pths_s)
         pths_g = glob.glob(pth_gen)
         pths_f = glob.glob(pth_fam)
+#         print("g is ", pths_g)
+#         print("f is ", pths_f)                
         return pths_s, pths_g, pths_f
         
         #TODO: doesn't handle bonus stuff properly
