@@ -59,6 +59,7 @@ def eval_model_raw(params, base_dir, device, test, outputs, num_species, process
 #     import pdb;
     model.load_state_dict(state['model_state_dict'])
     model = model.to(device)    
+    model.eval()
     # again TODO: this is messy and needs to be fixed
     if params.params.pretrained != 'none' and 'TResNet' in params.params.model:
         # change mean subtraction to match what pretrained tresnet expects
@@ -163,7 +164,6 @@ def run_inference(loader, params, model, device, output_spec, output_gen, output
     with tqdm(total=len(loader), unit="batch") as prog:
         
         for i, ret in enumerate(loader):
-
             if params.params.dataset == 'satellite_rasters_point':
                 (_,_,_, batch, rasters, idx) = ret
                 batch = batch.to(device)
@@ -174,7 +174,6 @@ def run_inference(loader, params, model, device, output_spec, output_gen, output
                 (_,_,_, batch, idx) = ret
                 batch = batch.to(device)
                 (specs, gens, fams) = model(batch.float()) 
-
             output_spec[idx] = specs.detach().cpu().numpy()
             output_gen[idx] = gens.detach().cpu().numpy()
             output_fam[idx] = fams.detach().cpu().numpy()
