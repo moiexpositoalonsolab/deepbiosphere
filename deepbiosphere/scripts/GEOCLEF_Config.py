@@ -115,10 +115,15 @@ def setup_main_dirs(base_dir):
         os.makedirs("{}desiderata/".format(base_dir))  
     if not os.path.exists("{}inference/".format(base_dir)):
         os.makedirs("{}inference/".format(base_dir))          
+    if not os.path.exists("{}occurrences/".format(base_dir)):
+            os.makedirs("{}occurrences/".format(base_dir))                  
 
 def build_config_name(observation, organism, region, model, loss, dataset, exp_id):
     return "{}_{}_{}_{}_{}_{}_{}".format(observation, organism, region, model, loss, dataset, exp_id)
 
+def build_gbif_file(taxon, start_date, end_date, area, ext='json'):
+    return  "{}_{}_{}_{}.{}".format(taxon, start_date, end_date, area[0].replace('.', '_'), ext)
+    
 def build_inference_path(base_dir, model, loss, exp_id, taxa, num_specs, dir=False, across_time=False):
     
     if dir:
@@ -138,6 +143,7 @@ def extract_numspecs(infer_pth):
 def build_inference_name(model, loss, exp_id, taxa, num_species, across_time=False):
     if across_time:
         return "{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, '*')
+>>>>>>> ea5ff47f60436edc5fb2ea430b3fdc2b73caa097
     else:
         return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
         
@@ -306,15 +312,12 @@ class Run_Params():
         return None
 
     def get_all_inference(self, num_specs):
-        print("--------")
-        print(self.params)
         pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, across_time=True)
         pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs, across_time=True)
         pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs, across_time=True)
 #         print('path to glob', pth_spec, pth_gen, pth_fam)
         pths_s = glob.glob(pth_spec)
 #         print("s is ", pths_s)
-
         pths_g = glob.glob(pth_gen)
         pths_f = glob.glob(pth_fam)
 #         print("g is ", pths_g)
@@ -326,11 +329,13 @@ class Run_Params():
         sp, gen, fam = self.get_all_inference(num_species)
     
         assert len(sp) > 0 and len(gen)  > 0 and len(fam) > 0, "inference files missing for a taxa category!"
-        
+        print("sorting")
         sp.sort(key=os.path.getmtime, reverse=True)
+        print("species")
         gen.sort(key=os.path.getmtime, reverse=True)
+        print("genus")        
         fam.sort(key=os.path.getmtime, reverse=True)
-        
+        print("family")        
         return sp[0], gen[0], fam[0]
         
 
