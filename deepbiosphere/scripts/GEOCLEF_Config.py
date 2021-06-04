@@ -143,7 +143,6 @@ def extract_numspecs(infer_pth):
 def build_inference_name(model, loss, exp_id, taxa, num_species, across_time=False):
     if across_time:
         return "{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, '*')
->>>>>>> ea5ff47f60436edc5fb2ea430b3fdc2b73caa097
     else:
         return "{}_{}_{}_{}_{}_{}_{}_{}.csv".format(model, loss, exp_id, taxa, num_species, datetime.now().day, datetime.now().month, datetime.now().year)
         
