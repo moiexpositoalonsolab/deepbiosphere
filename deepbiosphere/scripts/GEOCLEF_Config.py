@@ -310,33 +310,43 @@ class Run_Params():
         print("no adequate model found!")
         return None
 
-    def get_all_inference(self, num_specs):
+    def get_all_inference_specgenfam(self, num_specs):
+
         pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, across_time=True)
         pth_gen = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'genus', num_specs, across_time=True)
         pth_fam = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'family', num_specs, across_time=True)
-#         print('path to glob', pth_spec, pth_gen, pth_fam)
         pths_s = glob.glob(pth_spec)
-#         print("s is ", pths_s)
         pths_g = glob.glob(pth_gen)
         pths_f = glob.glob(pth_fam)
-#         print("g is ", pths_g)
-#         print("f is ", pths_f)                
         return pths_s, pths_g, pths_f
+
+    def get_all_inference_speconly(self, num_specs):
+        pth_spec = build_inference_path(self.base_dir, self.params.model, self.params.loss, self.params.exp_id, 'species', num_specs, across_time=True)
+        pths_s = glob.glob(pth_spec)
+        return pths_s 
         
         #TODO: doesn't handle bonus stuff properly
-    def get_most_recent_inference(self, num_species=-1):
-        sp, gen, fam = self.get_all_inference(num_species)
-    
-        assert len(sp) > 0 and len(gen)  > 0 and len(fam) > 0, "inference files missing for a taxa category!"
-        print("sorting")
-        sp.sort(key=os.path.getmtime, reverse=True)
-        print("species")
-        gen.sort(key=os.path.getmtime, reverse=True)
-        print("genus")        
-        fam.sort(key=os.path.getmtime, reverse=True)
-        print("family")        
-        return sp[0], gen[0], fam[0]
-        
+    def get_most_recent_inference(self, num_species=-1, which_taxa='spec_gen_fam'):
+        if which_taxa == 'spec_gen_fam':
+            sp, gen,fam = self.get_all_inference_specgenfam(num_species)
+            assert len(sp) > 0 and len(gen)  > 0 and len(fam) > 0, "inference files missing for a taxa category!"
+            print("sorting")
+            sp.sort(key=os.path.getmtime, reverse=True)
+            print("species")
+            gen.sort(key=os.path.getmtime, reverse=True)
+            print("genus")        
+            fam.sort(key=os.path.getmtime, reverse=True)
+            print("family")        
+            return sp[0], gen[0], fam[0]
+        elif which_taxa == 'spec_only':
+            sp = self.get_all_inference_speconly(num_species) 
+            assert len(sp) > 0 , "inference files missing for a taxa category!"
+            print("sorting")
+            sp.sort(key=os.path.getmtime, reverse=True)
+            print("species")
+            return sp[0]        
+        else:
+            raise NotImplementedError("not yet implementedf or ", which_taxa)
 
     def get_most_recent_des(self, epoch=None):
         paths, epochs = self.get_all_desi()

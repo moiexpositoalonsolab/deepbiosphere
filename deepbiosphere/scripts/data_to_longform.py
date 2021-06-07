@@ -53,7 +53,7 @@ def run_metrics_and_longform(args):
     num_specs = args.num_species
     dset= run.setup_dataset(prm.params.observation, args.base_dir, prm.params.organism, prm.params.region, prm.params.normalize, prm.params.no_altitude, prm.params.dataset, prm.params.threshold, num_species=num_specs)
     # load data from configs
-    all_df, ground_truth = load_data(params, g_t['ground_truth'])
+    all_df, ground_truth = load_data(params, g_t['ground_truth'], args.which_taxa)
  
     # add threshold parameter to file so it's saved for future use
     if 'pres_threshold' not in cfgs.keys():
@@ -91,12 +91,18 @@ def run_metrics_and_longform(args):
     pres_df = pred_2_pres(all_df, taxa_names, device, threshold)
 
     # metrics to use
-    mets = [
+    overall_mets = [
     metrics.precision_score,
     metrics.recall_score,
     metrics.f1_score,
     metrics.accuracy_score,
-    metrics.roc_auc_score
+    #metrics.roc_auc_score
+    ]
+    mets = [
+    metrics.precision_score,
+    metrics.recall_score,
+    metrics.f1_score,
+    metrics.accuracy_score
     ]
 
     # TODO: handle these bad boys
@@ -107,7 +113,7 @@ def run_metrics_and_longform(args):
     
     # run all per-label metrics globally
 
-    per_spec_glob_mets = sklearn_per_taxa_overall(pres_df, ground_truth, mets, taxa_names)
+    per_spec_glob_mets = sklearn_per_taxa_overall(pres_df, ground_truth, overall_mets, taxa_names)
     pth = save_dir + "per_species_overall_{}.csv".format(cfgs['exp_id'])
     print("saving to:", pth)    
     per_spec_glob_mets.to_csv(pth)
@@ -144,16 +150,22 @@ def load_configs(cfgs, base_dir):
         params[name] = param
     return params
     
-    
-def load_data(params, ground_truth):    
+def load_data(params, ground_truth, which_taxa):    
     # load these configs' inference data
     print("loading ground truth")
     spt, gent, famt = ground_truth.get_most_recent_inference()
-    g_t = {
-        'species' : pd.read_csv(spt),
-        'genus' : pd.read_csv(gent),
-        'family' : pd.read_csv(famt)
-    }    
+    if which_taxa == 'spec_gen_fam':
+        g_t = {
+            'species' : pd.read_csv(spt),
+            'genus' : pd.read_csv(gent),
+            'family' : pd.read_csv(famt)
+        }
+    elif which_taxa =='spec_only':
+        g_t = {
+            'species' : pd.read_csv(spt)
+            }
+    else:
+        raise NotImplementedError("not yet impletmented for ", which_taxa)
     data_s = {}
     data_g = {}
     data_f = {}
@@ -161,19 +173,35 @@ def load_data(params, ground_truth):
     for name, param in params.items():
         print("loading model ", name)
         tick = time.time()
-        sp, gen, fam = param.get_most_recent_inference()
-        data_s[name] = pd.read_csv(sp)
-        data_g[name] = pd.read_csv(gen)
-        data_f[name] = pd.read_csv(fam)   
+        if which_taxa == 'spec_only':
+            sp = param.get_most_recent_inference(which_taxa=which_taxa)
+            # do spec only
+            data_s[name] = pd.read_csv(sp)
+        elif which_taxa == 'spec_gen_fam':
+            sp, gen, fam = param.get_most_recent_inference(which_taxa=which_taxa)
+            # do spgenfam
+            data_s[name] = pd.read_csv(sp)
+            data_g[name] = pd.read_csv(gen)
+            data_f[name] = pd.read_csv(fam)
+        else:
+            raise NotImplementedError('inference not yet implemented for ', which_taxa)
         tock = time.time()
         print("loading {} took {} minutes".format(name, ((tock-tick)/60)))
-    all_df = {
+    if which_taxa == 'spec_only':
+    
+        all_df = {
+        'species' : data_s,
+    }
+    elif which_taxa == 'spec_gen_fam':
+        all_df = {
         'species' : data_s,
         'genus' : data_g,
         'family' : data_f
     }
-    
+    else:
+        raise NotImplementedError('inference not yet implemented for ', which_taxa)
     return all_df, g_t
+    
 
 def check_colum_names(dset, all_df):
     
@@ -584,7 +612,7 @@ def inhouse_per_observation(yo, yt, taxa_names, device):
         
 if __name__ == "__main__":
     
-    args = ['base_dir', 'pres_threshold', 'device', 'config_path', 'ecoregion', 'num_species']
+    args = ['base_dir', 'pres_threshold', 'device', 'config_path', 'ecoregion', 'num_species', 'which_taxa']
     ARGS = config.parse_known_args(args)       
     print(args)
     run_metrics_and_longform(ARGS)
