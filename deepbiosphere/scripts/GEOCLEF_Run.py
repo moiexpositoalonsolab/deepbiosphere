@@ -70,21 +70,21 @@ def check_mem():
 
 
 
-def setup_dataset(observation, base_dir, organism, region, normalize, altitude, dataset, threshold, num_species, excl_latlon=True):
+def setup_dataset(observation, base_dir, organism, region, normalize, altitude, dataset, threshold, num_species, inc_latlon, pretrained_dset):
     '''grab and setup train or test dataset'''
 #     print(observation, base_dir, organism, region, normalize, altitude, dataset, threshold, num_species, :%slon)
     if dataset == 'satellite_only':
-        return Dataset.HighRes_Satellite_Images_Only(base_dir, organism, region, observation, altitude, threshold, num_species)
+        return Dataset.HighRes_Satellite_Images_Only(base_dir, organism, region, observation, altitude, threshold, num_species, pretrained_dset)
         
     elif dataset == 'satellite_rasters_image':
 #         (base_dir,organism, region, observation, threshold, topk)
-        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude, threshold, num_species, excl_latlon)
+        return Dataset.HighRes_Satellite_Rasters_LowRes(base_dir, organism, region, normalize, observation, altitude, threshold, num_species, inc_latlon)
     elif dataset == 'satellite_rasters_point':
-        return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize, threshold,num_species, excl_latlon)
+        return Dataset.HighRes_Satellite_Rasters_Point(base_dir, organism, region, observation, altitude, normalize, threshold,num_species, inc_latlon, pretrained_dset)
     elif dataset == 'rasters_image':
-        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, threshold,num_species, excl_latlon)
+        return Dataset.Bioclim_Rasters_Image(base_dir, organism, region, normalize, observation, threshold,num_species, inc_latlon)
     elif dataset == 'rasters_point':
-        return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation, threshold, num_species, excl_latlon)
+        return Dataset.Bioclim_Rasters_Point(base_dir, organism, region, normalize, observation, threshold, num_species, inc_latlon)
         
     elif dataset == 'satellite_rasters_sheet':
         return Dataset.HighRes_Satellite_Rasters_Sheet(base_dir, organism, region, normalize, observation, altitude, threshold, num_species)
@@ -181,6 +181,8 @@ def setup_loss(observation, dataset, loss, unweighted, device, loss_type, model)
         spec_loss= losses.AsymmetricLossOptimized()
         gen_loss = losses.AsymmetricLossOptimized()
         fam_loss = losses.AsymmetricLossOptimized()
+        # unweighted is True if model loss is to be unweighted
+        # and false if model loss is to be weighted
     if not unweighted:
         spec_freq = Dataset.freq_from_dict(dataset.spec_freqs)
         gen_freq = Dataset.freq_from_dict(dataset.gen_freqs)
@@ -964,14 +966,13 @@ def train_model(ARGS, params):
     # load observation data
     print("loading data")
     datick = time.time()
-    train_dataset = setup_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold,ARGS.num_species, ARGS.excl_latlon)
+    train_dataset = setup_dataset(params.params.observation, ARGS.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold,ARGS.num_species, ARGS.inc_latlon)
     if not ARGS.toy_dataset:
         tb_writer = SummaryWriter(comment="_lr-{}_mod-{}_reg-{}_obs-{}_dat-{}org-{}_loss-{}_norm-{}_exp_id-{}".format(params.params.lr, params.params.model, params.params.region, params.params.observation, params.params.dataset, params.params.organism, params.params.loss, params.params.normalize, params.params.exp_id))
 
     else:
         tb_writer = None
 #         train_dataset.obs = train_dataset.obs[:params.batch_size*2]
-    val_split = .9
     print("setting up network")
     # global so can access in collate_fn easily
     global num_specs 
@@ -986,14 +987,6 @@ def train_model(ARGS, params):
     net = setup_model(params.params.model, train_dataset, params.params.pretrained, params.params.batch_norm, params.params.arch_type)
     net.to(device)
     optimizer = optim.Adam(net.parameters(), lr=params.params.lr)
-    # hacky way to get pretrained tresnet to have correct image scaling...
-    # not ideal but it gets the job done
-    print("~~~~~~ DONT  FORGET TO CHECK IF PARAMETERS CHANGE ~~~~~~")
-    # TODO: fix this, this is hella messy to have jeez
-    if params.params.pretrained != 'none' and 'TResNet' in params.params.model:
-        # change mean subtraction to match what pretrained tresnet expects
-        print("WE ARE CHANGING SOME PARAMETERS")
-        train_dataset.dataset_means = dataset_means['none']
     if ARGS.from_scratch or not ARGS.load_from_config:
         start_epoch = 0
         step = 0         
@@ -1136,7 +1129,7 @@ def train_model(ARGS, params):
 
 if __name__ == "__main__":
     np.testing.suppress_warnings()
-    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type', 'num_species', 'batch_norm', 'pretrained', 'arch_type', 'excl_latlon']
+    args = ['load_from_config','lr', 'epoch', 'device', 'toy_dataset', 'loss', 'processes', 'exp_id', 'base_dir', 'region', 'organism', 'seed', 'observation', 'batch_size', 'model', 'normalize', 'unweighted', 'no_alt', 'from_scratch', 'dataset', 'threshold', 'loss_type', 'num_species', 'batch_norm', 'pretrained', 'arch_type', 'inc_latlon','pretrained_dset']
     ARGS = config.parse_known_args(args)       
     config.setup_main_dirs(ARGS.base_dir)
     if ARGS.epoch < 0:

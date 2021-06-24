@@ -40,6 +40,7 @@ choices = {
     'normalize' : ['normalize', 'min_max', 'none'],
     'loss_type' : ['none', 'mean', 'sum'],
     'arch_type' : ['plain', 'remove_fc', 'scale_fc'],
+    'pretrained_dset' : ['imagenet', 'mscoco','joint_multiple_obs_cali_plant_train_4', 'none'],
     'pretrained' : ['none', 'feat_ext', 'finetune'],
     'test_or_train' : ['test_only', 'train_only', 'test_and_train'],
     'which_taxa' : ['spec_only', 'spec_gen_fam', 'gen_fam', 'spec_gen'],    
@@ -70,11 +71,12 @@ arguments = {
     'threshold' : {'dest':'threshold', 'type':int,'help' : "how many observations must a species at least have to be added to the dataset", 'default':4},
     'arch_type' : {'choices':choices.arch_type, 'help' : 'which CNN architecture to use for ResNet and VGGNet', 'default' : 'plain'},
     'pretrained' : {'choices' : choices.pretrained, 'help' : 'what kind of pretrained neural network to use (if pretrained at all)', 'default' : 'none'},    
+    'pretrained_dset' : {'choices' : choices.pretrained_dset, 'help' : 'which dataset you prefer the neural network be pretrained on if pretrained at all and if pretrain dataset is available for the model)', 'default' : 'none'},    
     # optional arguments
     'processes': {'type':int, 'help':"how many worker processes to use for data loading",'default':1},    
     'seed': {'type':int, 'help':"random seed to use"},
     'toy_dataset': {'dest':'toy_dataset', 'help': 'to use a small subset of data, set this option', 'action':'store_true'},
-    'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches', 'action':'store_true'},
+    #'dynamic_batch': {'dest':'dynamic_batch', 'help': 'use dynamic sizing of batches', 'action':'store_true'},
     'clean_all': {'dest':'clean_all', 'help': 'whether to clean out all old configs and files or not', 'action':'store_true'},
     'normalize': {'choices': choices.normalize, 'help': 'whether to normalize environmental rasters'},
     'unweighted': {'dest':'unweighted', 'help': 'whether to weight loss by frequency of the observation', 'action':'store_true'},    
@@ -90,7 +92,7 @@ arguments = {
     'config_path': {'type':str,'help':"relative (within base_dir) path to json of models to load",'required' : True},
     'ecoregion': {'choices' : choices.ecoregion,'help':"which ecoregion to split the data into",'default' : 'NA_L3NAME'},
     'pres_threshold': {'type' : float,'help':"what value to threshold the presence-absence of the model",'default' : 0.5},
-    'excl_latlon': {'dest' : 'excl_latlon', 'help' : 'whether to exclude the latitude and longitude of an observation for the rasters', 'action' : 'store_false'},
+    'inc_latlon': {'dest' : 'inc_latlon', 'help' : 'whether to exclude the latitude and longitude of an observation for the rasters', 'action' : 'store_true'},
 }
 
 def get_res_dir(base_dir):
@@ -211,6 +213,7 @@ class Run_Params():
                     'exp_id' : ARGS.exp_id,
                     'seed' : ARGS.seed,
                     'normalize' : ARGS.normalize,
+                    'inc_latlon' : ARGS.inc_latlon,
                     'unweighted' : ARGS.unweighted,
                     'dataset' : ARGS.dataset,
                     'threshold' : ARGS.threshold,
@@ -226,6 +229,7 @@ class Run_Params():
                     'model' : ARGS.model,
                     'exp_id' : ARGS.exp_id,
                     'dataset' : ARGS.dataset,
+                    'inc_latlon' : ARGS.inc_latlon,
                     'threshold' : ARGS.threshold,
                     'loss' : ARGS.loss,
                     'no_altitude' : ARGS.no_alt, 
@@ -242,6 +246,7 @@ class Run_Params():
                     'exp_id' : ARGS.exp_id,
                     'seed' : ARGS.seed,
                     'batch_size' : ARGS.batch_size,
+                    'inc_latlon' : ARGS.inc_latlon,
                     'loss' : ARGS.loss,
                     'normalize' : ARGS.normalize,
                     'unweighted' : ARGS.unweighted,
@@ -250,6 +255,7 @@ class Run_Params():
                     'threshold' : ARGS.threshold,
                     'loss_type' : ARGS.loss_type,
                     'pretrained' : ARGS.pretrained,
+                    'pretrained_dset' : ARGS.pretrained_dset,
                     'batch_norm' : ARGS.batch_norm,
                     'arch_type' : ARGS.arch_type,
 
