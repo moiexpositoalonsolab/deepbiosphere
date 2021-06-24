@@ -115,7 +115,7 @@ def run_metrics_and_longform(args):
 
     per_spec_glob_mets = sklearn_per_taxa_overall(pres_df, ground_truth, overall_mets, taxa_names)
     pth = save_dir + "per_species_overall_{}.csv".format(cfgs['exp_id'])
-    print("saving to:", pth)    
+    print("savial:::dfasfsadsadg to:", pth)    
     per_spec_glob_mets.to_csv(pth)
     print("global metrics done")
     # run all per-label metrics within ecoregions
@@ -256,9 +256,18 @@ def pred_2_pres(all_df, taxa_names, device, threshold):
                 # first convert logit to probability
                 obs = torch.sigmoid(obs)
                 # then threshold probability
-                binn = (obs > threshold).float()
+                # sneaky: NaN is a very small double, but when you convert it to float32 with .float()
+                # then it gets rounded to a very negative number, but no longer gets mapped to NaN
+                # therefore, have to make sure to convert the bool array to a double so that 
+                # NaN statuts gets carried over and preserved
+                binn = (obs > threshold).double()
+                # sketchy, but the below line essentially converts over the nans if inference
+                # only run on either test or  train data, so that metrics aren't accidentally
+                # calculated for portions of the dataset inference wasn't actually run on
+                binn[torch.isnan(obs)] = obs[torch.isnan(obs)]
             # convert back to numpy and df
             out = binn.cpu().numpy()
+            # now this new df will have NaN values for any observations that inference wasn't run on 
             new_dict[name] = utils.numpy_2_df(out, taxa_names[taxa], df, EXTRA_COLUMNS)
         pres_df[taxa] = new_dict
     return pres_df
@@ -284,7 +293,7 @@ def pred_2_proba(all_df, taxa_names, device):
                 new_dict[name] = df
             prob_df[taxa] = new_dict
 
-        
+    return prob_df    
 # per-species datasaet-wide
 # 2. sklearn statistics
 # test
@@ -307,7 +316,7 @@ def sklearn_per_taxa_overall(pres_df, ground_truth, mets, taxa_names):
     model_idx, taxa_idx, test_idx = 0, 1, 2
     filler = np.zeros([num_rows, len(df_names)])
     results_df = pd.DataFrame(filler, columns=df_names)
-
+    # TODO: will break if there aren't observations for train points.../def
     i = 0
     # one entry per-taxa
     for taxa, dic in pres_df.items():
