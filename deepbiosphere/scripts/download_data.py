@@ -1,13 +1,13 @@
 # todo:
-# 1. build a script that downloads all pointwise plant data for a given timeframe from gbif?
+# 1. DONE build a script that downloads all pointwise plant data for a given timeframe from gbif?
 # so we can only download large chunks of data asynchronously
 # so what I'll do is provide the download predicate
 # and a tutorial notebook that walks through a user of how to download
 # their own gbif occurrence records
 # but for myself,
-    # a. make a download predicate
-    # b. instantiate an asynchronous gbif download request for all the current california data
-    # c. retreive the requested data
+    # a. DONE make a download predicate
+    # b. DONE instantiate an asynchronous gbif download request for all the current california data
+    # c. DONE retreive the requested data
     # d. move it into place and update the repository framework to support it
     # e. automate this whole process for potential end users
 # 2. build a script to download all the tiffs for the known lat / lon from the new gbif data
@@ -243,17 +243,12 @@ def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", en
                 zip_ref.extractall(path=dirr, members=[n])
                 os.rename(dirr + n, dirr + config.build_gbif_file(taxon, start_date, end_date, area, 'csv') + str(i))
                 i += 1
-        # import pdb;pdb.set_trace()
         
         name = dirr + config.build_gbif_file(taxon, start_date, end_date, area, 'json')
     down_pred['response'] = resp.json()
     with open(name, 'w') as f:
         json.dump(down_pred, f)    
-    # so the request returns an id, if you curl from https://api.gbif.org/v1/occurrence/download/<id> then it returns a json with the status of the download
-    # eventually, it'll return success and the downloadLink field of that json will be populated
-    # TODO: figure out what the id gives you
-    # then query the server every 5 minutes until the data is ready
-    # then download it to the occurrences folder
+
 
 def download_url(url, save_path, chunk_size=128):
     r = requests.get(url, stream=True)
