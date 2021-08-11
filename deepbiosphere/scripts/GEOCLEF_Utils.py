@@ -83,6 +83,17 @@ def cnn_output_size(in_size, kernel_size, stride, padding):
     output = int((in_size - kernel_size + 2*(padding)) / stride) + 1
     return(output)
 
+def torch_scale(x, out_range=(0, 1), min_=None, max_=None):
+
+    if min_ == None and max_ == None:
+        min_, max_ = x.min(), x.max()
+        # .float() converts to float32, we want float64 for now...
+        # jk, we want float32 for data efficiency reasons
+    min_, max_ = min_.to(dtype=torch.float32, device=x.device), max_.to(dtype=torch.float32, device=x.device)
+    x = x.to(dtype=torch.float32, device=x.device)
+    y = (x - (max_ + min_) / 2) / (max_ - min_)
+    return y * (out_range[1] - out_range[0]) + (out_range[1] + out_range[0]) / 2
+
 def scale(x, out_range=(-1, 1), min_=None, max_=None):
     
     if min_ == None and max_ == None:
@@ -391,17 +402,33 @@ def subpath_2_img_noalt(pth, subpath, id_):
     # Necessary because some data corrupted...
     np_img = np.load(rgbd)
     np_img = np_img[:,:,:4]
-    return np.transpose(np_img,(2, 0, 1))
+    x = np.transpose(np_img,(2, 0, 1))
+    return x
 
-def image_from_id(id_, pth, means, altitude=False, sub_mean=True):
+def image_from_id(id_, pth, means, stds, altitude=False, sub_mean="none"):
     # make sure image and path are for same region
     cdd, ab, cd = id_2_file(id_)
     subpath = "patches_{}/{}/{}/".format('fr', cd, ab) if id_ >= 10000000 else "patches_{}/patches_{}_{}/{}/{}/".format('us', 'us', cdd, cd, ab)
     img = subpath_2_img(pth, subpath, id_) if altitude else subpath_2_img_noalt(pth, subpath, id_)
-    if sub_mean:
-        for i, (channel, mean) in enumerate(zip(means, img)):
-            img[i,:,:] = mean - channel
-    return img
+    # decision: always 0-1 scale images
+    # supposed to be numpy array at this point still, so use scale not tensor_scale
+    img = scale(img, out_range=(0,1), min_=0, max_=255)
+    # can use copy since not obj array https://numpy.org/doc/stable/reference/generated/numpy.copy.html
+    imgg = np.copy(img)
+    # if unecessary if sub_mean calculation doens't scale
+    #if sub_mean:
+    for i, (mean, std, channel) in enumerate(zip(means, stds, img)):
+
+        # this is the transformation that was previously happening...
+        # no it's not
+#             n = (np.full( (256,256), 256) + (mean - channel)).round()
+#             print("aha? ", n[:5,:5].round())
+# How we should be normalizing: https://www.geeksforgeeks.org/how-to-normalize-images-in-pytorch/
+    # what the hell is going on here???
+    # so, not sure what the internal python transformation that was happening by changing the underlying data, so instead will just copy over
+        #img[i,:,:] = mean - channel # this is incorrect, and is doing some wild ting?
+        imgg[i,:,:] = (channel - mean)/std
+    return imgg
 
 def subpath_2_img(pth, subpath, id_):
     alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
