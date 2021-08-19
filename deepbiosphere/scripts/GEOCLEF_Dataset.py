@@ -1,3 +1,4 @@
+import json
 import os
 from collections import Counter
 from deepbiosphere.scripts.GEOCLEF_Config import paths
@@ -21,7 +22,9 @@ warnings.filterwarnings("ignore")
 
 
 def load_means(base_dir):
-    return json.loads(base_dir + 'occurrences/dataset_means.json')
+    f = base_dir + 'occurrences/dataset_means.json'
+    with open(f, 'r') as fp:
+        return json.load(fp)
 
 def load_dataset_pandas(base_dir, organism, region, observation, threshold):
     obs = get_gbif_observations(base_dir,organism, region, observation, threshold)
@@ -75,7 +78,7 @@ def get_us_bioclim(base_dir):
 #        "imagenet" : (0.485, 0.456, 0.406, 0.0),
 
 #         "none" : (0,0,0,0)
-                }
+               # }
 
 raster_metadata = {
     'bio_1': {'min_val': -116, 'max_val': 259, 'nan': -2147483647, 'new_nan': -117, 'mu': 101, 'sigma': 58},
@@ -148,7 +151,7 @@ def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_
             
             lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
             lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
-            env_rasters = np.append(env_rasters, [lat_norm, lon_norm)
+            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
 
         elif  normalize == 'normalize':
             raise NotImplementedError # how one normalizes latitude and longitudes is tricky...
@@ -442,7 +445,7 @@ def build_dset_name(base_dir, organism, region, observation, threshold, topk):
         if threshold is None:
             name  = "{}_obs_{}_{}_train".format(observation, region, organism)
         else:
-            naem = "{}_obs_{}_{}_train_{}".format(observation, region, organism, threshold)
+            name = "{}_obs_{}_{}_train_{}".format(observation, region, organism, threshold)
     return name        
 
 
@@ -456,7 +459,7 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold, to
     elif observation == 'single_single':
         observation = 'joint_single'
     name = build_dset_name(base_dir, organism, region, observation, threshold, topk)
-    obs_pth = "{}occurrences/{}.csv".format(base_dir)
+    obs_pth = "{}occurrences/{}.csv".format(base_dir, name)
     assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)
     return reformat_data(joint_obs)
@@ -546,7 +549,7 @@ class HighRes_Satellite_Images_Only(Dataset):
         self.test = obs[obs.test].index.tolist()
         self.train = obs[~obs.test].index.tolist()        
         self.obs = obs[['id', 'species_id', 'genus_id', 'family_id', 'all_specs', 'all_fams', 'all_gens', 'lat_lon']].values
-        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude, self.dataset_means, self.datset_stds)
+        channels, width, height = get_shapes(self.obs[0,0], self.base_dir, self.altitude, self.dataset_means, self.dataset_stds)
         self.channels = channels
         self.width = width
         self.height = height
@@ -643,7 +646,7 @@ class HighRes_Satellite_Rasters_Point(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, self.datset_stds, altitude=self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, self.dataset_stds, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_point_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.inc_latlon)
@@ -962,7 +965,7 @@ class HighRes_Satellite_Rasters_Sheet(Dataset):
             idx = idx.tolist()
         # get images  
         id_ = self.obs[idx, id_idx]
-        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, self.datset_stds, altitude=self.altitude)
+        images = utils.image_from_id(id_, self.base_dir, self.dataset_means, self.dataset_stds, altitude=self.altitude)
         # get raster data
         lat_lon = self.obs[idx, lat_lon_idx]
         env_rasters = get_raster_sheet_obs(lat_lon, self.affine, self.rasters, self.nan, self.normalize, self.lat_min, self.lat_max, self.lon_min, self.lon_max, self.width, self.height)

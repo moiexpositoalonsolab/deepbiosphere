@@ -427,6 +427,7 @@ def image_from_id(id_, pth, means, stds, altitude=False, sub_mean="none"):
     # what the hell is going on here???
     # so, not sure what the internal python transformation that was happening by changing the underlying data, so instead will just copy over
         #img[i,:,:] = mean - channel # this is incorrect, and is doing some wild ting?
+
         imgg[i,:,:] = (channel - mean)/std
     return imgg
 
