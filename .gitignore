@@ -1,6 +1,11 @@
 *tmp*
 */*.zip
 *.zip
+*.png
+*.svg
+*.pdf
+*.tif
+*.pkl
 sat/*tif
 sat/*tfw
 *__pycache__
