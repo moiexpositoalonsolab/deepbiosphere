@@ -14,7 +14,9 @@ from types import SimpleNamespace
 paths = {
     'DBS_DIR' : "/Carnegie/DPB/Data/Shared/Labs/Moi/Everyone/deepbiosphere/GeoCELF2020/",
     'AZURE_DIR' : '/home/leg/deepbiosphere/GeoCELF2020/',
-    'NAIP_BASE' : '/home/leg/NAIP/v002/',
+    'BLOB_ROOT' : 'https://naipeuwest.blob.core.windows.net/naip',
+    'NAIP_BASE' : '/home/leg/deepbiosphere/data/NAIP/v002/',
+    'BLOB_ROOT' : 'https://naipeuwest.blob.core.windows.net/naip',
     'VIRT_BASE' : '/mnt/vrt/',
     'MNT_DIR' : '/mnt/GeoCLEF/',
     'MEMEX_LUSTRE' : "/lustre/scratch/lgillespie/",
