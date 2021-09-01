@@ -75,7 +75,7 @@ def get_us_bioclim(base_dir):
 #        "imagenet" : (0.485, 0.456, 0.406, 0.0),
 
 #         "none" : (0,0,0,0)
-                }
+                #}
 
 raster_metadata = {
     'bio_1': {'min_val': -116, 'max_val': 259, 'nan': -2147483647, 'new_nan': -117, 'mu': 101, 'sigma': 58},
@@ -148,7 +148,7 @@ def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_
             
             lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
             lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
-            env_rasters = np.append(env_rasters, [lat_norm, lon_norm)
+            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
 
         elif  normalize == 'normalize':
             raise NotImplementedError # how one normalizes latitude and longitudes is tricky...
