@@ -22,7 +22,6 @@ from deepbiosphere.scripts import GEOCLEF_Dataset as Dataset
 from deepbiosphere.scripts import GEOCLEF_Loss as losses
 from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from deepbiosphere.scripts import GEOCLEF_Config as config
-from deepbiosphere.scripts.GEOCLEF_Dataset import dataset_means
 
 
 
@@ -387,7 +386,7 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
     allspec = []
     allgen = []
     allfam = []
-    
+    net.eval() 
     sampler = test_loader.sampler
     dataset = test_loader.dataset
     with tqdm(total=len(sampler), unit="example") as prog:
@@ -432,6 +431,7 @@ def test_joint_obs_rasters_batch(test_loader, tb_writer, device, net, epoch):
             tb_writer.add_scalar("test/avg_spec_precision", mean(allspecprec) * 100, epoch) 
 
     prog.close()
+    net.train()
     return allfam, allgen, allspec
   
 
@@ -631,7 +631,7 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
     allspec = []
     allgen = []
     allfam = []
-    
+    net.eval()    
     sampler = test_loader.sampler
     dataset = test_loader.dataset
     with tqdm(total=len(sampler), unit="example") as prog:
@@ -677,7 +677,7 @@ def test_joint_obs_batch(test_loader, tb_writer, device, net, epoch):
             tb_writer.add_scalar("test/avg_spec_rec_top1", mean(allspecrectop1) * 100, epoch)
             tb_writer.add_scalar("test/avg_spec_recall", mean(allspecrec) * 100, epoch)
             tb_writer.add_scalar("test/avg_spec_precision", mean(allspecprec) * 100, epoch) 
-            
+    net.train() 
     prog.close()
     return allfam, allgen, allspec
 
