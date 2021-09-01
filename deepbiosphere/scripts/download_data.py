@@ -32,6 +32,7 @@ from deepbiosphere.scripts.GEOCLEF_Config import paths
 # countries is a list of countries, states is a list of GADM GIDs which are constructed as
 # country code from https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3  [code].[state number]_1
 # where state number is the alphabetical sorting of states
+# TODO: use GADM to resolve state / country names to their administrative area ids
 def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", end_date="2021", area=['USA.5_1']):
 
     # confirm email roughly matches email shape
