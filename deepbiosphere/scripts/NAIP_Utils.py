@@ -4,14 +4,22 @@ import logging
 import math
 from pathlib import Path
 import warnings
-
+from rasterio import Affine, MemoryFile
+from rasterio.profiles import DefaultGTiffProfile
 import numpy as np
 
 import rasterio
+from rasterio.crs import CRS
+import rasterio.warp
+import rasterio.shutil
+from rasterio.enums import Resampling
+from rasterio import shutil as rio_shutil
+from rasterio.vrt import WarpedVRT
 from rasterio.coords import disjoint_bounds
 from rasterio.enums import Resampling
 from rasterio.windows import Window
 from deepbiosphere.scripts import new_window
+from deepbiosphere.scripts import GEOCLEF_Utils as utils
 from rasterio.transform import Affine
 import rasterio.transform as transforms
 import matplotlib as mpl
@@ -22,6 +30,10 @@ import matplotlib as mpl
 import time
 # deepbio packages
 from deepbiosphere.scripts.GEOCLEF_Config import paths
+import deepbiosphere.scripts.GEOCLEF_Config as config
+from deepbiosphere.scripts.GEOCLEF_Run import  setup_dataset
+import deepbiosphere.scripts.GEOCLEF_Utils as utils
+import deepbiosphere.scripts.GEOCLEF_CNN as cnn
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString
@@ -60,8 +72,8 @@ import numpy as np
 
 
 ## fields
-AZURE_BLOB_ROOT='https://naipeuwest.blob.core.windows.net/naip'
 # not all the NAIP are teh same coorediate reference system
+# this is WGS84, what the VRT are converted to
 NAIP_CRS='EPSG:4326'
 
 class DownloadProgressBar():
@@ -192,17 +204,17 @@ def display_naip_tile(filename):
     plt.imshow(rgb)
     raster.close()
 
-def setup_NAIPIndex(blob_root=AZURE_BLOB_ROOT, crs=NAIP_CRS, index_loc=None):
+def setup_NAIPIndex(blob_root=paths.BLOB_ROOT, crs=NAIP_CRS, index_loc=None):
 
-	index_files = ['tile_index.dat', 'tile_index.idx', 'tiles.p'] # these are the files that tell you which tiles are where
-	index_blob_root = re.sub('/naip$','/naip-index/rtree/',blob_root)
-	temp_dir = os.path.join(tempfile.gettempdir(),'naip') if index_loc is None else index_loc
-	os.makedirs(temp_dir,exist_ok=True)
-	# Spatial index that maps lat/lon to NAIP tiles; we'll load this when we first
-	# need to access it.
-	index = None
-	warnings.filterwarnings("ignore")
-	return NAIPTileIndex(index_blob_root, index_files,  temp_dir)
+        index_files = ['tile_index.dat', 'tile_index.idx', 'tiles.p'] # these are the files that tell you which tiles are where
+        index_blob_root = re.sub('/naip$','/naip-index/rtree/',blob_root)
+        temp_dir = os.path.join(tempfile.gettempdir(),'naip') if index_loc is None else index_loc
+        os.makedirs(temp_dir,exist_ok=True)
+        # Spatial index that maps lat/lon to NAIP tiles; we'll load this when we first
+        # need to access it.
+        index = None
+        warnings.filterwarnings("ignore")
+        return NAIPTileIndex(index_blob_root, index_files,  temp_dir)
 
 # types for type hints
 NAIP_shpfile  = gpd.geodataframe.GeoDataFrame
@@ -213,16 +225,95 @@ def Load_Cali_Bounds(base_dir : str):
      ca = us1[us1.NAME_1 == 'California']
      return ca
 
-def Find_Rasters_Polygon(gdf : NAIP_shpfile, poly : Polygon, base_dir : str,  res : float, ftype : str = "vrt"):
+def Load_NAIP_Bounds(base_dir : str, state: str, year : str):
+    return gpd.read_file(
+            f"{base_dir}{state}/{year}/{state}_shpfl_{year}/naip_3_{year[2:4]}_1_1_{state}.shp")
+
+def Find_Rasters_Polygon(gdf : NAIP_shpfile, poly : Polygon, bands : list, base_dir : str,  res : float = None, ftype : str = "vrt"):
+    check_bands(bands)
     null = Polygon()
     tt = gdf.intersection(poly)
     rasters =  gdf[tt != null]
     rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
-    return merge(rasters, res=res)
+    if len(rasters) > 1:
+        return merge(rasters, res=res, indexes=bands)
+    elif len(rasters) == 0:
+        print("no matching rasters found")
+    else:
+        # TODO: handle resolution
+        with rasterio.open(rasters[0]) as r:
+            ras, tran = r.read(indexes=bands), r.transform
+            return ras, tran
 
-def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point):
-    return gdf[gdf.contains(point)]
+def check_bands(bands):
+    if bands is None:
+        raise ValueError("bands should be specificed! If you want all bands, return a list with all bands, else GDAL reverts to an incorrect driver that interprets the 4th band as alpha")
 
+def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point, bands : list, base_dir  : str, res : float = None, ftype : str = 'vrt'):
+    check_bands(bands)
+    rasters = gdf[gdf.contains(point)]
+    rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
+    if len(rasters) > 1:
+        return merge(rasters, res=res, indexes=bands)
+    elif len(rasters) == 0:
+        print("no matching rasters found")
+    else:
+        # TODO: handle resolution
+        with rasterio.open(rasters[0]) as r:
+            ras, tran = r.read(indexes=bands), r.transform
+            return ras, tran
+# TODO: this method will need to move to the new datasets class which will store date, resolution etc
+def Get_Train_Image(lat, lon, index: NAIPTileIndex, base_path : str, year : str,  resolution : int = 256, ftype : str = 'tif'):
+# 1. get what rasters overlap this point with RTree index
+    resolution = resolution - 1 if resolution % 2 != 0 else resolution
+    center = resolution / 2
+    #lat, lon = point.x, point.y
+    naip_files = index.lookup_tile(lat, lon)
+    if naip_files is None or len(naip_files) == 0:
+        print('No intersection')
+        return None
+# 2. convert corresponding index readout to local paths
+    naip_files = rasters = [ f"{base_path}{f.split('.')[0].split('v002/')[1]}.{ftype}" for f in naip_files if f"/{year}/" in f]
+# 3. select and open raster
+    for f in naip_files:
+        with rasterio.open(f) as src:
+            # Each NAIP tile has its own coordinate system that is *not* lat/lon
+                crs = src.crs
+
+                # This object will let us convert between tile coordinates (these will be local
+                # state CRS) and tile offsets (i.e. pixel indices)
+                transform = src.transform
+
+                # Convert our lat/lon point to the local NAIP coordinate system
+                x_tile_crs, y_tile_crs = fiona.transform.transform("epsg:4326", crs.to_string(),
+                                                                   [lon], [lat])
+                x_tile_crs = x_tile_crs[0]
+                y_tile_crs = y_tile_crs[0]
+
+                # Convert our new x/y coordinates into pixel indices
+                x_tile_offset, y_tile_offset = ~transform * (x_tile_crs, y_tile_crs)
+                x_tile_offset = int(np.floor(x_tile_offset))
+                y_tile_offset = int(np.floor(y_tile_offset))
+
+                # The secret sauce: only read data from a 256x256 window centered on our point
+
+                image_crop = src.read(window=Window(x_tile_offset-center, y_tile_offset-center, resolution, resolution))
+
+            # Sometimes our point will be on the edge of a NAIP tile, and our windowed reader above
+            # will not actually return a 256x256 chunk of data. We could handle this nicely by going
+            # back up to the `naip_files` list and trying to read from one of the other tiles -
+            # because the NAIP tiles have overlap with one another, there should exist an intersecting
+            # tile with the full window.
+        if (image_crop.shape[1] == 256) and (image_crop.shape[2] == 256):
+            return image_crop
+    print("no raster fully overlaps this point")
+    return None # there's no raster that intersects your point :(
+
+def Grab_TIFF(df_row, tif_dir):
+    return f"{tif_dir}{df_row.APFONAME[:5]}/{'_'.join(df_row.FileName.split('_')[:-1])}.tif"
+
+def Grab_VRTs(vrt_dir : str, shpfile : NAIP_shpfile):
+    return [f"{vrt_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.vrt" for _, fman in shpfile.iterrows()]
 
 # functions to deal with merging. Adopted from Rasterio
 # deciding that this isn't important in the meantime, focus on finishing
@@ -413,6 +504,7 @@ def merge(
 
         dataset_opener = nullcontext
 
+    check_bands(indexes)
     with dataset_opener(datasets[0]) as first:
         first_profile = first.profile
         first_res = first.res
@@ -562,7 +654,6 @@ def merge(
                 resampling=resampling,
             )
 
-
             # 5. Copy elements of temp into dest
             region = dest[:, dst_window.row_off : dst_window.row_off + dst_window.height, dst_window.col_off : dst_window.col_off+ dst_window.width]
 
@@ -650,3 +741,220 @@ def from_bounds(
         width=max(col_stop - col_start, 0.0),
         height=max(row_stop - row_start, 0.0),
     )
+
+def Mask_Raster(raster : np.array, trans, polygon, crs=NAIP_CRS):
+        kwargs = {
+            'transform' :trans,
+            'driver': 'GTiff',
+            'height' : raster.shape[1],
+            'width' : raster.shape[2]
+        }
+        with MemoryFile() as memfile:
+            with memfile.open(**DefaultGTiffProfile(count=raster.shape[0], width = raster.shape[2], height = raster.shape[1],  crs=crs, transform=trans)) as dataset: # Open as DatasetWriter
+                profile = dataset.profile
+                profile.update(**kwargs)
+                dataset.write(rasters)
+                del rasters
+            with memfile.open(transform=trans) as dataset:  # Reopen as DatasetReader
+                cropped, trans = mask(dataset, polygon.geometry, invert=False, crop=True)
+                return cropped, trans
+
+# tif_dir should be the base_dir plus the year and acquisiiton directory
+def Warp_VRT(vrt_dir : str, tif_dir : str,  shpfile : NAIP_shpfile, dst_crs = NAIP_CRS):
+    for i, fman in shpfile.iterrows():
+        # build local filepath
+        fname = Grab_TIFF(fman, tif_dir)
+        # f"{tif_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.tif"
+        dst_bounds = fman.geometry.bounds
+        with rasterio.open(fname) as src:
+            dst_height = src.profile['height']
+            dst_width =  src.profile['width']
+            # WGS84 transform
+            left, bottom, right, top = dst_bounds
+            xres = (right - left) / dst_width
+            yres = (top - bottom) / dst_height
+            dst_transform = affine.Affine(xres, 0.0, left,
+                                          0.0, -yres, top)
+            vrt_options = {
+                'resampling': Resampling.bilinear,
+                'crs': dst_crs,
+                'transform': dst_transform,
+                'height': dst_height,
+                'width': dst_width,
+                'add_alpha' : False,
+                'nodata' : 0,
+                'warp_mem_limit' : 0.0
+            }
+            with WarpedVRT(src, **vrt_options) as vrt:
+                # recreate the same file directory structure as NAIP
+                ndir = f"{vrt_dir}/{fman.APFONAME[:5]}"
+                None if os.path.isdir(ndir) else os.makedirs(ndir) # sneaky one liner make directory
+                fpath = ndir + f"/{'_'.join(fman.FileName.split('_')[:-1])}.vrt" # now make full filename
+                rio_shutil.copy(vrt, fpath, driver='VRT')
+    tick = time.time()
+    print(f"took {(tick-tock)/60} minutes to convert to VRT")
+
+
+
+def predict_raster_list(device_no, tiffs, modelname, res, year, model_pth, cfg_pth, base_dir=paths.AZURE_DIR):
+    # TODO: remove this garbage belwo
+    #if modelname == 'old_tresnet_satonly':
+    if "old" in modelname:
+            # basedire for config and dataset are different
+            basedir = "/home/leg/deepbiosphere/GeoCELF2020/"
+    else:
+        basedir = base_dir
+    if device_no == 'cpu':
+        device = torch.device("cpu")
+    else:
+        device = torch.device(f"cuda:{device_no}")
+        torch.cuda.set_device(device_no)
+    params = config.Run_Params(basedir, cfg_path=cfg_pth)
+    daset = setup_dataset(params.params.observation, basedir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, -1, inc_latlon=False, pretrained_dset='old_tresnet')
+    # just load in model directly
+    state = torch.load(basedir + model_pth, map_location=device)
+    # and get size to set up new model from state
+    gen = state['model_state_dict']['gen.weight']
+    fam = state['model_state_dict']['fam.weight']
+    spec = state['model_state_dict']['spec.weight']
+    num_spec = spec.shape[0]
+    num_gen = gen.shape[0]
+    num_fam = fam.shape[0]
+    # now actually set up model
+    model = cnn.TResNet_M(params.params.pretrained, num_spec, num_gen, num_fam, basedir)
+    model.load_state_dict(state['model_state_dict'], strict=True)
+    model = model.to(device)
+    model.eval();
+    spec_names = tuple(daset.inv_spec.values())
+    # figure out batch size
+    batchsize = batchsized(device, tiffs[0], model,params.params.batch_size, res, num_spec) # params.params.batch_size
+    for raster in tqdm(tiffs):
+        file = predict_raster(raster, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names)
+
+
+def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names):
+    with rasterio.open(rasname) as src:
+        ras = src.read()
+        width, height = src.width, src.height
+        num_w, num_h  = width//res, height//res
+        clean_w, clean_h = num_w *res, num_h*res
+        new_w = num_w + 1 if width % res != 0 else num_w
+        new_h = num_h + 1 if height % res != 0 else num_h
+        output = np.zeros([num_spec, new_h, new_w])
+        images = []
+        # grab all the locations that normally fit
+        for i in range(0, clean_w, res):
+            for j in range(0, clean_h, res):
+                ii, jj = int(i/res), int(j/res)
+                window = ras[:, j:j+res, i:i+res]
+                # so, the subtraction doesn't work becuase of the uint8 datatype, so taking out for now
+#                 if modelname == 'old_tresnet_satonly': # hate it, so gross...
+#                     for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
+#                         window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
+                images.append((window, [ii,jj]))
+        # add a row if there are pixels that bleed over the bottom
+        if height % res != 0:
+            for i in range(0, clean_w, res):
+                ii, jj = int(i/res), height//res
+                window = ras[:, height-res:, i:i+res]
+#                 if modelname == 'old_tresnet_satonly':
+#                     for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
+#                         window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
+                images.append((window, [ii,jj]))
+        # add a row if there are pixels that bleed over the edge
+        if width % res != 0:
+            for j in range(0, clean_h, res):
+                ii, jj = width//res, int(j/res)
+                window = ras[:, j:j+res , width-res:]
+#                 if modelname == 'old_tresnet_satonly':
+#                     for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
+#                         window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
+                images.append((window, [ii,jj]))
+        # finish adding bleed prediction
+        if width % res != 0 and height % res != 0:
+            ii, jj = width//res, height//res
+            window = ras[:, height-res: , width-res:]
+#             if modelname == 'old_tresnet_satonly':
+#                 for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
+#                     window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
+            images.append((window, [ii,jj]))
+        # now chunk the images array by batchsize
+        for chunk in utils.chunks(images, batchsize):
+            locs = [l for _, l in chunk]
+            batch = torch.stack([torch.tensor(c, device=device) for c, _ in chunk], dim=0)
+            out = model(batch.float())[0].cpu().detach().numpy() # TODO: these predictions are bunk for the old model bc of the issue with setting things...
+            for (loc, outt) in zip(locs, out):
+                output[:, loc[1], loc[0]] = outt
+
+        # there's a chance that there's some tomfoolery in the order of
+        # bounds and w/h, but I'm going to trust that it works for now
+        nt = rasterio.transform.from_bounds(*src.bounds, new_w, new_h)
+
+        kwargs = src.meta.copy()
+        kwargs.update({
+            'width': new_w,
+            'height': new_h,
+            'count' : num_spec,
+            'transform' : nt,
+            'dtype' : 'float32'
+            # so I ran torchy sig with both 64 and 32 and nothing seemed to change so ignoring for now
+        })
+        fname = f"{base_dir}inference/prediction/{modelname}/{rasname.split(paths.NAIP_BASE)[-1]}" # and steal filename from NAIP
+        if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
+            os.makedirs(fname.rsplit('/',1)[0])
+        with rasterio.open(fname, 'w', **kwargs) as dst:
+            dst.write(np.float32(output), list(range(1, num_spec+1)))
+            dst.descriptions = spec_names
+    return fname
+
+
+
+# might use, idk cuda GPU mem is weird
+def batchsized(device, rasname, model,base_size, res, num_spec):
+    with rasterio.open(rasname) as src:
+        ras = src.read()
+        width, height = src.width, src.height
+        num_w, num_h  = width//res, height//res
+        clean_w, clean_h = num_w *res, num_h*res
+        new_w = num_w + 1 if width % res != 0 else num_w
+        new_h = num_h + 1 if height % res != 0 else num_h
+        output = np.zeros([num_spec, new_h, new_w])
+        images = []
+        for i in range(0, clean_w, res):
+            for j in range(0, clean_h, res):
+                ii, jj = int(i/res), int(j/res)
+                window = ras[:, j:j+res, i:i+res]
+                images.append((window, [ii,jj]))
+        if height % res != 0:
+            for i in range(0, clean_w, res):
+                ii, jj = int(i/res), height//res
+                window = ras[:, height-res:, i:i+res]
+                images.append((window, [ii,jj]))
+        if width % res != 0:
+            for j in range(0, clean_h, res):
+                ii, jj = width//res, int(j/res)
+                window = ras[:, j:j+res , width-res:]
+                images.append((window, [ii,jj]))
+        if width % res != 0 and height % res != 0:
+            ii, jj = width//res, height//res
+            window = ras[:, height-res: , width-res:]
+            images.append((window, [ii,jj]))
+
+    for i in range(base_size, 1, -5):
+        good = True
+        for j, chunk in enumerate(utils.chunks(images, i)):
+            batch = torch.stack([torch.tensor(c, device=device) for c, _ in chunk], dim=0)
+            try:
+                model(batch.float())[0].cpu().detach().numpy()
+                # print(f"best batch size is {i}")
+            except:
+                good = False
+                print(f"{i} didn't work")
+                break
+            if j >= 5: # don't need to loop through everything, likely can hold it if  this  true
+                break
+        if good:
+            print(f"batch size is {i}")
+            return i
+
+

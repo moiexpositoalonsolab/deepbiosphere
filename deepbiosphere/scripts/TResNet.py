@@ -78,7 +78,6 @@ class BasicBlock(Module):
 
         out = self.conv1(x)
         out = self.conv2(out)
-
         if self.se is not None: out = self.se(out)
 
         out += residual
@@ -136,7 +135,7 @@ class Bottleneck(Module):
 
 class TResNet(Module):
 
-    
+
     def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, width_factor=1.0,
                  do_bottleneck_head=False,bottleneck_features=512):
         super(TResNet, self).__init__()
@@ -149,19 +148,19 @@ class TResNet(Module):
         self.pretrained = pretrained
         self.num_spec = num_spec
         self.num_gen = num_gen
-        self.num_fam = num_fam        
-        
+        self.num_fam = num_fam
+
         # TResnet stages
         if pretrained == 'finetune':
             # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
-            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3) 
+            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3)
             in_chans = 3
             # initialize He-style
             nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
             nn.init.constant_(self.conv4band.bias, 0)
         elif pretrained == 'feat_ext':
             in_chans = 3
-        
+
         self.inplanes = int(64 * width_factor)
         self.planes = int(64 * width_factor)
         conv1 = conv2d_ABN(in_chans * 16, self.planes, stride=1, kernel_size=3)
@@ -187,7 +186,6 @@ class TResNet(Module):
         self.embeddings = []
         self.global_pool = nn.Sequential(OrderedDict([('global_pool_layer', global_pool_layer)]))
         self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
-        print("num features is ", self.num_features)
         # Ignore this for now, code will break for bottleneck_head but don't think will use
         if do_bottleneck_head:
             fc = bottleneck_head(self.num_features, num_classes,
@@ -195,7 +193,7 @@ class TResNet(Module):
         else:
             self.spec = nn.Linear(self.num_features, num_spec)
             self.gen = nn.Linear(self.num_features, num_gen)
-            self.fam = nn.Linear(self.num_features, num_fam)        
+            self.fam = nn.Linear(self.num_features, num_fam)
 
         # get rid of this and instead put in place f, g, spec fcs
         # model initilization
@@ -234,27 +232,28 @@ class TResNet(Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        
+
         if self.pretrained == 'finetune':
-            x = self.conv4band(x)        
+            x = self.conv4band(x)
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
         if self.pretrained != 'none':
             x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
+
         x = self.body(x)
         self.embeddings = self.global_pool(x)
         spec = self.spec(self.embeddings)
         gen = self.gen(self.embeddings)
         fam = self.fam(self.embeddings)
         return (spec, gen, fam)
-    
-    
-    
-    
+
+
+
+
 
 class Joint_TResNet(Module):
 
-    
+
     def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, width_factor=1.0,
                  do_bottleneck_head=False,bottleneck_features=512):
         super(Joint_TResNet, self).__init__()
@@ -267,21 +266,21 @@ class Joint_TResNet(Module):
         self.pretrained = pretrained
         self.num_spec = num_spec
         self.num_gen = num_gen
-        self.num_fam = num_fam        
+        self.num_fam = num_fam
         self.env_rasters = env_rasters
         self.mlp_choke1 = 64
-        self.mlp_choke2 = 128        
+        self.mlp_choke2 = 128
         # TResnet stages
         if pretrained == 'finetune':
             # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
-            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3) 
+            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3)
             in_chans = 3
             # initialize He-style
             nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
             nn.init.constant_(self.conv4band.bias, 0)
         elif pretrained == 'feat_ext':
             in_chans = 3
-        
+
         self.inplanes = int(64 * width_factor)
         self.planes = int(64 * width_factor)
         conv1 = conv2d_ABN(in_chans * 16, self.planes, stride=1, kernel_size=3)
@@ -307,35 +306,34 @@ class Joint_TResNet(Module):
         self.embeddings = []
         self.global_pool = nn.Sequential(OrderedDict([('global_pool_layer', global_pool_layer)]))
         self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
-        print("num features is ", self.num_features) 
-        
+
         self.intermediate1 = nn.Sequential(
             nn.Linear(self.num_features, 2048),
             nn.BatchNorm1d(2048),
             nn.ReLU(True),
 #             nn.Dropout(),
         )
-        
-        
-        
+
+
+
         self.mlp = nn.Sequential(
             nn.Linear(env_rasters, self.mlp_choke1),
             nn.Linear(self.mlp_choke1, self.mlp_choke2),
             nn.Linear(self.mlp_choke2, 2048),
             nn.BatchNorm1d(2048),
             nn.ReLU(True),
-        )        
-        
+        )
+
         self.choke = 2048
         self.intermediate2 = nn.Sequential(
-            nn.Linear(2048 * 2, self.choke), # todo: try different powers of 2 here 
+            nn.Linear(2048 * 2, self.choke), # todo: try different powers of 2 here
             nn.ReLU(True),
 #             nn.Dropout() # may need to remove???
         )
         self.spec = nn.Linear(self.choke, num_spec)
         self.gen = nn.Linear(self.choke, num_gen)
         self.fam = nn.Linear(self.choke, num_fam)
-  
+
         # model initilization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -372,9 +370,9 @@ class Joint_TResNet(Module):
         return nn.Sequential(*layers)
 
     def forward(self, x, rasters):
-        
+
         if self.pretrained == 'finetune':
-            x = self.conv4band(x)        
+            x = self.conv4band(x)
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
         if self.pretrained != 'none':
@@ -384,7 +382,7 @@ class Joint_TResNet(Module):
         x = self.global_pool(x)
 #         x = torch.flatten(self.embeddings, 1)
         x = torch.flatten(x, 1)
-        
+
         x = self.intermediate1(x)
         rasters = self.mlp(rasters)
         x = torch.cat((x, rasters), dim=1)
@@ -398,7 +396,7 @@ class Joint_TResNet(Module):
 def set_parameter_requires_grad(model):
     for param in model.parameters():
         param.requires_grad = False
-        
+
 def _tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_fam : int, base_dir : str, width_factor : int
 ) -> TResNet:
     in_chans = 4
@@ -412,10 +410,10 @@ def _tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_f
             model.load_state_dict(state['model'], strict=False)
         else:
             raise NotImplementedError('no pretrained model on disk for this architecture yet!')
-        
+
     if pretrained == 'feat_ext':
-        set_parameter_requires_grad(model.body)        
- 
+        set_parameter_requires_grad(model.body)
+
     return model
 
 def _joint_tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_fam : int, env_rasters : int, base_dir : str, width_factor : int
@@ -431,15 +429,15 @@ def _joint_tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int,
             model.load_state_dict(state['model'], strict=False)
         else:
             raise NotImplementedError('no pretrained model on disk for this architecture yet!')
-        
+
     if pretrained == 'feat_ext':
-        set_parameter_requires_grad(model.body)        
- 
+        set_parameter_requires_grad(model.body)
+
     return model
 
 def Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
     return _joint_tresnet('TResNetM', [3, 4, 11, 3], pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir, width_factor=1.0)
-    
+
 def Joint_TResNetL(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
     return _joint_tresnet('TResNetL', [4, 5, 18, 3], pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir, width_factor=1.2)
 
@@ -448,7 +446,7 @@ def Joint_TResNetL(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir
 def TResnetM(pretrained, num_spec, num_gen, num_fam, base_dir):
     """Constructs a medium TResnet model.
     """
-    
+
     return _tresnet('TResNetM', [3, 4, 11, 3], pretrained, num_spec, num_gen, num_fam, base_dir, width_factor=1.0)
 
 
@@ -497,7 +495,7 @@ class DownsampleJIT(object):
 
     def __call__(self, input: torch.Tensor):
         if input.dtype != self.filt.dtype:
-            self.filt = self.filt.float() 
+            self.filt = self.filt.float()
         self.filt = self.filt.to(input.device)
         input_pad = F.pad(input, (1, 1, 1, 1), 'reflect')
         return F.conv2d(input_pad, self.filt, stride=2, padding=0, groups=input.shape[1])
@@ -521,22 +519,21 @@ class Downsample(nn.Module):
     def forward(self, input):
         input_pad = F.pad(input, (1, 1, 1, 1), 'reflect')
         return F.conv2d(input_pad, self.filt, stride=self.stride, padding=0, groups=input.shape[1])
-    
-    
-    
+
+
+
 class FastAvgPool2d(nn.Module):
     def __init__(self, flatten=False):
         super(FastAvgPool2d, self).__init__()
         self.flatten = flatten
 
     def forward(self, x):
+        in_size = x.size()
         if self.flatten:
-            in_size = x.size()
             return x.view((in_size[0], in_size[1], -1)).mean(dim=2)
         else:
-            return x.view(x.size(0), x.size(1), -1).mean(-1).view(x.size(0), x.size(1), 1, 1)    
-        
-        
+            return x.view(x.size(0), x.size(1), -1).mean(-1).view(x.size(0), x.size(1), 1, 1)
+
 class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
@@ -609,6 +606,7 @@ class SEModule(nn.Module):
 
     def __init__(self, channels, reduction_channels, inplace=True):
         super(SEModule, self).__init__()
+# this is the problem becuase of the flatten=false
         self.avg_pool = FastAvgPool2d()
         self.fc1 = nn.Conv2d(channels, reduction_channels, kernel_size=1, padding=0, bias=True)
         self.relu = nn.ReLU(inplace=inplace)
@@ -622,4 +620,4 @@ class SEModule(nn.Module):
         x_se2 = self.relu(x_se2)
         x_se = self.fc2(x_se2)
         x_se = self.activation(x_se)
-        return x * x_se        
+        return x * x_se
