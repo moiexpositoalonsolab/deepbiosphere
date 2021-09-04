@@ -667,7 +667,6 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
         # there's a chance that there's some tomfoolery in the order of
         # bounds and w/h, but I'm going to trust that it works for now
         nt = rasterio.transform.from_bounds(*src.bounds, new_w, new_h)
-        # look at src.bounds, nt, below as well
         nnt, wid, hig = calculate_default_transform(src.crs, NAIP_CRS, new_w, new_h, *src.bounds)
         kwargs = src.meta.copy()
         kwargs.update({
