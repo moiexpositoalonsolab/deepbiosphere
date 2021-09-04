@@ -6,6 +6,7 @@ from pathlib import Path
 import warnings
 from rasterio import Affine, MemoryFile
 from rasterio.profiles import DefaultGTiffProfile
+from rasterio.warp import calculate_default_transform, reproject, Resampling
 import numpy as np
 
 import rasterio
@@ -254,128 +255,7 @@ def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point, bands : list, base_dir
     rasters = gdf[gdf.contains(point)]
     rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
     if len(rasters) > 1:
-        return merge(rasters, res=res, indexes=bands)
-    elif len(rasters) == 0:
-        print("no matching rasters found")
-    else:
-        # TODO: handle resolution
-        with rasterio.open(rasters[0]) as r:
-            ras, tran = r.read(indexes=bands), r.transform
-            return ras, tran
-# TODO: this method will need to move to the new datasets class which will store date, resolution etc
-def Get_Train_Image(lat, lon, index: NAIPTileIndex, base_path : str, year : str,  resolution : int = 256, ftype : str = 'tif'):
-# 1. get what rasters overlap this point with RTree index
-    resolution = resolution - 1 if resolution % 2 != 0 else resolution
-    center = resolution / 2
-    #lat, lon = point.x, point.y
-    naip_files = index.lookup_tile(lat, lon)
-    if naip_files is None or len(naip_files) == 0:
-        print('No intersection')
-        return None
-# 2. convert corresponding index readout to local paths
-    naip_files = rasters = [ f"{base_path}{f.split('.')[0].split('v002/')[1]}.{ftype}" for f in naip_files if f"/{year}/" in f]
-# 3. select and open raster
-    for f in naip_files:
-        with rasterio.open(f) as src:
-            # Each NAIP tile has its own coordinate system that is *not* lat/lon
-                crs = src.crs
-
-                # This object will let us convert between tile coordinates (these will be local
-                # state CRS) and tile offsets (i.e. pixel indices)
-                transform = src.transform
-
-                # Convert our lat/lon point to the local NAIP coordinate system
-                x_tile_crs, y_tile_crs = fiona.transform.transform("epsg:4326", crs.to_string(),
-                                                                   [lon], [lat])
-                x_tile_crs = x_tile_crs[0]
-                y_tile_crs = y_tile_crs[0]
-
-                # Convert our new x/y coordinates into pixel indices
-                x_tile_offset, y_tile_offset = ~transform * (x_tile_crs, y_tile_crs)
-                x_tile_offset = int(np.floor(x_tile_offset))
-                y_tile_offset = int(np.floor(y_tile_offset))
-
-                # The secret sauce: only read data from a 256x256 window centered on our point
-
-                image_crop = src.read(window=Window(x_tile_offset-center, y_tile_offset-center, resolution, resolution))
-
-            # Sometimes our point will be on the edge of a NAIP tile, and our windowed reader above
-            # will not actually return a 256x256 chunk of data. We could handle this nicely by going
-            # back up to the `naip_files` list and trying to read from one of the other tiles -
-            # because the NAIP tiles have overlap with one another, there should exist an intersecting
-            # tile with the full window.
-        if (image_crop.shape[1] == 256) and (image_crop.shape[2] == 256):
-            return image_crop
-    print("no raster fully overlaps this point")
-    return None # there's no raster that intersects your point :(
-
-def Grab_TIFF(df_row, tif_dir):
-    return f"{tif_dir}{df_row.APFONAME[:5]}/{'_'.join(df_row.FileName.split('_')[:-1])}.tif"
-
-def Grab_VRTs(vrt_dir : str, shpfile : NAIP_shpfile):
-    return [f"{vrt_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.vrt" for _, fman in shpfile.iterrows()]
-
-# functions to deal with merging. Adopted from Rasterio
-# deciding that this isn't important in the meantime, focus on finishing
-def copy_average(merged_data, new_data, merged_mask, new_mask, **kwargs):
-    mask = np.empty_like(merged_mask, dtype="bool")
-# so my goal is to take values that are in merged_data
-# and are legal in new_data and average them?
-    np.logical_and(np.logical_not(new_mask),np.logical_not(merged_mask)) # the average mask
-    np.logical_not(new_mask, out=mask)# get places where data to read in is not nan
-    np.logical_and(merged_mask, mask, out=mask) # get where data has already been read in
-    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
-
-    mask = np.logical_and(np.logical_not(new_mask),np.logical_not(merged_mask)) # the average mask
-    # the value to add (the average)
-    avg_data = ((merged_data[avg_mask]+new_data[avg_mask])/2).astype(np.uint8)
-    np.copyto(avg_data, new_data, where=mask, casting="unsafe")
-
-def copy_first(merged_data, new_data, merged_mask, new_mask, **kwargs):
-# put data where there hasn't been data added yet
-    mask = np.empty_like(merged_mask, dtype="bool")
-# and be sure to not put data that's nan from the raster
-    np.logical_not(new_mask, out=mask)
-# if no data has been put yet and it's not nan, add it!
-    np.logical_and(merged_mask, mask, out=mask)
-    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
-
-
-def copy_last(merged_data, new_data, merged_mask, new_mask, **kwargs):
-    mask = np.empty_like(merged_mask, dtype="bool")
-    np.logical_not(new_mask, out=mask)
-    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
-
-
-def copy_min(merged_data, new_data, merged_mask, new_mask, **kwargs):
-    mask = np.empty_like(merged_mask, dtype="bool")
-    np.logical_or(merged_mask, new_mask, out=mask)
-    np.logical_not(mask, out=mask)
-    np.minimum(merged_data, new_data, out=merged_data, where=mask)
-    np.logical_not(new_mask, out=mask)
-    np.logical_and(merged_mask, mask, out=mask)
-    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
-
-
-def copy_max(merged_data, new_data, merged_mask, new_mask, **kwargs):
-    mask = np.empty_like(merged_mask, dtype="bool")
-    np.logical_or(merged_mask, new_mask, out=mask)
-    np.logical_not(mask, out=mask)
-    np.maximum(merged_data, new_data, out=merged_data, where=mask)
-    np.logical_not(new_mask, out=mask)
-    np.logical_and(merged_mask, mask, out=mask)
-    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
-
-
-MERGE_METHODS = {
-    'first': copy_first,
-    'last': copy_last,
-    'min': copy_min,
-    'max': copy_max
-}
-
-
-
+        return
 def merge(
     datasets,
     bounds=None,
@@ -391,97 +271,6 @@ def merge(
     dst_path=None,
     dst_kwds=None,
 ):
-    """Copy valid pixels from input files to an output file.
-
-    All files must have the same number of bands, data type, and
-    coordinate reference system.
-
-    Input files are merged in their listed order using the reverse
-    painter's algorithm (default) or another method. If the output file exists,
-    its values will be overwritten by input values.
-
-    Geospatial bounds and resolution of a new output file in the
-    units of the input file coordinate reference system may be provided
-    and are otherwise taken from the first input file.
-
-    Parameters
-    ----------
-    datasets : list of dataset objects opened in 'r' mode, filenames or pathlib.Path objects
-        source datasets to be merged.
-    bounds: tuple, optional
-        Bounds of the output image (left, bottom, right, top).
-        If not set, bounds are determined from bounds of input rasters.
-    res: tuple, optional
-        Output resolution in units of coordinate reference system. If not set,
-        the resolution of the first raster is used. If a single value is passed,
-        output pixels will be square.
-    nodata: float, optional
-        nodata value to use in output file. If not set, uses the nodata value
-        in the first input raster.
-    dtype: numpy dtype or string
-        dtype to use in outputfile. If not set, uses the dtype value in the
-        first input raster.
-    precision: float, optional
-        Number of decimal points of precision when computing inverse transform.
-    indexes : list of ints or a single int, optional
-        bands to read and merge
-    output_count: int, optional
-        If using callable it may be useful to have additional bands in the output
-        in addition to the indexes specified for read
-    resampling : Resampling, optional
-        Resampling algorithm used when reading input files.
-        Default: `Resampling.nearest`.
-    method : str or callable
-        pre-defined method:
-            first: reverse painting
-            last: paint valid new on top of existing
-            min: pixel-wise min of existing and new
-            max: pixel-wise max of existing and new
-        or custom callable with signature:
-
-        def function(merged_data, new_data, merged_mask, new_mask, index=None, roff=None, coff=None):
-
-            Parameters
-            ----------
-            merged_data : array_like
-                array to update with new_data
-            new_data : array_like
-                data to merge
-                same shape as merged_data
-            merged_mask, new_mask : array_like
-                boolean masks where merged/new data pixels are invalid
-                same shape as merged_data
-            index: int
-                index of the current dataset within the merged dataset collection
-            roff: int
-                row offset in base array
-            coff: int
-                column offset in base array
-
-    target_aligned_pixels : bool, optional
-        Whether to adjust output image bounds so that pixel coordinates
-        are integer multiples of pixel size, matching the ``-tap``
-        options of GDAL utilities.  Default: False.
-    dst_path : str or Pathlike, optional
-        Path of output dataset
-    dst_kwds : dict, optional
-        Dictionary of creation options and other paramters that will be
-        overlaid on the profile of the output dataset.
-
-    Returns
-    -------
-    tuple
-
-        Two elements:
-
-            dest: numpy ndarray
-                Contents of all input rasters in single array
-
-            out_transform: affine.Affine()
-                Information for mapping pixel coordinates in `dest` to another
-                coordinate system
-
-    """
     if method in MERGE_METHODS:
         copyto = MERGE_METHODS[method]
     elif callable(method):
@@ -765,6 +554,7 @@ def Warp_VRT(vrt_dir : str, tif_dir : str,  shpfile : NAIP_shpfile, dst_crs = NA
         # build local filepath
         fname = Grab_TIFF(fman, tif_dir)
         # f"{tif_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.tif"
+# I dont think I actually need this
         dst_bounds = fman.geometry.bounds
         with rasterio.open(fname) as src:
             dst_height = src.profile['height']
@@ -848,35 +638,23 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
                 ii, jj = int(i/res), int(j/res)
                 window = ras[:, j:j+res, i:i+res]
                 # so, the subtraction doesn't work becuase of the uint8 datatype, so taking out for now
-#                 if modelname == 'old_tresnet_satonly': # hate it, so gross...
-#                     for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
-#                         window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
                 images.append((window, [ii,jj]))
         # add a row if there are pixels that bleed over the bottom
         if height % res != 0:
             for i in range(0, clean_w, res):
                 ii, jj = int(i/res), height//res
                 window = ras[:, height-res:, i:i+res]
-#                 if modelname == 'old_tresnet_satonly':
-#                     for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
-#                         window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
                 images.append((window, [ii,jj]))
         # add a row if there are pixels that bleed over the edge
         if width % res != 0:
             for j in range(0, clean_h, res):
                 ii, jj = width//res, int(j/res)
                 window = ras[:, j:j+res , width-res:]
-#                 if modelname == 'old_tresnet_satonly':
-#                     for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
-#                         window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
                 images.append((window, [ii,jj]))
         # finish adding bleed prediction
         if width % res != 0 and height % res != 0:
             ii, jj = width//res, height//res
             window = ras[:, height-res: , width-res:]
-#             if modelname == 'old_tresnet_satonly':
-#                 for i, (channel, mean) in enumerate(zip(daset.dataset_means, window)):
-#                     window[i,:,:] = mean - channel # idk waht this transfomration is doing but this is what I gotta do to prep the data...
             images.append((window, [ii,jj]))
         # now chunk the images array by batchsize
         for chunk in utils.chunks(images, batchsize):
@@ -889,13 +667,15 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
         # there's a chance that there's some tomfoolery in the order of
         # bounds and w/h, but I'm going to trust that it works for now
         nt = rasterio.transform.from_bounds(*src.bounds, new_w, new_h)
-
+        # look at src.bounds, nt, below as well
+        nnt, wid, hig = calculate_default_transform(src.crs, NAIP_CRS, new_w, new_h, *src.bounds)
         kwargs = src.meta.copy()
         kwargs.update({
-            'width': new_w,
-            'height': new_h,
+            'width': wid,
+            'height': hig,
             'count' : num_spec,
-            'transform' : nt,
+            'transform' : nnt,
+            'crs' : NAIP_CRS,
             'dtype' : 'float32'
             # so I ran torchy sig with both 64 and 32 and nothing seemed to change so ignoring for now
         })
@@ -903,8 +683,17 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
         if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
             os.makedirs(fname.rsplit('/',1)[0])
         with rasterio.open(fname, 'w', **kwargs) as dst:
-            dst.write(np.float32(output), list(range(1, num_spec+1)))
+            # use rasterio to reproject https://rasterio.readthedocs.io/en/latest/topics/reproject.html
+            output = np.float32(output)
+            dest = np.zeros([num_spec, hig, wid]) # TODO: confirm correct
+            reproject(output, dest, src_transform=nt, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
+            dst.write(dest, range(1,len(spec_names)+1))
             dst.descriptions = spec_names
+            #for i, name, out in zip(range(1, len(spec_names)+1), spec_names, output):
+               # dest = np.zeros([hig, wid]) # TODO: confirm correct
+               # reproject(out, dest, src_transform=nt, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
+               # dst.write(dest, i)
+               # dst.set_band_description(i, name)
     return fname
 
 
