@@ -685,15 +685,10 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
         with rasterio.open(fname, 'w', **kwargs) as dst:
             # use rasterio to reproject https://rasterio.readthedocs.io/en/latest/topics/reproject.html
             output = np.float32(output)
-            dest = np.zeros([num_spec, hig, wid]) # TODO: confirm correct
+            dest = np.zeros([num_spec, hig, wid])
             reproject(output, dest, src_transform=nt, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
             dst.write(dest, range(1,len(spec_names)+1))
             dst.descriptions = spec_names
-            #for i, name, out in zip(range(1, len(spec_names)+1), spec_names, output):
-               # dest = np.zeros([hig, wid]) # TODO: confirm correct
-               # reproject(out, dest, src_transform=nt, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
-               # dst.write(dest, i)
-               # dst.set_band_description(i, name)
     return fname
 
 
