@@ -15,9 +15,11 @@ if __name__ == '__main__':
     base_dir = paths.AZURE_DIR
     modelname = 'old_tresnet_satonly'
     state=  'ca'
+    warp = False
     year='2012'
     res = 256
     model_pth='nets/tresnet_m_lr0.0001_e11.tar'
+    means = means =  (111.27668932654558, 115.84299163319858, 104.88420063186129, 132.9687599226994) # TODO: fix
     cfg_pth='joint_multiple_plant_cali_TResNet_M_AsymmetricLossOptimized_satellite_only_tresnet_m.json'
     shpfile = naip.Load_NAIP_Bounds(naip_dir, state, year)
     fnames = []
@@ -34,7 +36,7 @@ if __name__ == '__main__':
 # ctx = mp.get_context('spawn')
     procs = []
     for p, d in zip(par, range(avail_gpus)):
-        procs.append(Process(target=naip.predict_raster_list, args=(d, p, modelname, res, year, model_pth, cfg_pth, base_dir)))
+        procs.append(Process(target=naip.predict_raster_list, args=(d, p, modelname, res, year,means, model_pth, cfg_pth, base_dir, warp)))
 
 
     for i, p in enumerate(procs):

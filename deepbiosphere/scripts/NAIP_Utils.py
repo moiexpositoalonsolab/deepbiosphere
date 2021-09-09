@@ -76,6 +76,7 @@ import numpy as np
 # not all the NAIP are teh same coorediate reference system
 # this is WGS84, what the VRT are converted to
 NAIP_CRS='EPSG:4326'
+ALPHA_NODATA = 9999
 
 class DownloadProgressBar():
     """
@@ -250,12 +251,52 @@ def check_bands(bands):
     if bands is None:
         raise ValueError("bands should be specificed! If you want all bands, return a list with all bands, else GDAL reverts to an incorrect driver that interprets the 4th band as alpha")
 
-def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point, bands : list, base_dir  : str, res : float = None, ftype : str = 'vrt'):
-    check_bands(bands)
+def copy_first(merged_data, new_data, merged_mask, new_mask, **kwargs):
+    mask = np.empty_like(merged_mask, dtype="bool")
+    np.logical_not(new_mask, out=mask)
+    np.logical_and(merged_mask, mask, out=mask)
+    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
+
+
+def copy_last(merged_data, new_data, merged_mask, new_mask, **kwargs):
+    mask = np.empty_like(merged_mask, dtype="bool")
+    np.logical_not(new_mask, out=mask)
+    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
+
+
+def copy_min(merged_data, new_data, merged_mask, new_mask, **kwargs):
+    mask = np.empty_like(merged_mask, dtype="bool")
+    np.logical_or(merged_mask, new_mask, out=mask)
+    np.logical_not(mask, out=mask)
+    np.minimum(merged_data, new_data, out=merged_data, where=mask)
+    np.logical_not(new_mask, out=mask)
+    np.logical_and(merged_mask, mask, out=mask)
+    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
+
+
+def copy_max(merged_data, new_data, merged_mask, new_mask, **kwargs):
+    mask = np.empty_like(merged_mask, dtype="bool")
+    np.logical_or(merged_mask, new_mask, out=mask)
+    np.logical_not(mask, out=mask)
+    np.maximum(merged_data, new_data, out=merged_data, where=mask)
+    np.logical_not(new_mask, out=mask)
+    np.logical_and(merged_mask, mask, out=mask)
+    np.copyto(merged_data, new_data, where=mask, casting="unsafe")
+
+MERGE_METHODS = {
+    'first': copy_first,
+    'last': copy_last,
+    'min': copy_min,
+    'max': copy_max
+}
+
+def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point,  base_dir  : str,ftype : str = 'vrt'):
+    #check_bands(bands)
     rasters = gdf[gdf.contains(point)]
     rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
-    if len(rasters) > 1:
-        return
+    return rasters
+    # can consider returning to opening the raster
+
 def merge(
     datasets,
     bounds=None,
@@ -548,6 +589,9 @@ def Mask_Raster(raster : np.array, trans, polygon, crs=NAIP_CRS):
                 cropped, trans = mask(dataset, polygon.geometry, invert=False, crop=True)
                 return cropped, trans
 
+def Grab_TIFF(df_row, tif_dir):
+        return f"{tif_dir}{df_row.APFONAME[:5]}/{'_'.join(df_row.FileName.split('_')[:-1])}.tif"
+
 # tif_dir should be the base_dir plus the year and acquisiiton directory
 def Warp_VRT(vrt_dir : str, tif_dir : str,  shpfile : NAIP_shpfile, dst_crs = NAIP_CRS):
     for i, fman in shpfile.iterrows():
@@ -586,9 +630,8 @@ def Warp_VRT(vrt_dir : str, tif_dir : str,  shpfile : NAIP_shpfile, dst_crs = NA
 
 
 
-def predict_raster_list(device_no, tiffs, modelname, res, year, model_pth, cfg_pth, base_dir=paths.AZURE_DIR):
+def predict_raster_list(device_no, tiffs, modelname, res, year, means, model_pth, cfg_pth, base_dir, warp):
     # TODO: remove this garbage belwo
-    #if modelname == 'old_tresnet_satonly':
     if "old" in modelname:
             # basedire for config and dataset are different
             basedir = "/home/leg/deepbiosphere/GeoCELF2020/"
@@ -619,25 +662,89 @@ def predict_raster_list(device_no, tiffs, modelname, res, year, model_pth, cfg_p
     # figure out batch size
     batchsize = batchsized(device, tiffs[0], model,params.params.batch_size, res, num_spec) # params.params.batch_size
     for raster in tqdm(tiffs):
-        file = predict_raster(raster, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names)
+        file = predict_raster(raster, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names, warp, means)
 
 
-def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names):
+def alpha_div(predictions, threshold=0.5, dtype=np.uint16):
+    pred = torch.tensor(predictions)
+    pred = torch.sigmoid(pred) # transform into predictions
+    pred = pred >= threshold # binary threshold
+    pred = pred.sum(dim=0) # sum across all species
+    return pred.numpy().astype(dtype)
+
+def beta_div():
+   raise NotImplemented
+def gamma_div():
+    raise NotImplemented
+
+DIV_METHODS = {
+        'alpha': alpha_div,
+        'beta': beta_div,
+        'gamma': gamma_div,
+}
+def diversity_raster(rasname, metric, year, base_dir, modelname, nodata=9999, warp=True, **kwargs):
+
+    if metric in DIV_METHODS:
+        method = DIV_METHODS[metric]
+    elif callable(metric):
+        method = metric
+    else:
+        raise ValueError('Unknown method {0}, must be one of {1} or callable'
+                         .format(metric, list(DIV_METHODS.keys())))
     with rasterio.open(rasname) as src:
         ras = src.read()
+        # will not handle if there is nan data in the file
+        if "threshold" in kwargs or "dtype" in kwargs:
+            output = method(ras, kwargs)
+        else:
+            output = method(ras)
+        if nodata is None:
+            raise ValueError(f"you must set a nodata value that matches the save datatype of {output.dtype}! ")
+        else:
+            if nodata >= output.min() and nodata <= output.max():
+                raise ValueError(f"you must set a nodata value that is not in the range of your output array [{output.min()}, {output.max()}]! ")
+        kwargs = src.meta.copy()
+        kwargs.update({'count' : 1, 'dtype' : output.dtype, 'nodata' : nodata})
+        if warp and src.crs != NAIP_CRS:
+            # use rasterio to reproject https://rasterio.readthedocs.io/en/latest/topics/reproject.html
+            nnt, wid, hig = calculate_default_transform(src.crs, NAIP_CRS, src.width, src.height, *src.bounds)
+            kwargs.update({
+                'width': wid,
+                'height': hig,
+                'transform' : nnt,
+                'crs' : NAIP_CRS,
+            })
+            dest = np.full([hig, wid], nodata)
+            reproject(output, dest, src_transform=src.transform, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
+            output = dest
+        fname = f"{base_dir}inference/prediction/alpha_diversity/{modelname}{rasname.split(modelname)[-1]}"
+        if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
+            os.makedirs(fname.rsplit('/',1)[0])
+        with rasterio.open(fname, 'w', **kwargs) as dst:
+            dst.write(output, 1)
+    return fname
+
+
+def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names, warp, means):
+    with rasterio.open(rasname) as src:
+        ras = src.read()
+    # so if the model is an old model, need to modify the input to be scaled
+    # do it here so that edge cases dont accidentally subtract twice
+        if "old" in modelname:
+            for i, (channel, mean) in enumerate(zip(means, ras)):
+                ras[i,:,:] = mean - channel
         width, height = src.width, src.height
         num_w, num_h  = width//res, height//res
         clean_w, clean_h = num_w *res, num_h*res
         new_w = num_w + 1 if width % res != 0 else num_w
         new_h = num_h + 1 if height % res != 0 else num_h
-        output = np.zeros([num_spec, new_h, new_w])
+        output = np.zeros([num_spec, new_h, new_w]) # TODO: figure out if this is supposed to be h,w or w.h??
         images = []
         # grab all the locations that normally fit
         for i in range(0, clean_w, res):
             for j in range(0, clean_h, res):
                 ii, jj = int(i/res), int(j/res)
                 window = ras[:, j:j+res, i:i+res]
-                # so, the subtraction doesn't work becuase of the uint8 datatype, so taking out for now
                 images.append((window, [ii,jj]))
         # add a row if there are pixels that bleed over the bottom
         if height % res != 0:
@@ -663,31 +770,42 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
             out = model(batch.float())[0].cpu().detach().numpy() # TODO: these predictions are bunk for the old model bc of the issue with setting things...
             for (loc, outt) in zip(locs, out):
                 output[:, loc[1], loc[0]] = outt
-
-        # there's a chance that there's some tomfoolery in the order of
-        # bounds and w/h, but I'm going to trust that it works for now
-        nt = rasterio.transform.from_bounds(*src.bounds, new_w, new_h)
-        nnt, wid, hig = calculate_default_transform(src.crs, NAIP_CRS, new_w, new_h, *src.bounds)
         kwargs = src.meta.copy()
-        kwargs.update({
-            'width': wid,
-            'height': hig,
-            'count' : num_spec,
-            'transform' : nnt,
-            'crs' : NAIP_CRS,
-            'dtype' : 'float32'
-            # so I ran torchy sig with both 64 and 32 and nothing seemed to change so ignoring for now
-        })
-        fname = f"{base_dir}inference/prediction/{modelname}/{rasname.split(paths.NAIP_BASE)[-1]}" # and steal filename from NAIP
-        if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
-            os.makedirs(fname.rsplit('/',1)[0])
-        with rasterio.open(fname, 'w', **kwargs) as dst:
-            # use rasterio to reproject https://rasterio.readthedocs.io/en/latest/topics/reproject.html
-            output = np.float32(output)
+        output = np.float32(output)
+        if warp:
+                # use rasterio to reproject https://rasterio.readthedocs.io/en/latest/topics/reproject.html
+            # there's a chance that there's some tomfoolery in the order of
+            # bounds and w/h, but I'm going to trust that it works for now
+            nt = rasterio.transform.from_bounds(*src.bounds, new_w, new_h)
+            nnt, wid, hig = calculate_default_transform(src.crs, NAIP_CRS, new_w, new_h, *src.bounds)
+            kwargs.update({
+                'width': wid,
+                'height': hig,
+                'count' : num_spec,
+                'transform' : nnt,
+                'crs' : NAIP_CRS,
+                'dtype' : 'float32'
+                # so I ran torchy sig with both 64 and 32 and nothing seemed to change so ignoring for now
+            })
             dest = np.zeros([num_spec, hig, wid])
             reproject(output, dest, src_transform=nt, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
-            dst.write(dest, range(1,len(spec_names)+1))
-            dst.descriptions = spec_names
+            output = dest
+        else:
+            nt = rasterio.transform.from_bounds(*src.bounds, new_w, new_h)
+            kwargs.update({
+                'width': new_w,
+                'height': new_h,
+                'count' : num_spec,
+                'transform' : nt,
+                'dtype' : 'float32'
+                # so I ran torchy sig with both 64 and 32 and nothing seemed to change so ignoring for now
+            })
+            fname = f"{base_dir}inference/prediction/raw/{modelname}/{rasname.split(paths.NAIP_BASE)[-1]}" # and steal filename from NAIP
+            if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
+                os.makedirs(fname.rsplit('/',1)[0])
+            with rasterio.open(fname, 'w', **kwargs) as dst:
+                dst.write(output, range(1,len(spec_names)+1))
+                dst.descriptions = spec_names
     return fname
 
 
