@@ -10,7 +10,7 @@ import os
 import numpy as np
 import operator
 from functools import reduce
-
+from IPython.core.debugger import set_trace
 
 import torch
 import torch.nn as nn
@@ -27,7 +27,9 @@ class Params():
     def __init__(self,
                 num_channels,
                 pix_side,
-                categories,
+                species,
+                genus,
+                families,
                 net_type='cnn',
                 optimal="ADAM",
                 loss_fn="MSE",
@@ -38,7 +40,9 @@ class Params():
         self.num_channels=num_channels
         self.pix_side=pix_side
         self.net_type=net_type
-        self.categories=categories
+        self.species=species
+        self.genus = genus
+        self.families = families
         self.optimal=optimal
         self.momentum=momentum
         self.loss_fn=loss_fn
@@ -116,6 +120,8 @@ def isnan(x):
 def subsetimagetensor(ima,z,y,x,net_type,channels, pix_side):
     breaks=ima.shape[len(ima.shape)-1]/pix_side
     wind=[[pix_side*i,(pix_side)+pix_side*i] for i in range(int(breaks))]
+    from IPython.core.debugger import set_trace
+    set_trace()
     inputs=[ ima[l, : , wind[i][0]:wind[i][1]  ,  wind[j][0]:wind[j][1] ]  for l,i,j in zip(z,y,x)] # the [] important to define dymensions
     inputs=np.array(inputs, dtype='f')
     inputs=torch.from_numpy(inputs)
@@ -124,9 +130,12 @@ def subsetimagetensor(ima,z,y,x,net_type,channels, pix_side):
     return(inputs)
 
 def subsetlabeltensor(spptensor,y,x,z,categories,batch_size,datatype='f'):
-    labels=[ spptensor[l,:, i,j] for l,i,j in zip(z,y,x)]
-    labels=np.array(labels,dtype=datatype)
-    labels.shape=(batch_size,categories)
+    labels=[ spptensor[l,:, i,j].cpu() for l,i,j in zip(z,y,x)]
+    #set_trace()
+    labels=np.stack(labels)
+    print(labels.shape, batch_size, categories)
+    labels = labels.astype(datatype)
+    #labels.shape=(batch_size,categories)
     labels=torch.from_numpy(labels)
     return(labels)
 

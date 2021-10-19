@@ -86,7 +86,7 @@ def run_metrics_and_longform(args):
                 df.pop( 'Unnamed: 0')
     # get labels of each unique taxa in data
 #     print(all_df.keys(), "---")
-    taxa_names = check_colum_names(dset, all_df)
+    taxa_names = check_colum_names(dset.num_specs, dset.num_gens, dset.num_fams, all_df)
     # convert logits and probabilities to presences and absences based on probabilities
     pres_df = pred_2_pres(all_df, taxa_names, device, threshold)
 
@@ -203,12 +203,16 @@ def load_data(params, ground_truth, which_taxa):
     return all_df, g_t
     
 
-def check_colum_names(dset, all_df):
+def check_colum_names(num_specs, num_gens, num_fams, all_df, dset=None):
     
     species_columns, genus_columns, family_columns = None, None, None
     for name, taxa in all_df.items():
 #         print("name is ", name)
 #         print("----")
+        if dset is not None:
+            num_specs = dset.num_specs
+            num_gens = dset.num_gens
+            num_fams = dset.num_fams
         col_labels = []        
         for n, model in taxa.items():
             col_labels.append(list(model.columns))
@@ -219,17 +223,17 @@ def check_colum_names(dset, all_df):
             if name == 'species':
                 specs = set(i) - set(EXTRA_COLUMNS)
 #                 print(len(specs), dset.num_specs)
-                assert len(specs) == dset.num_specs, "unexpected columns present in species inference file!"
+                assert len(specs) == num_specs, "unexpected columns present in species inference file!"
                 species_columns = specs
             elif name == 'genus':
                 specs = set(i) - set(EXTRA_COLUMNS)
 #                 print(len(specs), dset.num_gens)                      
-                assert len(specs) == dset.num_gens, "unexpected columns present in genus inference file!"
+                assert len(specs) == num_gens, "unexpected columns present in genus inference file!"
                 genus_columns = specs                
             else:
                 specs = set(i) - set(EXTRA_COLUMNS)
 #                 print(len(specs), dset.num_fams)
-                assert len(specs) == dset.num_fams, "unexpected columns present in family inference file!"
+                assert len(specs) == num_fams, "unexpected columns present in family inference file!"
                 family_columns = specs                
     taxa_names = {
         'species' : species_columns,
