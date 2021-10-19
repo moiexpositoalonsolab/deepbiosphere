@@ -64,7 +64,7 @@ def random_forest(params, base_dir, num_species, processes):
     res = np.full([len(pred[0]), len(pred)], np.nan)
     for  i, sp in enumerate(pred):
         ob = range(len(sp))
-        res[:, i] = sp[:, 1]
+        res[:, i] = sp[:, 1] # TODO: make sure this is the right class to pick
     test_spec = res[:,:dset.num_specs]
     test_gen = res[:,dset.num_specs: (dset.num_specs + dset.num_gens)]
     test_fam = res[:, (dset.num_specs + dset.num_gens):]
