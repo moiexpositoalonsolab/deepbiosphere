@@ -1099,7 +1099,6 @@ def train_model(ARGS, params):
         with torch.no_grad():
             means, all_accs, mean_accs = test_batch(test_loader, tb_writer, device, net, params.params.observation, epoch, params.params.loss, params.params.model, params.params.dataset)
 
-#TODO uncomment below line!!!
         if not ARGS.toy_dataset:
             desiderata = {
                 'all_loss': all_time_loss,

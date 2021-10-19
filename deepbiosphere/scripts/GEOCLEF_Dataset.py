@@ -1,3 +1,4 @@
+import json
 import os
 from collections import Counter
 from deepbiosphere.scripts.GEOCLEF_Config import paths
@@ -75,7 +76,7 @@ def get_us_bioclim(base_dir):
 #        "imagenet" : (0.485, 0.456, 0.406, 0.0),
 
 #         "none" : (0,0,0,0)
-                }
+               # }
 
 raster_metadata = {
     'bio_1': {'min_val': -116, 'max_val': 259, 'nan': -2147483647, 'new_nan': -117, 'mu': 101, 'sigma': 58},
@@ -140,7 +141,10 @@ def get_raster_image_obs(lat_lon, affine, rasters, nan, normalize, pix_res):
 def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_max, lon_min, lon_max, inc_latlon):
 
     x, y = latlon_2_idx(affine, lat_lon)
-    env_rasters = rasters[:,x,y]
+    if y >= rasters.shape[2] or x >= rasters.shape[1] or x < 0 or y < 0:
+        env_rasters =  [nan]*rasters.shape[0] # TODO: make correct nan value for each raster
+    else:
+        env_rasters = rasters[:,x,y]
     # rest of rasters were already normalized at initialization, don't need to normalize now
     # only if there are lat lons to be added
     if inc_latlon:
@@ -148,7 +152,7 @@ def get_raster_point_obs(lat_lon, affine, rasters, nan, normalize, lat_min, lat_
             
             lat_norm = utils.scale(lat_lon[0], min_= lat_min, max_= lat_max)
             lon_norm = utils.scale(lat_lon[1], min_= lon_min, max_= lon_max)
-            env_rasters = np.append(env_rasters, [lat_norm, lon_norm)
+            env_rasters = np.append(env_rasters, [lat_norm, lon_norm])
 
         elif  normalize == 'normalize':
             raise NotImplementedError # how one normalizes latitude and longitudes is tricky...
@@ -194,6 +198,7 @@ def get_bioclim_rasters(base_dir, region, normalized, obs):
         raise NotImplementedError
     ras_agg = []
     aff_agg = []
+    nan_agg = []
     for raster in ras_paths:
         if region == 'cali': 
             src = open_raster(raster) 
@@ -214,6 +219,7 @@ def get_bioclim_rasters(base_dir, region, normalized, obs):
         ras_agg.append(masked)
         # this method relies on all affine transformations being the same, need to change that for more environmental rasters
         aff_agg.append(affine)        
+        nan_agg.append(nan)
     # filter down the dataset to only in-range observations
     # this shape of cali is the us-census designated shape
 #     geoms = get_cali_shape(base_dir)
@@ -442,7 +448,7 @@ def build_dset_name(base_dir, organism, region, observation, threshold, topk):
         if threshold is None:
             name  = "{}_obs_{}_{}_train".format(observation, region, organism)
         else:
-            naem = "{}_obs_{}_{}_train_{}".format(observation, region, organism, threshold)
+            name = "{}_obs_{}_{}_train_{}".format(observation, region, organism, threshold)
     return name        
 
 
@@ -456,7 +462,8 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold, to
     elif observation == 'single_single':
         observation = 'joint_single'
     name = build_dset_name(base_dir, organism, region, observation, threshold, topk)
-    obs_pth = "{}occurrences/{}.csv".format(base_dir)
+    obs_pth = "{}occurrences/{}.csv".format(base_dir, name)
+    print(obs_pth)
     assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)
     return reformat_data(joint_obs)

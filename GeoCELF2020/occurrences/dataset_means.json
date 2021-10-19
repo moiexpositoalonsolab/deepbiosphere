@@ -1,0 +1,14 @@
+{"dataset_means": {
+        "old_imagenet": [111.27668932654558, 115.84299163319858, 104.88420063186129, 132.9687599226994, 0.0],
+        "mscoco" : [0,0,0,0],
+        "imagenet": [0.485, 0.456, 0.406, 0.0],
+        "none": [0,0,0,0],
+        "joint_multiple_obs_cali_plant_train_4" :" None"
+                },
+"dataset_stds": {
+        "imagenet": [0.229, 0.224, 0.225, 0.0],
+        "none": [1, 1, 1,1],
+        "mscoco": [1, 1, 1,1],
+        "joint_multiple_obs_cali_plant_train_4" : "None"
+        }
+}

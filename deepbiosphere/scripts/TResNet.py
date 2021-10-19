@@ -239,8 +239,10 @@ class TResNet(Module):
             x = self.conv4band(x)        
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
-        if self.pretrained != 'none':
-            x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
+        # if self.pretrained != 'none':
+            # below is if the data isn't being mean-centered. Now that it is being scaled to 0-1
+            # then don't need this any more
+            # x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
         x = self.body(x)
         self.embeddings = self.global_pool(x)
         spec = self.spec(self.embeddings)
@@ -377,8 +379,9 @@ class Joint_TResNet(Module):
             x = self.conv4band(x)        
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
-        if self.pretrained != 'none':
-            x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
+            # don't need below now that 0-1 centering everyting
+        #if self.pretrained != 'none':
+        #    x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
         x = self.body(x)
 #         self.embeddings = self.global_pool(x)
         x = self.global_pool(x)
@@ -519,6 +522,7 @@ class Downsample(nn.Module):
         self.filt = filt[None, None, :, :].repeat((self.channels, 1, 1, 1))
 
     def forward(self, input):
+        self.filt = self.filt.to(input.device)
         input_pad = F.pad(input, (1, 1, 1, 1), 'reflect')
         return F.conv2d(input_pad, self.filt, stride=self.stride, padding=0, groups=input.shape[1])
     

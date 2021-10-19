@@ -28,12 +28,12 @@ class BrierPresenceOnly(nn.Module):
             self.op = pass_
         else:
             raise NotImplementedError
-            
+
     # taken from https://discuss.pytorch.org/t/how-to-calculate-accuracy-multi-label/73883/3
-    # targets will be a multi-hot vector (batched)    
-    def forward(self, inputs, targets, smooth=1):        
-        
-        inputs = F.softmax(inputs)
+    # targets will be a multi-hot vector (batched)
+    def forward(self, inputs, targets, smooth=1):
+
+        inputs = F.sigmoid(inputs)
         sub = (targets - inputs)
         # will return to presence-only, because if target
         # has 0, multiplication will zero it out
@@ -63,9 +63,9 @@ class BrierAll(nn.Module):
         res = sub**2
         res = torch.mean(res, dim=1)
         # call mse_loss here TODO
-        
+
         return self.op(res)
-    
+
 # presence-only cross entropy
 # from https://gist.github.com/mjdietzx/50d3c26f1fd543f1808ffffacc987cbf
 # https://jamesmccaffrey.wordpress.com/2020/03/16/the-math-derivation-of-the-softmax-with-max-and-log-tricks/
@@ -82,8 +82,8 @@ class CrossEntropyPresenceOnly(nn.Module):
             self.op = pass_
         else:
             raise NotImplementedError
-        self.class_weights = torch.autograd.Variable(class_weights) 
-        self.log_softmax = nn.LogSoftmax()    
+        self.class_weights = torch.autograd.Variable(class_weights)
+        self.log_softmax = nn.LogSoftmax()
 
     # targets is a multihot vector
     def forward(self, inputs, targets):
@@ -97,9 +97,9 @@ class CrossEntropyPresenceOnly(nn.Module):
         # then average across batch
         return self.op(nll_avg)
 
-    
-    
-    
+
+
+
     # from https://github.com/Alibaba-MIIL/ASL/blob/main/src/loss_functions/losses.py
 class AsymmetricLoss(nn.Module):
     def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, disable_torch_grad_focal_loss=False):
@@ -201,6 +201,6 @@ class AsymmetricLossOptimized(nn.Module):
             self.loss *= self.asymmetric_w
 
         return -self.loss.sum()
-    
-    
-    
+
+
+
