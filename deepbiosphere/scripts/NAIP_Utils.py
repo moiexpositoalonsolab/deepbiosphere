@@ -290,6 +290,19 @@ MERGE_METHODS = {
     'max': copy_max
 }
 
+def convert_points(lats, lons, src_crs, dest_crs, dest_trans):
+    if not isinstance(lats, list):
+        lats = [lats]
+        lons = [lons]
+    if not isinstance(dest_crs, str):
+        dest_crs = dest_crs.to_string()
+    if not isinstance(src_crs, str):
+        src_crs = src_crs.to_string()
+    crx, cry = fiona.transform.transform(src_crs, dest_crs, lons, lats)
+    memes = [~dest_trans * (x, y) for x, y in zip(crx, cry)]
+    return memes
+
+
 def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point,  base_dir  : str,ftype : str = 'vrt'):
     #check_bands(bands)
     rasters = gdf[gdf.contains(point)]
@@ -307,7 +320,7 @@ def merge(
     indexes=None,
     output_count=None,
     resampling=Resampling.nearest,
-    method="first",
+    method="first", # TODO: add a method that covers up nan values ideally, that's likely where the seaming is coming from
     target_aligned_pixels=False,
     dst_path=None,
     dst_kwds=None,
@@ -357,7 +370,7 @@ def merge(
         output_count = src_count
 
     # Extent from option or extent of all inputs
-    if bounds:
+    if bounds is not None:
         dst_w, dst_s, dst_e, dst_n = bounds
     else:
         # scan input files
@@ -695,8 +708,10 @@ def diversity_raster(rasname, metric, year, base_dir, modelname, nodata=9999, wa
         ras = src.read()
         # will not handle if there is nan data in the file
         if "threshold" in kwargs or "dtype" in kwargs:
+            dtype = kwargs['dtype']
             output = method(ras, kwargs)
         else:
+            dtype= np.uint16
             output = method(ras)
         if nodata is None:
             raise ValueError(f"you must set a nodata value that matches the save datatype of {output.dtype}! ")
@@ -714,7 +729,7 @@ def diversity_raster(rasname, metric, year, base_dir, modelname, nodata=9999, wa
                 'transform' : nnt,
                 'crs' : NAIP_CRS,
             })
-            dest = np.full([hig, wid], nodata)
+            dest = np.full([hig, wid], nodata, dtype=dtype)
             reproject(output, dest, src_transform=src.transform, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
             output = dest
         fname = f"{base_dir}inference/prediction/alpha_diversity/{modelname}{rasname.split(modelname)[-1]}"
