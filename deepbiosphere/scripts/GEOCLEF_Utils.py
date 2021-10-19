@@ -8,9 +8,20 @@ import matplotlib.pyplot as plt
 # adding this to check github integration on slack
 # TODO: move general methods into here
 
+# https://stackoverflow.com/questions/2659900/slicing-a-list-into-n-nearly-equal-length-partitions
+def partition(lst, n):
+    division = len(lst) / n
+    return [lst[round(division * i):round(division * (i + 1))] for i in range(n)]
+
+# https://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
 def dict_key_2_index(df, key):
     return {
-        k:v for k, v in 
+        k:v for k, v in
         zip(df[key].unique(), np.arange(len(df[key].unique())))
     }
 
@@ -25,7 +36,7 @@ def dict_from_columns(df, key_col, val_col):
 
 # https://www.movable-type.co.uk/scripts/latlong.html
 def nmea_2_meters(lat1, lon1, lat2, lon2):
-    
+
     R = 6371009 #; // metres
     r1 = lat1 * math.pi/180 #; // φ, λ in radians
     r2 = lat2 * math.pi/180;
@@ -42,18 +53,18 @@ def nmea_2_meters(lat1, lon1, lat2, lon2):
 
 
 def add_taxon_metadata(base_dir, obs, organism):
-    
+
     ## getting family, genus, species ids for each observation
     # get all relevant files
-    print("adding taxon information")   
-    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(base_dir), sep=None)    
-    present_specs = obs.species_id.unique()    
+    print("adding taxon information")
+    gbif_meta = pd.read_csv("{}occurrences/species_metadata.csv".format(base_dir), sep=None)
+    present_specs = obs.species_id.unique()
     # get all the gbif species ids for all the species in the us sample
     conversion = gbif_meta[gbif_meta['species_id'].isin(present_specs)]
     gbif_specs = conversion.GBIF_species_id.unique()
     # get dict that maps CELF id to GBIF id
     spec_2_gbif = dict(zip(conversion.species_id, conversion.GBIF_species_id))
-    obs['gbif_id'] = obs['species_id'].map(spec_2_gbif)    
+    obs['gbif_id'] = obs['species_id'].map(spec_2_gbif)
     taxons = pd.read_csv("{}occurrences/Taxon.tsv".format(base_dir), sep="\t")
     taxa = taxons[taxons['taxonID'].isin(gbif_specs)]
     phylogeny = taxa[['taxonID', 'kingdom', 'phylum', 'class', 'order', 'family', 'genus', 'canonicalName']]
@@ -63,7 +74,7 @@ def add_taxon_metadata(base_dir, obs, organism):
     gbif_2_ord = dict(zip(phylogeny.taxonID, phylogeny.order))
     gbif_2_fam = dict(zip(phylogeny.taxonID, phylogeny.family))
     gbif_2_gen = dict(zip(phylogeny.taxonID, phylogeny.genus))
-    gbif_2_spec = dict(zip(phylogeny.taxonID, phylogeny.canonicalName))    
+    gbif_2_spec = dict(zip(phylogeny.taxonID, phylogeny.canonicalName))
     obs['family'] = obs['gbif_id'].map(gbif_2_fam)
     obs['genus'] = obs['gbif_id'].map(gbif_2_gen)
     obs['order'] = obs['gbif_id'].map(gbif_2_ord)
@@ -95,14 +106,14 @@ def torch_scale(x, out_range=(0, 1), min_=None, max_=None):
     return y * (out_range[1] - out_range[0]) + (out_range[1] + out_range[0]) / 2
 
 def scale(x, out_range=(-1, 1), min_=None, max_=None):
-    
+
     if min_ == None and max_ == None:
         min_, max_ = np.min(x), np.max(x)
     y = (x - (max_ + min_) / 2) / (max_ - min_)
     return y * (out_range[1] - out_range[0]) + (out_range[1] + out_range[0]) / 2
 
 def plot_image(base_dir, id_, figsize=(10,10), transpose=False, altitude=True):
-    imgs =   image_from_id(id_, base_dir, altitude) 
+    imgs =   image_from_id(id_, base_dir, altitude)
     print(imgs.shape, imgs.shape[0]-2)
     num = imgs.shape[0]-2
     fig, axs = plt.subplots(num, figsize=figsize) if transpose else plt.subplots(1, num, figsize=figsize)
@@ -140,9 +151,9 @@ def norm_rank(curr, stop):
         ncur = curr +1
         return norm_rank(ncur, stop) + 1/curr
 
-def mean_reciprocal_rank(lab, guess, total=True, norm=True):  
-    
-    # sort 
+def mean_reciprocal_rank(lab, guess, total=True, norm=True):
+
+    # sort
     pred, idxs = torch.topk(guess, guess.shape[-1])
     pnp = idxs.tolist()[0]
     all_right = []
@@ -156,7 +167,7 @@ def mean_reciprocal_rank(lab, guess, total=True, norm=True):
             normed = normed_rank[len(lab)]
             return ((1 / all_right).sum()) / normed
         else:
-            
+
             return (1 / all_right).sum()
 
     else:
@@ -165,10 +176,10 @@ def mean_reciprocal_rank(lab, guess, total=True, norm=True):
             normed = normed_rank[len(lab)]
             return (1/all_right.min())/normed
         else:
-            return 1/all_right.min()    
-        
+            return 1/all_right.min()
+
 def proba_intersect(ob_t, y_t, device):
-    
+
     _, indxs_pred = torch.sort(ob_t, dim=1, descending = True)
     to_get, indxs_pres = torch.sort(y_t, dim=1, descending = True)
     mask = (to_get == 0.0)
@@ -180,14 +191,14 @@ def proba_intersect(ob_t, y_t, device):
     for i, (m, n) in enumerate(zip(pres, pred)):
         mask1 = m >=0
         a = torch.masked_select(m, mask1)
-        b = torch.masked_select(n, mask1)    
+        b = torch.masked_select(n, mask1)
         c = torch_intersection(a, b, device)
         inter[i] = len(c)
     del indxs_pred, to_get, indx_pred, mask, pres, pred
     return inter
 
 # assumed y_t is already in pres/abs form
-def pres_intersect(ob_t, y_t):    
+def pres_intersect(ob_t, y_t):
     # only where both have the same species keep
     sum = ob_t + y_t
     int = (sum > 1)
@@ -197,16 +208,16 @@ def pres_intersect(ob_t, y_t):
 
 def precision_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=False, alternate=False):
 # proba is presence absence vs proba data in obs_t and alernate is which interesection to use
-    
+
     if proba:
         if alternate:
             top = proba_intersect(ob_t, y_t, device)
 #             ob_t = torch.sigmoid(ob_t)
             # then threshold probability
-            ob_t = (ob_t > threshold).float()   
+            ob_t = (ob_t > threshold).float()
             # something squirrely here
-            
-            bottom = torch.sum(ob_t, dim=1)            
+
+            bottom = torch.sum(ob_t, dim=1)
         else:
 #             ob_t = torch.sigmoid(ob_t)
             # then threshold probability
@@ -214,9 +225,9 @@ def precision_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba
 #             print(ob_t.sum(dim=1), y_t.sum(dim=1))
             top = pres_intersect(ob_t, y_t).float()
             bottom = torch.sum(ob_t, dim=1)
-    else: 
+    else:
             # needto threshold probas
-#         print(ob_t.sum(dim=1), y_t.sum(dim=1))            
+#         print(ob_t.sum(dim=1), y_t.sum(dim=1))
         if alternate:
             raise NotImplementedError("can't do probability thresholding on presence only data!")
         top = pres_intersect(ob_t, y_t).float()
@@ -230,10 +241,10 @@ def precision_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba
 
 def recall_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=False, alternate=False):
 # proba is presence absence vs proba data in obs_t and alernate is which interesection to use
-    
+
     if proba:
         if alternate:
-            top = proba_intersect(ob_t, y_t, device)            
+            top = proba_intersect(ob_t, y_t, device)
         else:
 #             ob_t = torch.sigmoid(ob_t)
             # then threshold probability
@@ -241,14 +252,14 @@ def recall_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=Fa
 #             print(ob_t.sum(dim=1), y_t.sum(dim=1))
             top = pres_intersect(ob_t, y_t).float()
 
-    else: 
+    else:
             # needto threshold probas
         if alternate:
             raise NotImplementedError("can't do probability thresholding on presence only data!")
         top = pres_intersect(ob_t, y_t).float()
- 
+
     bottom = torch.sum(y_t, dim=1)
-#     print(top, bottom)    
+#     print(top, bottom)
     ans = torch.div(top, bottom)
     # this relies on the assumption that all nans are 0-division
     ans[ans != ans] = 0
@@ -257,28 +268,28 @@ def recall_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=Fa
 
 def f1_per_obs(ob_t, y_t, device=torch.device("cpu"), threshold=.5, proba=False, alternate=False):
 # proba is presence absence vs proba data in obs_t and alernate is which interesection to use
-    
-    
+
+
     if proba:
         if alternate:
             top = proba_intersect(ob_t, y_t, device)
 #             ob_t = torch.sigmoid(ob_t)
             # then threshold probability
-            ob_t = (ob_t > threshold).float()            
-            bottom1 = torch.sum(ob_t, dim=1)            
+            ob_t = (ob_t > threshold).float()
+            bottom1 = torch.sum(ob_t, dim=1)
         else:
 #             ob_t = torch.sigmoid(ob_t)
             # then threshold probability
             ob_t = (ob_t > threshold).float()
             top = pres_intersect(ob_t, y_t).float()
             bottom1 = torch.sum(ob_t, dim=1)
-    else: 
+    else:
             # needto threshold probas
         if alternate:
             raise NotImplementedError("can't do probability thresholding on presence only data!")
         top = pres_intersect(ob_t, y_t).float()
         bottom1 = torch.sum(ob_t, dim=1)
-       
+
     bottom2 = torch.sum(y_t, dim=1)
     # sum bottom1 and bottom2 along axis 1
     bottom = bottom1 + bottom2
@@ -297,7 +308,7 @@ def recall_per_batch(output, target, actual):
         out_vals, out_idxs = torch.topk(obs, int(trg.sum().item()))
         targ_vals, targ_idxs = torch.topk(trg, int(trg.sum().item()))
         eq = len(list(set(out_idxs.tolist()) & set(targ_idxs.tolist())))
-        eq_t1 = len(list(set(out_idxs.tolist()) & set([actual.item()])))        
+        eq_t1 = len(list(set(out_idxs.tolist()) & set([actual.item()])))
         recall = eq / trg.sum() * 100
         top1_recall = eq_t1 * 100
         tot_rec.append((eq, len(targ_idxs)))
@@ -305,20 +316,20 @@ def recall_per_batch(output, target, actual):
         tot_top1.append(eq_t1)
         top1_rec.append(top1_recall.item())
     return recall, tot_rec, top1_rec, tot_top1
-        
-    
+
+
 
 # not batched version!!
 # t1 should model output, t2 should be label for batch dims to work
 # https://stackoverflow.com/questions/55110047/finding-non-intersection-of-two-pytorch-tensors
 def torch_intersection(t1, t2, device):
-    
+
     indices = torch.zeros_like(t2, dtype = torch.uint8, device = device)
     if len(t2.shape) > 1:
         raise TypeError; 'will index incorrectly across tensors'
     for i, elem in zip(np.arange(len(t2)), t2):
         indices[i] = (t1 == elem).sum()
-    intersection = t2[indices]  
+    intersection = t2[indices]
     return intersection
 
 def recall_per_example_classes(lab, guess, actual):
@@ -326,12 +337,12 @@ def recall_per_example_classes(lab, guess, actual):
     # recall
     maxk = len(lab)
     pred, idxs = torch.topk(guess, maxk)
-    corr_id = list(set(idxs.tolist()[0]) & set(lab)) 
+    corr_id = list(set(idxs.tolist()[0]) & set(lab))
     eq = len(corr_id)
     recall = eq / maxk
     top1_recall = len(list(set(idxs.tolist()[0]) & set([actual])))
     return recall, top1_recall, corr_id
-    
+
 
 # so sigmoiding doesn't really change the output, getting rid of it
 def recall_per_example(lab, guess, actual, weight, device='cpu'):
@@ -347,11 +358,11 @@ def recall_per_example(lab, guess, actual, weight, device='cpu'):
 
 # so sigmoiding doesn't really change the output, getting rid of it
 def accuracy_per_example(lab, guess, device='cpu'):
-    
+
     guess = torch.sigmoid(guess)
     yhat_size = (guess > .5).sum()
     pred, idxs = torch.topk(guess, yhat_size)
-    
+
     intersection = torch_intersection(idxs, lab, device)
     union = torch.unique(torch.cat([idxs[0], lab]))
     return float(len(intersection))/len(union), intersection.tolist(), union.tolist()
@@ -359,14 +370,14 @@ def accuracy_per_example(lab, guess, device='cpu'):
 # NEW threshold is .5 and we will pass the values through sigmoid to convert the distro
 # to a proability for each class
 def precision_per_example(lab, guess, actual, weight, device='cpu', thres=.5):
-    
+
     guess = torch.sigmoid(guess)
     yhat_size = (guess > .5).sum()
     pred, idxs = torch.topk(guess, yhat_size)
     overlap = torch_intersection(idxs, lab, device)
     prec = float(len(overlap))/ float(yhat_size) if yhat_size > 0 else 0.0
     top1_prec = (overlap == actual).sum()
-    top1_prec_weight = float(top1_prec)/float(weight)    
+    top1_prec_weight = float(top1_prec)/float(weight)
     return prec, top1_prec.tolist(), top1_prec_weight, overlap.tolist()
 
 def num_corr_matches(output, target, actual):
@@ -379,10 +390,10 @@ def num_corr_matches(output, target, actual):
         acc = eq / trg.sum() * 100
         tot_acc.append((eq, len(targ_idxs)))
         acc_acc.append(acc.item())
-    
+
     return np.stack(acc_acc), np.stack(tot_acc)
 
-# https://gist.github.com/weiaicunzai/2a5ae6eac6712c70bde0630f3e76b77b        
+# https://gist.github.com/weiaicunzai/2a5ae6eac6712c70bde0630f3e76b77b
 def topk_acc(output, target, topk=(1,), device=None):
     """Computes the standard topk accuracy for the specified values of k"""
     maxk = max(topk)
@@ -398,7 +409,7 @@ def topk_acc(output, target, topk=(1,), device=None):
     del targ, pred, target
     return res
 def subpath_2_img_noalt(pth, subpath, id_):
-    rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
+    rgbd = "{}{}{}.npy".format(pth, subpath, id_)
     # Necessary because some data corrupted...
     np_img = np.load(rgbd)
     np_img = np_img[:,:,:4]
@@ -427,12 +438,13 @@ def image_from_id(id_, pth, means, stds, altitude=False, sub_mean="none"):
     # what the hell is going on here???
     # so, not sure what the internal python transformation that was happening by changing the underlying data, so instead will just copy over
         #img[i,:,:] = mean - channel # this is incorrect, and is doing some wild ting?
+
         imgg[i,:,:] = (channel - mean)/std
     return imgg
 
 def subpath_2_img(pth, subpath, id_):
     alt = "{}{}{}_alti.npy".format(pth, subpath, id_)
-    rgbd = "{}{}{}.npy".format(pth, subpath, id_)    
+    rgbd = "{}{}{}.npy".format(pth, subpath, id_)
     # Necessary because some data corrupted...
     try:
         np_al = np.load(alt)
@@ -444,7 +456,7 @@ def subpath_2_img(pth, subpath, id_):
         print("trouble loading file {}, faking data :(".format(rgbd))
         # magic numbers 173 and 10000000 are first files in both us and fr datasets
         channels, height, width = get_shapes(173, pth) if id_ < 10000000 else get_shapes(10000000, pth)
-        np_al = np.zeros([height, width], dtype='uint8') 
+        np_al = np.zeros([height, width], dtype='uint8')
         np_img = np.zeros([channels-1, height, width], dtype='uint8')
         np_img = np.transpose(np_img, (1,2,0))
     np_al = np.expand_dims(np_al, 2)
@@ -454,10 +466,10 @@ def subpath_2_img(pth, subpath, id_):
 def id_2_subdir(id_):
     return id_2_subdir_fr(id_) if id_ >=  10000000 else id_2_subdir_us(id_)
 
-    
+
 def id_2_file(id_):
     return id_2_file_fr(id_) if id_ >= 10000000 else id_2_file_us(id_)
-    
+
 def id_2_file_us(id_):
     abcd = id_ % 10000
     ab, cd = math.floor(abcd/100), abcd%100
@@ -473,7 +485,7 @@ def id_2_file_fr(id_):
     ab = "0{}".format(ab) if id_ / 1000 > 1 and ab < 10 else ab
     cd = "0{}".format(cd) if  cd < 10 else cd
     return None, ab, cd
-    
+
 def clean_all_models(base_dir, data='nets', num_2_keep=5):
     # https://stackoverflow.com/questions/16953842/using-os-walk-to-recursively-traverse-directories-in-python
     # traverse root directory, and list directories as dirs and files as files
@@ -497,33 +509,33 @@ def clean_all_models(base_dir, data='nets', num_2_keep=5):
             else:
                 if len(to_toss) > 0:
                     print("removing epochs {} to {} and keeping epochs {} to {} of model {}".format(
-                        strip_to_epoch([to_toss[0]])[0], 
+                        strip_to_epoch([to_toss[0]])[0],
                         strip_to_epoch([to_toss[-1]])[0],
-                        strip_to_epoch([to_keep[0]])[0], 
+                        strip_to_epoch([to_keep[0]])[0],
                         strip_to_epoch([to_keep[-1]])[0],
                         path_to_cfgname(run)))
                     for to_remove in to_toss:
                         os.remove(to_remove)
         print("\n")
-        
-        
+
+
 def numpy_2_df(np_arr, columns, other_df=None, cols_2_steal=None):
     df_arr = pd.DataFrame(np_arr, columns=columns)
     if other_df is not None:
         df_arr[cols_2_steal] = other_df[cols_2_steal]
     return df_arr
-    
-def sort_by_epoch(paths, reversed=False):    
+
+def sort_by_epoch(paths, reversed=False):
     return sorted(paths, reverse=reversed,key= lambda x: (int(x.split('_e')[-1].split('.')[0])))
 
 def strip_to_epoch(filepaths):
 #     print(filepaths[0])
 #     print(filepaths[0].split('.')[0])
-    return  [int(f.split('_e')[-1].split('.')[0]) for f in filepaths] 
+    return  [int(f.split('_e')[-1].split('.')[0]) for f in filepaths]
 
 def path_to_cfgname(filepath):
     return filepath.split("/")[-1].split("_e")[0].split('.')[0]
-    
+
 '''files are default assumed to be ';' separator '''
 def check_gbif_files(occ_paths, img_path, sep=';'):
     occs = []
@@ -557,7 +569,7 @@ def check_gbif_files(occ_paths, img_path, sep=';'):
     return missing_folders
 
 def check_corrupted_files(base_dir):
-   raise NotImplementedError 
+   raise NotImplementedError
 
 
 def key_for_value(d, value):
@@ -588,4 +600,4 @@ def check_batch_size(observation, dataset, processes, loader, batch_size, optimi
             check_batch_size(observation, dataset, processes, loader, batch_size, optimizer, net, spec_loss, fam_loss, gen_loss, sampler, device)
         break
     return batch_size, loader
-    
+
