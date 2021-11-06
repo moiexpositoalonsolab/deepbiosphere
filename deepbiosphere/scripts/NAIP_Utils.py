@@ -10,6 +10,7 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 import numpy as np
 
 import rasterio
+from rasterio.mask import mask
 from rasterio.crs import CRS
 import rasterio.warp
 import rasterio.shutil
@@ -231,12 +232,20 @@ def Load_NAIP_Bounds(base_dir : str, state: str, year : str):
     return gpd.read_file(
             f"{base_dir}{state}/{year}/{state}_shpfl_{year}/naip_3_{year[2:4]}_1_1_{state}.shp")
 
+def get_Bandnames(gdf : NAIP_shpfile, bands: list, base_dir : str, ftype : str = 'tif'):
+    check_bands(bands)
+    f = f"{base_dir}/{gdf.iloc[0].APFONAME[:5]}/{'_'.join(gdf.iloc[0].FileName.split('_')[:-1])}.{ftype}"
+    with rasterio.open(f) as r:
+        return [r.descriptions[i-1] for i in bands]
+
+
 def Find_Rasters_Polygon(gdf : NAIP_shpfile, poly : Polygon, bands : list, base_dir : str,  res : float = None, ftype : str = "vrt"):
     check_bands(bands)
     null = Polygon()
     tt = gdf.intersection(poly)
     rasters =  gdf[tt != null]
     rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
+    print(f"{len(rasters)} total rasters")
     if len(rasters) > 1:
         return merge(rasters, res=res, indexes=bands)
     elif len(rasters) == 0:
@@ -376,11 +385,13 @@ def merge(
         # scan input files
         xs = []
         ys = []
+        reses = []
         for dataset in datasets:
             with dataset_opener(dataset) as src:
                 left, bottom, right, top = src.bounds
             xs.extend([left, right])
             ys.extend([bottom, top])
+            reses.append(src.res)
         dst_w, dst_s, dst_e, dst_n = min(xs), min(ys), max(xs), max(ys)
 
     # Resolution/pixel size
@@ -391,6 +402,7 @@ def merge(
     elif len(res) == 1:
         res = (res[0], res[0])
 
+    print(f"resolution is {res}, reses are {reses}")
     if target_aligned_pixels:
         dst_w = math.floor(dst_w / res[0]) * res[0]
         dst_e = math.ceil(dst_e / res[0]) * res[0]
@@ -402,9 +414,16 @@ def merge(
 # because round() has weird behavior, instead we're going to
 # round up the size of the array always and slightly
 # stretch the rasters to fill it
+# TODOO: resolution is not quite right here, because some rasters have a different resolution.
     output_width = math.ceil((dst_e - dst_w) / res[0])
     output_height = math.ceil((dst_n - dst_s) / res[1])
     output_transform = Affine.translation(dst_w, dst_n) * Affine.scale(res[0], -res[1])
+# get the bounding box and height / width in order to do future operations
+    left = dst_w
+    bottom = dst_s
+    right = dst_e
+    top = dst_n
+    d_bounds = rasterio.coords.BoundingBox(left, bottom, right, top)
 
     if dtype is not None:
         dt = dtype
@@ -450,6 +469,7 @@ def merge(
         with dataset_opener(dataset) as src:
             # Real World (tm) use of boundless reads.
             # This approach uses the maximum amount of memory to solve the
+            crs = src.crs
 
             if disjoint_bounds((dst_w, dst_s, dst_e, dst_n), src.bounds):
                 continue
@@ -515,7 +535,7 @@ def merge(
         copyto(region, temp_src, region_mask, temp_mask, index=idx, roff=dst_window.row_off, coff=dst_window.col_off)
 
     if dst_path is None:
-        return dest, output_transform
+        return dest, output_transform, d_bounds, output_width, output_height, crs
 
     else:
         with rasterio.open(dst_path, "w", **out_profile) as dst:
@@ -596,8 +616,8 @@ def Mask_Raster(raster : np.array, trans, polygon, crs=NAIP_CRS):
             with memfile.open(**DefaultGTiffProfile(count=raster.shape[0], width = raster.shape[2], height = raster.shape[1],  crs=crs, transform=trans)) as dataset: # Open as DatasetWriter
                 profile = dataset.profile
                 profile.update(**kwargs)
-                dataset.write(rasters)
-                del rasters
+                dataset.write(raster)
+                del raster
             with memfile.open(transform=trans) as dataset:  # Reopen as DatasetReader
                 cropped, trans = mask(dataset, polygon.geometry, invert=False, crop=True)
                 return cropped, trans
