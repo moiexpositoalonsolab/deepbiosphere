@@ -8,7 +8,8 @@ from rasterio import Affine, MemoryFile
 from rasterio.profiles import DefaultGTiffProfile
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 import numpy as np
-
+from scipy.spatial import distance
+from functools import reduce
 import rasterio
 from rasterio.mask import mask
 from rasterio.crs import CRS
@@ -612,15 +613,21 @@ def Mask_Raster(raster : np.array, trans, polygon, crs=NAIP_CRS):
             'transform' :trans,
             'driver': 'GTiff',
             'height' : raster.shape[1],
-            'width' : raster.shape[2]
+            'width' : raster.shape[2],
+            'dtype' : rasterio.float64
         }
+        # TODO: check out what blockxsize and blockysize do and if they need to be updated also
+# TODO: solve bug where memfile won't accept any dtype but uint8
         with MemoryFile() as memfile:
             with memfile.open(**DefaultGTiffProfile(count=raster.shape[0], width = raster.shape[2], height = raster.shape[1],  crs=crs, transform=trans)) as dataset: # Open as DatasetWriter
                 profile = dataset.profile
                 profile.update(**kwargs)
-                dataset.write(raster)
-                del raster
-            with memfile.open(transform=trans) as dataset:  # Reopen as DatasetReader
+                dataset.write(raster.astype(rasterio.float64))
+                print(profile)
+                temp = dataset.read()
+                print(raster.dtype, temp.dtype)
+            with memfile.open(transform=trans, dtype=rasterio.float64) as dataset:  # Reopen as DatasetReader
+                print(dataset.profile)
                 cropped, trans = mask(dataset, polygon.geometry, invert=False, crop=True)
                 return cropped, trans
 
@@ -706,6 +713,155 @@ def alpha_div(predictions, threshold=0.5, dtype=np.uint16):
     pred = pred >= threshold # binary threshold
     pred = pred.sum(dim=0) # sum across all species
     return pred.numpy().astype(dtype)
+
+# convolution functions for calculating species turnover (beta diversity)
+
+# assumes that wind is [filt, filt, num_species]
+def combined(wind, dist_fn, agg_fn):
+    cx, cy = round(wind.shape[0]/2), round(wind.shape[1]/2)
+    center = wind[cx,cy,:]
+    diffs = []
+    for i in range(wind.shape[0]):
+        for j in range(wind.shape[1]):
+            if i == cx and j == cy:
+                continue
+            diffs.append(dist_fn(wind[i,j,:], center))
+    return agg_fn(diffs)
+
+# assumes that wind is [filt, filt]
+def combined_perspec(wind, dist_fn, agg_fn):
+    cx, cy = round(wind.shape[0]/2), round(wind.shape[1]/2)
+    center = wind[cx,cy]
+    diffs = []
+    for i in range(wind.shape[0]):
+        for j in range(wind.shape[1]):
+            if i == cx and j == cy:
+                continue
+            diffs.append(dist_fn(wind[i,j], center))
+    return agg_fn(diffs), np.nan
+sx = np.array([
+    [1,0,-1],
+    [2,0,-2],
+    [1,0,-1]
+])
+sy = np.array([
+    [-1,-2,-1],
+    [0,0,0],
+    [1,2,1]
+])
+
+def sobel(wind, dist_fn, agg_fn):
+    # convolve wind and sobel filters
+    gx = np.multiply(wind, sx).sum()
+    gy = np.multiply(wind, sy).sum()
+#     print(gx, gy)
+    return agg_fn([gx, gy]), math.atan2(gx, gy)
+
+px = np.array([
+    [-1,0,1],
+    [-1,0,1],
+    [-1,0,1]
+])
+py = np.array([
+    [-1,-1,-1],
+    [0,0,0],
+    [1,1,1]
+])
+def prewitt(wind, dist_fn, agg_fn):
+    gx = np.multiply(wind, px).sum()
+    gy = np.multiply(wind, py).sum()
+    return agg_fn([gx, gy]), math.atan2(gx, gy)
+
+cx = np.array([.5, 0. -.5])
+def central(wind, dist_fn, agg_fn):
+    gx = np.dot(cx, wind).sum()
+    gy = np.dot(cx.T, wind).sum()
+    return agg_fn([gx,gy]), math.atan2(gx, gy)
+
+lx = np.array([
+    [0,1,0],
+    [1,-4,1],
+    [0,1,0]
+])
+ly = np.array([
+    [-1,-1,-1],
+    [-1,8,-1],
+    [-1,-1,-1]
+])
+def laplace(wind, dist_fn, agg_fn):
+    gx = np.multiply(wind, lx).sum()
+    gy = np.multiply(wind, ly).sum()
+    return agg_fn([gx, gy]), math.atan2(gx, gy)
+dist_fns = {
+    'L2' : lambda x, y: (np.linalg.norm((x-y))),
+    'cosine' : lambda x, y: (distance.cosine(x,y)),
+    'dot_prod' : lambda x, y: (np.dot(x,y)),
+    'kl_div' : lambda x, y: (sum([xx*np.log(xx/yy) for xx,yy in zip(x,y)])),
+    'none' : None
+}
+filters = {
+    'sobel': sobel,
+    'prewitt': prewitt,
+    'central' : central,
+    'combined': combined,
+    'combined_perspec': combined_perspec,
+    'laplace' : laplace
+}
+aggregate_fns = {
+    'sum' : (lambda x: sum([abs(y) for y in x])),
+    'norm' : (lambda x: math.sqrt(sum([y**2 for y in x]))),
+    'average' : (lambda x: sum([abs(y) for y in x]) / len(x)),
+    'mult' : (lambda z: reduce(lambda x, y: x*y, z))
+}
+
+
+# user's job to ensure filter function and perspecies are compatible
+# convolves network predictions to determine how different the local neighborhood of predictions is
+# preds: the predictions from the network, last 2 dimensions should be the height and width of your predictions
+# filt_size: the dimensions of the filter to pass over the predictions (width, height) tuple
+# sig: whether to sigmoid the network's predictions and convert to a probability vector. Generally recommended since this normalizes the values to a more reasonable range
+# per_species: whether to calculate the distance per-species within nieghborhood then aggregate, or calculate distance by vector. Warning: per-species is very slow!
+# dist_name: key for dist_fns dict, determines what distance function to use to calculate difference between predictions
+# filter: one of the keys for the filter function, determines which convolutional filter to use
+# agg_name: one of the keys from the above aggregate_fns, determines which aggregation strategy to use
+# angle: whether to calculate the aggregated angle between neighboring predictions
+def convolve(probas, filt_size, sig, per_species, dist_name, fil_name, agg_name, angle=True):
+    agg_fn = aggregate_fns[agg_name]
+    dist_fn = dist_fns[dist_name]
+    filter = filters[fil_name]
+    height = probas.shape[-2] #TODO: confirm I don't have height and width backwards
+    width = probas.shape[-1]
+    convo = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], np.nan)
+#     convo = np.full([(height-3),(width-3)], np.nan)
+#     print(convo.shape, probas.shape)
+    if angle:
+        angles = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], np.nan)
+    tock = time.time()
+    for i in range(convo.shape[0]):
+
+        for j in range(convo.shape[1]): # range goes to 1- number, need to knock off a second for the filter size
+            wind = probas[:, i:i+filt_size[0], j:j+filt_size[1]]
+            # print(wind.shape)
+            if sig:
+                wind = torch.sigmoid(torch.tensor(wind)).numpy()
+            if per_species:
+                spp = []
+                angl = []
+                for sp in range(wind.shape[2]):
+                    val, ang = filter(wind[:,:,sp], dist_fn, agg_fn)
+                    spp.append(val)
+                    angl.append(ang)
+                convo[i,j] = agg_fn(spp)
+                angles[i,j] = agg_fn(angl)
+            else:
+                blah = filter(wind, dist_fn, agg_fn)
+                convo[i,j] = blah
+    tick = time.time()
+    print(f"took {(tick-tock)/60} minutes to run  ")
+    if angle:
+        return convo, angles
+    else:
+        return convo
 
 def beta_div():
    raise NotImplemented
