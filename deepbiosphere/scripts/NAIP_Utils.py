@@ -401,8 +401,10 @@ def merge(
         res = (res, res)
     elif len(res) == 1:
         res = (res[0], res[0])
-
-    print(f"resolution is {res}, reses are {reses}")
+# TODO: right now the code for calculating the transform and the bounds assumes
+# that the resolutions are the same across tiffs, which is not true. Need to correctly
+# calculate this...
+    # print(f"resolution is {res}, reses are {reses}")
     if target_aligned_pixels:
         dst_w = math.floor(dst_w / res[0]) * res[0]
         dst_e = math.ceil(dst_e / res[0]) * res[0]
