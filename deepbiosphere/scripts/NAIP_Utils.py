@@ -319,6 +319,17 @@ def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point,  base_dir  : str,ftype
     rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
     return rasters
     # can consider returning to opening the raster
+# TODO: the boundaries stored in the shp files aren't super accurate - don't use them!
+def Find_Boundary_Point(gdf : NAIP_shpfile, point : Point,  base_dir  : str):
+    rasters = gdf[gdf.contains(point)]
+    return rasters.geometry
+    # can consider returning to opening the raster
+
+def Find_Boundary_Polygon(gdf : NAIP_shpfile, poly : Polygon, base_dir : str):
+    null = Polygon()
+    tt = gdf.intersection(poly)
+    rasters =  gdf[tt != null]
+    return rasters.geometry
 
 def merge(
     datasets,
@@ -634,6 +645,33 @@ def Mask_Raster(raster : np.array, trans, polygon, crs=NAIP_CRS):
 def Grab_TIFF(df_row, tif_dir):
         return f"{tif_dir}{df_row.APFONAME[:5]}/{'_'.join(df_row.FileName.split('_')[:-1])}.tif"
 
+# fname: absolute path minus number and filetype
+def rename_vrt(fname, n_img,  tot_col, tot_row, vrt_col, vrt_row, ftype='.tif', savetype='.pdf', del_old=True):
+      wid = math.ceil(tot_col / vrt_col)
+      hid = math.ceil(tot_row / vrt_row)
+      collabs = list(string.ascii_uppercase)
+      collabs += [f"{lab}{lab}" for lab in collabs]
+      print(collabs)
+      rowlabs = list(range(1, hid + 1))
+      dpi = 200
+      # assume that files go from 0-n
+ # TODO: fix this: RuntimeWarning: More than 20 figures have been opened. Figures created through the pyplot interface          (`matplotlib.pyplot.figure`) are retained until explicitly closed and may consume too much memory. (To control this warning,   see the rcParam `figure.max_open_warning`).
+      for i in range(n_img):
+          fig, ax = plt.subplots(figsize=(15,15), dpi=dpi)
+          ax.axis("off")
+          file = f"{fname}{i}{ftype}"
+          with rasterio.open(file) as r:
+              img = r.read([1,2,3])
+              row = math.floor(i/wid)
+              col = i%wid
+              name = f"{collabs[col]}{rowlabs[row]}"
+              ax.imshow(np.rollaxis(img, 0, 3))
+              ax.text(30, 100, name, color="w", fontsize=30)
+              fnamm = f"{fname.rsplit('.', 2)[0]}_{name}{savetype}"
+              fig.savefig(fnamm, dpi=dpi)
+          if del_old:
+              os.remove(file)
+
 # tif_dir should be the base_dir plus the year and acquisiiton directory
 def Warp_VRT(vrt_dir : str, tif_dir : str,  shpfile : NAIP_shpfile, dst_crs = NAIP_CRS):
     for i, fman in shpfile.iterrows():
@@ -705,6 +743,10 @@ def predict_raster_list(device_no, tiffs, modelname, res, year, means, model_pth
     batchsize = batchsized(device, tiffs[0], model,params.params.batch_size, res, num_spec) # params.params.batch_size
     for raster in tqdm(tiffs):
         file = predict_raster(raster, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names, warp, means)
+
+def diversity_raster_list(rasters, div, year, base_dir, modelname, warp, nodata):
+    for ras in tqdm(rasters):
+        diversity_raster(ras, metric=div, year=year, base_dir=base_dir, modelname=modelname, warp=warp, nodata=nodata)
 
 
 def alpha_div(predictions, threshold=0.5, dtype=np.uint16):
@@ -825,18 +867,17 @@ aggregate_fns = {
 # filter: one of the keys for the filter function, determines which convolutional filter to use
 # agg_name: one of the keys from the above aggregate_fns, determines which aggregation strategy to use
 # angle: whether to calculate the aggregated angle between neighboring predictions
-def convolve(probas, filt_size, sig, per_species, dist_name, fil_name, agg_name, angle=True):
+def convolve(probas, filt_size, sig, per_species, dist_name, fil_name, agg_name, angle=True, nodata=np.nan):
     agg_fn = aggregate_fns[agg_name]
     dist_fn = dist_fns[dist_name]
     filter = filters[fil_name]
-    height = probas.shape[-2] #TODO: confirm I don't have height and width backwards
+    height = probas.shape[-2]
     width = probas.shape[-1]
-    convo = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], np.nan)
+    convo = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], nodata, dtype=np.float64)
 #     convo = np.full([(height-3),(width-3)], np.nan)
 #     print(convo.shape, probas.shape)
     if angle:
-        angles = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], np.nan)
-    tock = time.time()
+        angles = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], nodata, dtype=np.float64)
     for i in range(convo.shape[0]):
 
         for j in range(convo.shape[1]): # range goes to 1- number, need to knock off a second for the filter size
@@ -856,15 +897,23 @@ def convolve(probas, filt_size, sig, per_species, dist_name, fil_name, agg_name,
             else:
                 blah = filter(wind, dist_fn, agg_fn)
                 convo[i,j] = blah
-    tick = time.time()
-    print(f"took {(tick-tock)/60} minutes to run  ")
     if angle:
         return convo, angles
     else:
         return convo
 
-def beta_div():
-   raise NotImplemented
+
+def beta_div(predictions, nodata, dtype=np.float64):
+# these are the parameters I found produced the best maps. See jupyter notebooks for further exploration
+    sig = True
+    per_species = False
+    agg = 'norm'
+    filter = 'combined'
+    dist = 'L2'
+    filt_size = (3,3)
+    angles = False
+    return convolve(predictions, filt_size, sig, per_species, dist, filter, agg, angles, nodata)
+
 def gamma_div():
     raise NotImplemented
 
@@ -885,19 +934,20 @@ def diversity_raster(rasname, metric, year, base_dir, modelname, nodata=9999, wa
     with rasterio.open(rasname) as src:
         ras = src.read()
         # will not handle if there is nan data in the file
-        if "threshold" in kwargs or "dtype" in kwargs:
-            dtype = kwargs['dtype']
+        if "threshold" in kwargs:
             output = method(ras, kwargs)
+            dtype = output.dtype
         else:
-            dtype= np.uint16
-            output = method(ras)
+            output = method(ras, nodata)
+            dtype= output.dtype
+
         if nodata is None:
             raise ValueError(f"you must set a nodata value that matches the save datatype of {output.dtype}! ")
         else:
             if nodata >= output.min() and nodata <= output.max():
                 raise ValueError(f"you must set a nodata value that is not in the range of your output array [{output.min()}, {output.max()}]! ")
         kwargs = src.meta.copy()
-        kwargs.update({'count' : 1, 'dtype' : output.dtype, 'nodata' : nodata})
+        kwargs.update({'count' : 1, 'dtype' : output.dtype, 'nodata' : nodata, 'width': output.shape[-1], 'height': output.shape[-2]})
         if warp and src.crs != NAIP_CRS:
             # use rasterio to reproject https://rasterio.readthedocs.io/en/latest/topics/reproject.html
             nnt, wid, hig = calculate_default_transform(src.crs, NAIP_CRS, src.width, src.height, *src.bounds)
@@ -910,12 +960,29 @@ def diversity_raster(rasname, metric, year, base_dir, modelname, nodata=9999, wa
             dest = np.full([hig, wid], nodata, dtype=dtype)
             reproject(output, dest, src_transform=src.transform, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
             output = dest
-        fname = f"{base_dir}inference/prediction/alpha_diversity/{modelname}{rasname.split(modelname)[-1]}"
+        fname = f"{base_dir}inference/prediction/{metric}_diversity/{modelname}{rasname.split(modelname)[-1]}"
         if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
             os.makedirs(fname.rsplit('/',1)[0])
-        with rasterio.open(fname, 'w', **kwargs) as dst:
+        with rasterio.open(fname, 'w',  **kwargs) as dst:
             dst.write(output, 1)
     return fname
+
+def get_alpha_files(shpfile, naip_dir, ca_tifb):
+    tif_dir = naip_dir + ca_tifb
+    print(tif_dir)
+    fnames = []
+    for _, fman in shpfile.iterrows():
+        fnames.append(naip.Grab_TIFF(fman, tif_dir))
+    return fnames
+
+def get_beta_files(shpfile, modelname, base_dir, ca_tifb):
+    alph_dir = f"{base_dir}/inference/prediction/alpha_diversity/{modelname}/{ca_tifb}"
+    tif_dir = alph_dir + ca_tifb
+    print(tif_dir)
+    for _, fman in shpfile.iterrows():
+        fnames.append(naip.Grab_TIFF(fman, tif_dir))
+    print(fnames[0])
+    return fnames
 
 
 def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names, warp, means):
@@ -929,6 +996,7 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
         width, height = src.width, src.height
         num_w, num_h  = width//res, height//res
         clean_w, clean_h = num_w *res, num_h*res
+# TODO: is this + 1 the reason there's seams??
         new_w = num_w + 1 if width % res != 0 else num_w
         new_h = num_h + 1 if height % res != 0 else num_h
         output = np.zeros([num_spec, new_h, new_w]) # TODO: figure out if this is supposed to be h,w or w.h??
