@@ -230,8 +230,13 @@ def Load_Cali_Bounds(base_dir : str):
      return ca
 
 def Load_NAIP_Bounds(base_dir : str, state: str, year : str):
-    return gpd.read_file(
+    if year == '2012':
+        return gpd.read_file(
             f"{base_dir}{state}/{year}/{state}_shpfl_{year}/naip_3_{year[2:4]}_1_1_{state}.shp")
+    elif year == '2014':
+        return gpd.read_file(
+            f"{base_dir}{state}/{year}/{state}_shpfl_{year}/naip_3_{year[2:4]}_3_1_{state}.shp")
+
 
 def get_Bandnames(gdf : NAIP_shpfile, bands: list, base_dir : str, ftype : str = 'tif'):
     check_bands(bands)
