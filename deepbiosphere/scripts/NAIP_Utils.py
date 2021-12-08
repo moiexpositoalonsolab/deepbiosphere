@@ -250,8 +250,8 @@ def Find_Rasters_Polygon(gdf : NAIP_shpfile, poly : Polygon, bands : list, base_
     null = Polygon()
     tt = gdf.intersection(poly)
     rasters =  gdf[tt != null]
-    rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
     print(f"{len(rasters)} total rasters")
+    rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
     if len(rasters) > 1:
         return merge(rasters, res=res, indexes=bands)
     elif len(rasters) == 0:
