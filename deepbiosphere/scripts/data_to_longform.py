@@ -202,7 +202,34 @@ def load_data(params, ground_truth, which_taxa):
         raise NotImplementedError('inference not yet implemented for ', which_taxa)
     return all_df, g_t
     
+def run_for_all_models(proba, t_obs, taxa_names, col_2_keep, taxa, device, num_thres=100): 
+    tock = time.time()
+    thresholds = np.linspace(0.0, 1.0, num=num_thres)
+    dfs = []
+    for tax, df in proba.items():
+        col_2_keep = list(taxa_names[taxa])
+        for n, mod in df.items():
+            print(f"starting {n}")
+            p_obs =  mod[col_2_keep].values
+            p_obs = torch.tensor(p_obs)
+            p_obs.to(device)
+            tobs = t_obs.bool()
+            # res df: stat | threshold | dimension | value
+            res = run_stats(p_obs, thresholds, tobs)
+            # now add column for model, taxa, test
+            res['model'] = [n]*len(res)
+            res['taxa'] = [tax]*len(res)
+            res['test'] = ['test']*len(res)
+            dfs.append(res)
+            tick = time.time()
+            print(f"{n} took {(tick-tock)/60} minutes")
+    a = pd.concat(dfs)
+#     return a.reindex(range(len(a)))
+    return a
 
+
+    # dset: dataset to check against
+    # all_df: dictionary of dataframes with inferred values
 def check_colum_names(dset, all_df):
     
     species_columns, genus_columns, family_columns = None, None, None
@@ -238,6 +265,264 @@ def check_colum_names(dset, all_df):
     }
     return taxa_names
 
+# TODO: decide if this should be per-dim or call this sequentially
+# most efficient to do all dims at once...
+# so to facilitate that, dims will be a list of the requested dimensions
+def run_stats(p_obs, thresholds, tobs, dims=[None, 0, 1], dim_names=['overall','per-species', 'per-observation']):
+    # spits out a df with all the values
+    # TODO: expand dims flexibility to also handle other subsets of the data, such as ecoregions, IUCN redlist, pine species, rare observations, etc.
+    vals = ([] for _ in dims) # tuple of lists, each list corresponds to a dimension
+    tracker = {
+        # stat names | thresholds | value        
+        name : [[],[],[]] for name in dim_names
+    }
+    # keeps track of auc metrics across thresholds and dimensions
+    auc = {
+        # running auc | running ptr | running pfr
+        name : [0.0,None,None] for name in dim_names
+    }
+    prauc = {
+        # running prauc | running rec | running prec
+        name : [0.0,None,None] for name in dim_names
+    }    
+    if thresholds[0] > thresholds[1]:
+        raise NotImplementedError("this AUC function expects threshold cutoffs to be strictly ascending!")
+
+    for thres in thresholds:
+        pobs = (p_obs >= thres).bool() # should be >= according to https://scikit-learn.org/stable/modules/generated/sklearn.metrics.roc_curve.html#sklearn.metrics.roc_curve 
+        for i, (dim, dim_name) in enumerate(zip(dims, dim_names)):
+            tp, fn, fp, tn = conf_matrix(pobs, tobs, dim)
+            # metrics adapted from https://en.wikipedia.org/wiki/Sensitivity_and_specificity
+            # bunch of statistics, not all of them will be saved
+            # TODO: make sure dictionary replacement works properly
+            auc[dim_name][0], auc[dim_name][1], auc[dim_name][2], prauc[dim_name][0], prauc[dim_name][1], prauc[dim_name][2], stats = calc_stats(pobs, tp, fn, fp, tn, auc[dim_name][0], auc[dim_name][1], auc[dim_name][2], prauc[dim_name][0], prauc[dim_name][1], prauc[dim_name][2], dim)
+            tracker[dim_names[i]][0].append(["tpr", "fpr", "rec", "prec", "spec", "f1", "acc", "thrt_scr", "bal_acc"])
+            tracker[dim_names[i]][1].append([thres] * len(stats))
+            tracker[dim_names[i]][2].append(stats)
+#             vals[i].append(stats)
+    tostack = []
+    colnames = ['stat', 'threshold','dimension','value']
+    for dim, contents in tracker.items():
+#         s = np.array(contents[0])
+#         t = np.array()
+        d1 = len(contents[0])
+        d2 = len(contents[0][0])
+        # have label of what kind of dimension
+        ax = np.full([d1, d2], dim)
+        # stack and transpose into longform 
+#         print(d1, d2)
+#         import pdb; pdb.set_trace()
+        # ValueError: only one element tensors can be converted to Python scalars
+        a = np.dstack([contents[0], contents[1], ax, contents[2]]).reshape(d1*d2,len(colnames))
+        # a: stat | threshold | dimension | value
+        # and don't forget to add the aucs!
+        toadd = np.array([
+            ['auc', np.nan, dim, auc[dim][0].item()],
+            ['prauc', np.nan, dim, prauc[dim][0].item()],
+        ])
+        tostack.append(np.vstack([a, toadd]))# 4 b/c 4 arrays were dstacked together
+    # now stack each dimension together into longform
+    val = np.vstack(tostack)
+
+    df= pd.DataFrame(val, columns=colnames)
+    # append dimensions together into longform
+    return df
+                         
+# returns number of tp, fp, tn, fn across the specified dimension
+def conf_matrix(pobs, tobs, dim=None):
+    fobs = torch.logical_not(tobs)
+    pfobs = torch.logical_not(pobs)
+    # gotta type convert so math works
+    pobs = pobs.int()
+    tobs = tobs.int()
+    fobs = fobs.int()
+    pfobs = pfobs.int()
+#     import pdb; pdb.set_trace()
+    if dim == None:
+        tp = ((tobs + pobs) == 2).sum()
+        fp = ((fobs + pobs) == 2).sum()
+        fn = ((tobs + pfobs) == 2).sum()
+        tn = ((fobs + pfobs) == 2).sum()
+    else:
+        tp = ((tobs + pobs) == 2).sum(dim=dim)
+        fp = ((fobs + pobs) == 2).sum(dim=dim)
+        fn = ((tobs + pfobs) == 2).sum(dim=dim)
+        tn = ((fobs + pfobs) == 2).sum(dim=dim)
+        # have to convert so that divisions are decimal proper
+    return tp.float(), fn.float(), fp.float(), tn.float()
+    
+def calc_stats(pobs, tp, fn, fp, tn, auc, ptr, pfr, prauc, pr_rec, pr_prec, dim=None):
+    if dim == None:
+        return calc_all(pobs, tp, fn, fp, tn, auc, ptr, pfr, prauc, pr_rec, pr_prec)
+    else: 
+        return calc_dim(pobs, tp, fn, fp, tn, auc, ptr, pfr, prauc, pr_rec, pr_prec, dim)
+
+def check_nan(val):
+    if torch.isnan(val):
+        return torch.tensor(0.0, device=val.device)
+    else:
+        return val
+
+def calc_all(pobs, tp, fn, fp, tn, auc, ptr, pfr, prauc, pr_rec, pr_prec):
+    # metrics adapted from https://en.wikipedia.org/wiki/Sensitivity_and_specificity
+    # bunch of statistics, not all of  them will be saved
+
+    # dealing with edge div by 0 edge cases, should not ever reach in this version of our dataset
+    # if there are no observations and model predicts no presences, reward it
+
+    if tp == 0 and fp == 0 and fn == 0:
+        print("in exceptional case")
+        import pdb; pdb.set_trace()
+        prec = torch.tensor(1.0, device=tp.device)
+        rec = torch.tensor(1.0, device=tp.device)
+        f1 = torch.tensor(1.0, device=tp.device)
+        spec  =torch.tensor(0.0, device=tp.device)
+        thrt_scr = torch.tensor(1.0, device=tp.device)
+#     elif tp == 0 and (fp != 0 or fn != 0):
+#         # if the model predicts nothing present when things are present, punish it
+#         print("in exceptional case 2")
+#         import pdb; pdb.set_trace()        
+#         prec = 0.0
+#         rec = 0.0
+#         f1 = 0.0
+#         spec  =0.0    
+#         thrt_scr = 0.0
+    else:
+        rec = tp/(tp + fn) # recall, tpr
+        prec = tp/(tp + fp) # ppv
+        f1 = 2*tp/(2*tp + fp + fn)
+        spec = tn/(tn + fp) # tnr
+        thrt_scr = tp / (tp + fn + fp) # https://cfs.ncep.noaa.gov/GFS_test/NewIce/www/precip/precip_body.html
+    # TODO: if there are any nans, make them 0.0
+    rec = check_nan(rec)
+    prec = check_nan(prec)
+    f1 = check_nan(f1)
+    spec = check_nan(spec)
+    thrt_scr = check_nan(thrt_scr)
+    sens = rec
+    tpr = sens
+    tnr = spec
+    fpr = 1 - spec
+    fdr = 1 - prec
+    acc = (tp + tn) / (tp + tn + fp + fn)
+    bal_acc = (sens + spec)/2
+#     prev_thres = (torch.sqrt(tpr*(-spec + 1)) + spec - 1).float()/(tpr + spec - 1).float()
+#     import pdb; pdb.set_trace() # check what the heck is going on iwth prev thres
+#     prev_thres = check_nan(prev_thres)
+    
+    # calculate area under the curve for this threshold
+    # fpr is x axis, tpr is y axis of auc
+    if ptr == None:
+        pfr = fpr
+        ptr = tpr
+    else:
+        r = tpr * (pfr - fpr)
+        t = ((pfr - fpr)*(ptr-tpr))/2
+        auc += r
+        auc += t
+        ptr = tpr
+        pfr = fpr
+
+    # x axis is recall, y axis is precision for p/r curve
+    if pr_rec == None:
+        pr_rec = rec
+        pr_prec = prec
+    else:
+        r = prec * (pr_rec - rec)
+        t = ((pr_rec - rec)*(pr_prec-prec))/2
+        prauc += r
+        prauc += t
+        pr_rec = rec
+        pr_prec = prec
+
+
+    
+    return auc, ptr, pfr, prauc, pr_rec, pr_prec, [tpr.cpu().item(), fpr.cpu().item(), rec.cpu().item(), prec.cpu().item(), spec.cpu().item(), f1.cpu().item(), acc.cpu().item(), thrt_scr.cpu().item(), bal_acc.cpu().item()] #, prev_thres.cpu().item()] 
+
+
+
+def calc_dim(pobs, tp, fn, fp, tn, auc, ptr, pfr, prauc, pr_rec, pr_prec, dim):
+    # metrics adapted from https://en.wikipedia.org/wiki/Sensitivity_and_specificity
+    # bunch of statistics, not all of  them will be saved
+
+    # dealing with edge div by 0 edge cases, should not ever reach in this version of our dataset
+    # if there are no observations and model predicts no presences, reward it
+    # in this case, tp etc. are tensors where if one of the elements is all zero, then that's the case
+    
+    # so tp et al are dtype.float which means any unsuccessful division will return nan
+    # so all I need to do is check for nan and replace those values accordingly?
+    # no, because I haven't tried the values yet...
+    rec = tp/(tp + fn) # recall, tpr
+    prec = tp/(tp + fp) # ppv
+    f1 = 2*tp/(2*tp + fp + fn)
+    spec = tn/(tn + fp) # tnr
+    thrt_scr = tp / (tp + fn + fp) # https://cfs.ncep.noaa.gov/GFS_test/NewIce/www/precip/precip_body.html
+    #     if len((tp + fp + fn) == 0) > 0: 
+    # select those places that are 0 and give them this value
+    mask = (tp + fp + fn) == 0
+    if mask.sum() > 0:
+        print("there's some exceptional cases!")
+    prec[mask] = 1.0
+    rec[mask] = 1.0        
+    f1[mask] = 1.0
+    spec[mask] = 0.0
+    thrt_scr[mask] = 1.0
+
+    prec = correct_nan_inf(prec)
+    rec = correct_nan_inf(rec)
+    f1 = correct_nan_inf(f1)
+    spec = correct_nan_inf(spec)
+    thrt_scr = correct_nan_inf(thrt_scr)
+
+    # now get the mean of everything, collapse across that dimension
+    rec = rec.mean()
+    prec = prec.mean()
+    f1 = f1.mean()
+    spec = spec.mean()
+    thrt_scr = thrt_scr.mean()
+
+    sens = rec
+    tpr = sens
+    tnr = spec
+    fpr = 1 - spec
+    fdr = 1 - prec
+    acc = ((tp + tn) / (tp + tn + fp + fn)).mean()
+    bal_acc = (sens + spec)/2
+#     prev_thres = ((torch.sqrt(tpr*(-spec + 1)) + spec - 1)/(tpr + spec - 1)).mean()
+    # calculate area under the curve for this threshold
+    # fpr is x axis, tpr is y axis of auc
+    if ptr == None:
+        pfr = fpr
+        ptr = tpr
+    else:
+        r = tpr * (pfr - fpr)
+        t = ((pfr - fpr)*(ptr-tpr))/2
+        auc += r
+        auc += t
+        ptr = tpr
+        pfr = fpr
+
+    # x axis is recall, y axis is precision for p/r curve
+    if pr_rec == None:
+        pr_rec = rec
+        pr_prec = prec
+    else:
+        r = prec * (pr_rec - rec)
+        t = ((pr_rec - rec)*(pr_prec-prec))/2
+        prauc += r
+        prauc += t
+        pr_rec = rec
+        pr_prec = prec
+
+#     import pdb; pdb.set_trace()
+    return auc, ptr, pfr, prauc, pr_rec, pr_prec, [tpr.cpu().item(), fpr.cpu().item(), rec.cpu().item(), prec.cpu().item(), spec.cpu().item(), f1.cpu().item(), acc.cpu().item(), thrt_scr.cpu().item(), bal_acc.cpu().item()] #, prev_thres.cpu().item()]     
+
+def correct_nan_inf(tensor):
+    tensor[torch.isnan(tensor)] = 0.0
+    tensor[tensor == float('inf')] = 0.0
+    return tensor
+
+    
 # 1. convert predictions to presence / absence
 def pred_2_pres(all_df, taxa_names, device, threshold):
     pres_df = {}
