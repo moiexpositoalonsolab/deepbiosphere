@@ -6,6 +6,7 @@ import glob
 from rasterio.mask import mask
 #import geopandas as gpd
 import geojson
+import geopandas as gpd
 from shapely.geometry import mapping
 import rasterio
 import math
@@ -46,14 +47,19 @@ def parse_string_to_tuple(string):
     return eval(string)
 
 def parse_string_to_string(string):
-    string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '')
+    string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '').replace(")", '').replace("(", '')
     split = string.split(", ")
     return split
 
 def parse_string_to_int(string):
-    string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '')
+    string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '').replace(")", '').replace("(", '')
     split = string.split(", ")
     return [int(s) for s in split]
+
+def parse_string_to_float(string):
+    string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '').replace(")", '').replace("(", '')
+    split = string.split(", ")
+    return [float(s) for s in split]
 
 def get_big_cali_shape(base_dir):
     path = '{}us_shapefiles/bigcali.geojson'.format(base_dir)
@@ -68,7 +74,7 @@ def get_cali_shape(base_dir):
     return [geocali]
 
 def get_us_bioclim(base_dir):
-    rasters = "{}rasters/bio*/*_{}.tif".format(base_dir, 'USA')
+    rasters = "{}rasters/bio*/b*_{}.tif".format(base_dir, 'USA')
     ras_paths = glob.glob(rasters)
     return ras_paths
 
@@ -104,7 +110,7 @@ raster_metadata = {
 nan = -2147483647
 
 def open_raster(raster):
-    ras_name = raster.split("/")[-1].split("_{}".format('USA'))[0]
+    ras_name = '_'.join(raster.split("/")[-1].split('_')[-3:-1])
     print("loading {}".format(ras_name))
     nan = raster_metadata[ras_name]['nan']
     src = rasterio.open(raster, nodata=nan)
@@ -186,13 +192,14 @@ def raster_filter_2_cali(base_dir, obs):
     filt_obs = filter_to_bioclim(obs, src, geoms, nan)
     return  filt_obs
 
-def get_bioclim_rasters(base_dir, region, normalized, obs):
+def get_bioclim_rasters(base_dir, region, normalized, obs, raster_pths=None):
 
     if region ==  'cali':
         # grab the raster of cali shape with buffer
         # has a ~100 km radius around the cali border for any observation that sits right on the edge
-        geoms = get_big_cali_shape(base_dir) # old:  get_cali_shape(base_dir) if not big else
-        ras_paths = get_us_bioclim(base_dir)
+#         geoms = get_big_cali_shape(base_dir) # old:  get_cali_shape(base_dir) if not big else
+        geoms  = gpd.GeoDataFrame([1],geometry=get_big_cali_shape(base_dir), crs='EPSG:4326')
+        ras_paths = get_us_bioclim(base_dir) if raster_pths is None else raster_pths
     else:
         raise NotImplementedError
     ras_agg = []
@@ -202,8 +209,8 @@ def get_bioclim_rasters(base_dir, region, normalized, obs):
             src = open_raster(raster)
         else:
             raise NotImplementedError
-
-        masked, affine = mask(src, geoms, nodata=nan, filled=False, crop=True, pad=True)
+        geoms = geoms.to_crs(src.crs)
+        masked, affine = mask(src, geoms.geometry, nodata=nan, filled=False, crop=True, pad=True)
     #         z = (x- mean)/std
         if normalized == 'normalize':
             masked = (masked - masked.mean()) / masked.var()
@@ -460,7 +467,7 @@ def get_gbif_observations(base_dir, organism, region, observation, threshold, to
         observation = 'joint_single'
     name = build_dset_name(base_dir, organism, region, observation, threshold, topk)
     obs_pth = "{}occurrences/{}.csv".format(base_dir, name)
-    assert os.path.exists(obs_pth), "this threshold doesn't exist on disk!"
+    assert os.path.exists(obs_pth), f"this threshold {obs_pth} doesn't exist on disk!"
     joint_obs = pd.read_csv(obs_pth, sep=None)
     return reformat_data(joint_obs)
 
@@ -528,7 +535,6 @@ class HighRes_Satellite_Images_Only(Dataset):
 
         obs, self.inv_spec, self.spec_dict, self.gen_dict, self.fam_dict  = prep_data(obs, observation)
         self.oobs = obs
-        self.idx_2_id = self.inv_spec
         # Grab only obs id, species id, genus, family because lat /lon not necessary at the moment
         self.num_specs = len(self.spec_dict)
         self.num_fams = len(self.fam_dict)
@@ -542,6 +548,7 @@ class HighRes_Satellite_Images_Only(Dataset):
             self.fam_freqs = Counter(all_fam)
 
         else:
+            # TODO: this isn't the right frequency!!
             self.spec_freqs = obs.species_id.value_counts().to_dict()
             self.gen_freqs = obs.genus_id.value_counts().to_dict()
             self.fam_freqs = obs.family_id.value_counts().to_dict()
