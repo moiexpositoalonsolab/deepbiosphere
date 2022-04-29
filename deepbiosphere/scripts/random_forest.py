@@ -1,4 +1,6 @@
 from datetime import datetime
+import sys
+import pickle
 import time
 import deepbiosphere.scripts.GEOCLEF_Run as run
 import pandas as pd
@@ -14,9 +16,9 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn import metrics
 
     
-def random_forest(params, base_dir, num_species, processes):
+def random_forest(params, base_dir, num_species, processes, test_or_train, save_ytrue, which_taxa):
     
-    dset= run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, num_species=num_species, excl_latlon=ARGS.excl_latlon)
+    dset= run.setup_dataset(params.params.observation, params.base_dir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, num_species=num_species, inc_latlon=ARGS.inc_latlon, pretrained_dset='none')
     _, _, idxs = run.better_split_train_test(dset)
     obs = dataset.get_gbif_observations(base_dir, params.params.organism, params.params.region, params.params.observation, params.params.threshold, num_species)
     obs.fillna('nan', inplace=True)
@@ -57,50 +59,56 @@ def random_forest(params, base_dir, num_species, processes):
     clf = clf.fit(Xtrain, Ytrain)
     tock = time.time()
     print("took ", (tock-tick)/60, " minutes to train Joint RFC")
+    # https://stackoverflow.com/questions/45601897/how-to-calculate-the-actual-size-of-a-fit-trained-model-in-sklearn
+    pick = pickle.dumps(clf)
+    # #TODO: save the size of the model to the config for future analysis
+    print(f"the model size in bytes is {sys.getsizeof(pick)} for {params.params.n_trees} trees")
+    del pick
     
-    # predict on train
-    tick = time.time()
-    pred = clf.predict_proba(Xtest)
-    res = np.full([len(pred[0]), len(pred)], np.nan)
-    for  i, sp in enumerate(pred):
-        ob = range(len(sp))
-        res[:, i] = sp[:, 1] # TODO: make sure this is the right class to pick
-    test_spec = res[:,:dset.num_specs]
-    test_gen = res[:,dset.num_specs: (dset.num_specs + dset.num_gens)]
-    test_fam = res[:, (dset.num_specs + dset.num_gens):]
-    assert test_spec.shape[1] == dset.num_specs
-    assert test_gen.shape[1] == dset.num_gens
-    assert test_fam.shape[1] == dset.num_fams
-
-    tock = time.time()
-    print("took ", (tock-tick)/60, " minutes to predict on test set of Joint RFC")
-    # predict on test
-    tick = time.time()
-    pred = clf.predict_proba(Xtrain)
-    res = np.full([len(pred[0]), len(pred)], np.nan)
-    for  i, sp in enumerate(pred):
-        ob = range(len(sp))
-        res[:, i] = sp[:, 1]
-    train_spec = res[:,:dset.num_specs]
-    train_gen = res[:,dset.num_specs: (dset.num_specs + dset.num_gens)]
-    train_fam = res[:, (dset.num_specs + dset.num_gens):]
-    assert train_spec.shape[1] == dset.num_specs
-    assert train_gen.shape[1] == dset.num_gens
-    assert train_fam.shape[1] == dset.num_fams
-        
-    tock = time.time()
-    print("took ", (tock-tick)/60, " minutes to predict on train set of Joint RFC")    
+    # inferring on dataset and saving
     total_spec = np.full([len(dset), dset.num_specs], np.nan)
-    total_spec[idxs['test']] = test_spec
-    total_spec[idxs['train']] = train_spec    
-    
     total_gen = np.full([len(dset), dset.num_gens], np.nan)
-    total_gen[idxs['test']] = test_gen
-    total_gen[idxs['train']] = train_gen    
-    
     total_fam = np.full([len(dset), dset.num_fams], np.nan)
-    total_fam[idxs['test']] = test_fam
-    total_fam[idxs['train']] = train_fam
+    # predict on test
+    if test_or_train == 'test_only' or test_or_train == 'test_and_train':
+        tick = time.time()
+        pred = clf.predict_proba(Xtest)
+        res = np.full([len(pred[0]), len(pred)], np.nan)
+        for  i, sp in enumerate(pred):
+            ob = range(len(sp))
+            res[:, i] = sp[:, 1] # TODO: make sure this is the right class to pick
+        test_spec = res[:,:dset.num_specs]
+        test_gen = res[:,dset.num_specs: (dset.num_specs + dset.num_gens)]
+        test_fam = res[:, (dset.num_specs + dset.num_gens):]
+        assert test_spec.shape[1] == dset.num_specs
+        assert test_gen.shape[1] == dset.num_gens
+        assert test_fam.shape[1] == dset.num_fams
+        
+        total_spec[idxs['test']] = test_spec
+        total_gen[idxs['test']] = test_gen
+        total_fam[idxs['test']] = test_fam
+        tock = time.time()
+        print("took ", (tock-tick)/60, " minutes to predict on test set of Joint RFC")
+    # predict on train
+    if test_or_train == 'train_only' or test_or_train == 'test_and_train':
+        tick = time.time()
+        pred = clf.predict_proba(Xtrain)
+        res = np.full([len(pred[0]), len(pred)], np.nan)
+        for  i, sp in enumerate(pred):
+            ob = range(len(sp))
+            res[:, i] = sp[:, 1]
+        train_spec = res[:,:dset.num_specs]
+        train_gen = res[:,dset.num_specs: (dset.num_specs + dset.num_gens)]
+        train_fam = res[:, (dset.num_specs + dset.num_gens):]
+        assert train_spec.shape[1] == dset.num_specs
+        assert train_gen.shape[1] == dset.num_gens
+        assert train_fam.shape[1] == dset.num_fams    
+        total_spec[idxs['train']] = train_spec    
+        total_gen[idxs['train']] = train_gen    
+        total_fam[idxs['train']] = train_fam
+        tock = time.time()
+        print("took ", (tock-tick)/60, " minutes to predict on train set of Joint RFC")    
+    
     print("saving data")
     tick = time.time()
     to_transfer = ['lat', 'lon', 'region', 'city', 'NA_L3NAME', 'US_L3NAME', 'NA_L2NAME', 'NA_L1NAME', 'test']    
@@ -109,16 +117,18 @@ def random_forest(params, base_dir, num_species, processes):
     spec_cols = [dset.inv_spec[i] for i in range(dset.num_specs)]
     gen_cols = [inv_gen[i] for i in range(dset.num_gens)]
     fam_cols = [inv_fam[i] for i in range(dset.num_fams)]    
-    
+    # save data for species to disk
     df_spec = utils.numpy_2_df(total_spec, spec_cols, obs, to_transfer)
-    df_gen  = utils.numpy_2_df(total_gen, gen_cols, obs, to_transfer)
-    df_fam  = utils.numpy_2_df(total_fam, fam_cols, obs, to_transfer)
     pth_spec = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'species', num_species)
-    pth_gen = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'genus', num_species)
-    pth_fam = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'family', num_species)
     df_spec.to_csv(pth_spec)
-    df_gen.to_csv(pth_gen)
-    df_fam.to_csv(pth_fam)
+    # bit of cheating, assuming we always want to save the species-level performance, but not maybe gen, fam
+    if which_taxa == 'spec_gen_fam':
+        df_gen  = utils.numpy_2_df(total_gen, gen_cols, obs, to_transfer)
+        df_fam  = utils.numpy_2_df(total_fam, fam_cols, obs, to_transfer)
+        pth_gen = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'genus', num_species)
+        pth_fam = config.build_inference_path(base_dir, params.params.model, params.params.loss, params.params.exp_id, 'family', num_species)
+        df_gen.to_csv(pth_gen)
+        df_fam.to_csv(pth_fam)
 
 
     Y_spec = Y[:,:dset.num_specs]
@@ -128,50 +138,50 @@ def random_forest(params, base_dir, num_species, processes):
     assert Y_gen.shape == (len(dset), dset.num_gens)
     assert Y_fam.shape == (len(dset), dset.num_fams)
     
-    # create config file for y-trues
+    if save_ytrue:
+        # create config file for y-trues
+        paramss = {
+            'lr': 'none',
+            'observation': params.params.observation,
+            'organism' : params.params.organism,
+            'region' : params.params.region,
+            'model' : 'Ground_truth',
+            'exp_id' : params.params.exp_id,
+            'seed' : 'none',
+            'batch_size' : 'none',
+            'loss' : 'none',
+            'normalize' : 'none',
+            'unweighted' : 'none',
+            'no_alt' : 'none',
+            'dataset' : 'none',
+            'threshold' : 'none',
+            'loss_type' : 'none',
+            'pretrained' : 'none',
+            'batch_norm' : 'none',
+            'arch_type' : 'none',
+            'load_from_config' : None,
+            'base_dir' : base_dir
+        }
 
-    paramss = {
-        'lr': 'none',
-        'observation': params.params.observation,
-        'organism' : params.params.organism,
-        'region' : params.params.region,
-        'model' : 'Ground_truth',
-        'exp_id' : params.params.exp_id,
-        'seed' : 'none',
-        'batch_size' : 'none',
-        'loss' : 'none',
-        'normalize' : 'none',
-        'unweighted' : 'none',
-        'no_alt' : 'none',
-        'dataset' : 'none',
-        'threshold' : 'none',
-        'loss_type' : 'none',
-        'pretrained' : 'none',
-        'batch_norm' : 'none',
-        'arch_type' : 'none',
-        'load_from_config' : None,
-        'base_dir' : base_dir
-    }
-
-    paramss = SimpleNamespace(**paramss)
-    ytrues = config.Run_Params(base_dir, paramss)
-    ytru_spec = utils.numpy_2_df(Y_spec, spec_cols, obs, to_transfer)
-    ytru_gen  = utils.numpy_2_df(Y_gen, gen_cols, obs, to_transfer)
-    ytru_fam  = utils.numpy_2_df(Y_fam, fam_cols, obs, to_transfer)
-    pth_spec = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'species', num_species)
-    pth_gen = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'genus', num_species)
-    pth_fam = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'family', num_species)
-    ytru_spec.to_csv(pth_spec)
-    ytru_gen.to_csv(pth_gen)
-    ytru_fam.to_csv(pth_fam)
-    tock = time.time()
-    print("took {} minutes to save data".format((tock-tick)/60))
+        paramss = SimpleNamespace(**paramss)
+        ytrues = config.Run_Params(base_dir, paramss)
+        ytru_spec = utils.numpy_2_df(Y_spec, spec_cols, obs, to_transfer)
+        ytru_gen  = utils.numpy_2_df(Y_gen, gen_cols, obs, to_transfer)
+        ytru_fam  = utils.numpy_2_df(Y_fam, fam_cols, obs, to_transfer)
+        pth_spec = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'species', num_species)
+        pth_gen = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'genus', num_species)
+        pth_fam = config.build_inference_path(base_dir, ytrues.params.model, ytrues.params.loss, ytrues.params.exp_id, 'family', num_species)
+        ytru_spec.to_csv(pth_spec)
+        ytru_gen.to_csv(pth_gen)
+        ytru_fam.to_csv(pth_fam)
+        tock = time.time()
+        print("took {} minutes to save data".format((tock-tick)/60))
     
 if __name__ == "__main__":
     # add CLI to nuke a whole model
     # add CLI to clean up all model files
 
-    args = ['base_dir', 'num_species', 'observation', 'organism', 'region', 'exp_id', 'seed', 'normalize', 'unweighted', 'dataset', 'threshold', 'model', 'load_from_config', 'loss', 'no_alt', 'n_trees', 'processes', 'excl_latlon']
+    args = ['base_dir', 'num_species', 'observation', 'organism', 'region', 'exp_id', 'seed', 'normalize', 'unweighted', 'dataset', 'threshold', 'model', 'load_from_config', 'loss', 'no_alt', 'n_trees', 'processes', 'inc_latlon', 'which_taxa', 'test_or_train', 'save_ytrue']
     # hacky set the model to be RandomForestCLassifier
     ARGS = config.parse_known_args(args)       
 #     ARGS['model'] = 'RandomForestClassifier'
@@ -179,4 +189,4 @@ if __name__ == "__main__":
     params = config.Run_Params(ARGS.base_dir, ARGS)
     # TODO: make sure you can only set model to be random forest here    
     ARGS = config.parse_known_args(args)
-    random_forest(params, ARGS.base_dir, ARGS.num_species, ARGS.processes)
+    random_forest(params, ARGS.base_dir, ARGS.num_species, ARGS.processes, ARGS.test_or_train, ARGS.save_ytrue, ARGS.which_taxa)
