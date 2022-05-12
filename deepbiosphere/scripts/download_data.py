@@ -258,4 +258,4 @@ def download_url(url, save_path, chunk_size=128):
             fd.write(chunk)
 
 if __name__ == "__main__":
-    request_gbif_records(paths.AZURE_DIR, 'gillespl', 'gillespl@cs.stanford.edu', 'plant', start_date="2015", end_date="2021", area=['USA.5_1'])
+    request_gbif_records()
