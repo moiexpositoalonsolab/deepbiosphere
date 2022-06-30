@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.nn import Module as Module
 from collections import OrderedDict
 from inplace_abn import InPlaceABN
-import deepbiosphere.scripts.GEOCLEF_Config as config
+import deepbiosphere.Utils as utils
 
 # from inplace_abn import ABN
 
@@ -141,7 +141,7 @@ class TResNet(Module):
         super(TResNet, self).__init__()
 
         # JIT layers
-        space_to_depth = SpaceToDepthModule() # TODO: remove
+        space_to_depth = SpaceToDepthModule() 
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
@@ -192,10 +192,11 @@ class TResNet(Module):
                                  bottleneck_features=bottleneck_features)
         else:
             self.spec = nn.Linear(self.num_features, num_spec)
-            self.gen = nn.Linear(self.num_features, num_gen)
-            self.fam = nn.Linear(self.num_features, num_fam)
+            if (self.num_gen != -1):
+                self.gen = nn.Linear(self.num_features, num_gen)
+            if (self.num_fam != -1):
+                self.fam = nn.Linear(self.num_features, num_fam)
 
-        # get rid of this and instead put in place f, g, spec fcs
         # model initilization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -237,16 +238,25 @@ class TResNet(Module):
             x = self.conv4band(x)
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
-        if self.pretrained != 'none':
-            x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
+        # removing since doing dataset normalization
+#         if self.pretrained != 'none':
+#             x = x / 255.0 # from TResNet inference code likely for data scaling but idk¯\_(ツ)_/¯
 
         x = self.body(x)
         self.embeddings = self.global_pool(x)
         spec = self.spec(self.embeddings)
-        gen = self.gen(self.embeddings)
-        fam = self.fam(self.embeddings)
-        return (spec, gen, fam)
-
+        # use all 3 taxonomic levels for training
+        if (self.num_gen != -1) & (self.num_fam != -1):
+            gen = self.gen(self.embeddings)
+            fam = self.fam(self.embeddings)
+            return (spec, gen, fam)
+        # use only species genus taxonomic levels
+        elif (self.num_gen != -1) & (self.num_fam == -1):
+            gen = self.gen(self.embeddings)
+            return (spec, gen)
+        # use only species taxonomic level
+        else:
+            return spec
 
 
 
@@ -254,7 +264,7 @@ class TResNet(Module):
 class Joint_TResNet(Module):
 
 
-    def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, width_factor=1.0,
+    def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, nlayers=4, drop=.25, width_factor=1.0,
                  do_bottleneck_head=False,bottleneck_features=512):
         super(Joint_TResNet, self).__init__()
 
@@ -268,8 +278,11 @@ class Joint_TResNet(Module):
         self.num_gen = num_gen
         self.num_fam = num_fam
         self.env_rasters = env_rasters
-        self.mlp_choke1 = 64
-        self.mlp_choke2 = 128
+        self.mlp_choke1 = 1000
+        self.mlp_choke2 = 2000
+        self.unification = 2048
+        self.elu = nn.ELU()
+        
         # TResnet stages
         if pretrained == 'finetune':
             # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
@@ -306,33 +319,42 @@ class Joint_TResNet(Module):
         self.embeddings = []
         self.global_pool = nn.Sequential(OrderedDict([('global_pool_layer', global_pool_layer)]))
         self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
-
+        # downscale CNN predictions to same size as MLP predictions
         self.intermediate1 = nn.Sequential(
-            nn.Linear(self.num_features, 2048),
-            nn.BatchNorm1d(2048),
-            nn.ReLU(True),
-#             nn.Dropout(),
+            nn.Linear(self.num_features, self.unification),
+            nn.BatchNorm1d(self.unification),
+            nn.ReLU(),
         )
-
-
-
-        self.mlp = nn.Sequential(
-            nn.Linear(env_rasters, self.mlp_choke1),
-            nn.Linear(self.mlp_choke1, self.mlp_choke2),
-            nn.Linear(self.mlp_choke2, 2048),
-            nn.BatchNorm1d(2048),
-            nn.ReLU(True),
-        )
-
-        self.choke = 2048
+        # same MLP as used for training with just bioclim rasters
+        layers = []
+        layers.append(nn.Linear(env_rasters, self.mlp_choke1))
+        layers.append(self.elu)
+        # smaller layers
+        for i in range(1, (nlayers//2)):
+            layers.append(nn.Linear(self.mlp_choke1, self.mlp_choke1))
+            layers.append(self.elu)
+        # setup to bigger layers
+        layers.append(nn.Linear(self.mlp_choke1, self.mlp_choke2))
+        layers.append(self.elu)
+        # and dropout
+        layers.append(nn.Dropout(drop))
+        # bigger layers
+        for i in range((nlayers//2)+1, nlayers):
+            layers.append(nn.Linear(self.mlp_choke2, self.mlp_choke2))
+            layers.append(self.elu)
+        layers.append(nn.Linear(self.mlp_choke2, self.unification))
+        layers.append(nn.BatchNorm1d(self.unification))
+        layers.append(self.elu)
+        self.mlp = nn.Sequential(*layers)
+        # mixing of predictions of CNN head and MLP head
         self.intermediate2 = nn.Sequential(
-            nn.Linear(2048 * 2, self.choke), # todo: try different powers of 2 here
-            nn.ReLU(True),
-#             nn.Dropout() # may need to remove???
+            nn.Linear(self.unification * 2, self.unification),
+            nn.ReLU(),
         )
-        self.spec = nn.Linear(self.choke, num_spec)
-        self.gen = nn.Linear(self.choke, num_gen)
-        self.fam = nn.Linear(self.choke, num_fam)
+        # finally, make predictions
+        self.spec = nn.Linear(self.unification, num_spec)
+        self.gen = nn.Linear(self.unification, num_gen)
+        self.fam = nn.Linear(self.unification, num_fam)
 
         # model initilization
         for m in self.modules():
@@ -369,14 +391,15 @@ class Joint_TResNet(Module):
             block(self.inplanes, planes, use_se=use_se, anti_alias_layer=anti_alias_layer))
         return nn.Sequential(*layers)
 
-    def forward(self, x, rasters):
-
+    def forward(self, X):
+        # necessary to reuse code for training
+        # other CNNs. Input is a tuple with the first
+        # input being the images and the second the raster values
+        x, rasters = X
         if self.pretrained == 'finetune':
             x = self.conv4band(x)
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
-        if self.pretrained != 'none':
-            x = x / 255.0 # from TResNet inference code ¯\_(ツ)_/¯
         x = self.body(x)
 #         self.embeddings = self.global_pool(x)
         x = self.global_pool(x)
@@ -404,7 +427,7 @@ def _tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_f
     if pretrained != 'none':
         if arch == 'TResNetL':
             # going to be lazy and use load_state_dict_from_url, might change in the future
-            dirr = config.setup_pretrained_dirs(base_dir) + 'TResNet/'
+            dirr = utils.setup_pretrained_dirs(base_dir) + 'TResNet/'
             file = dirr + model_files['MSCOCO_TResnetL']
             state = torch.load(file, map_location='cpu')
             model.load_state_dict(state['model'], strict=False)
@@ -423,7 +446,7 @@ def _joint_tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int,
     if pretrained != 'none':
         if arch == 'TResNetL':
             # going to be lazy and use load_state_dict_from_url, might change in the future
-            dirr = config.setup_pretrained_dirs(base_dir) + 'TResNet/'
+            dirr = utils.setup_pretrained_dirs(base_dir) + 'TResNet/'
             file = dirr + model_files['MSCOCO_TResnetL']
             state = torch.load(file, map_location='cpu')
             model.load_state_dict(state['model'], strict=False)

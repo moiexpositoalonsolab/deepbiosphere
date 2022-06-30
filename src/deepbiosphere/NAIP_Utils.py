@@ -21,8 +21,8 @@ from rasterio.vrt import WarpedVRT
 from rasterio.coords import disjoint_bounds
 from rasterio.enums import Resampling
 from rasterio.windows import Window
-from deepbiosphere.scripts import new_window
-from deepbiosphere.scripts import GEOCLEF_Utils as utils
+from deepbiosphere import new_window
+import deepbiosphere.GEOCLEF_Utils as utils
 from rasterio.transform import Affine
 import rasterio.transform as transforms
 import matplotlib as mpl
@@ -32,11 +32,9 @@ import matplotlib.cm as cm
 import matplotlib as mpl
 import time
 # deepbio packages
-from deepbiosphere.scripts.GEOCLEF_Config import paths
-import deepbiosphere.scripts.GEOCLEF_Config as config
-from deepbiosphere.scripts.GEOCLEF_Run import  setup_dataset
-import deepbiosphere.scripts.GEOCLEF_Utils as utils
-import deepbiosphere.scripts.GEOCLEF_CNN as cnn
+from deepbiosphere.Utils import paths
+import deepbiosphere.Utils as utils
+import deepbiosphere.Models as mods
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString
@@ -78,26 +76,12 @@ import numpy as np
 # not all the NAIP are teh same coorediate reference system
 # this is WGS84, what the VRT are converted to
 NAIP_CRS='EPSG:4326'
+# use below as the default
+M_CRS_1 = 'EPSG:26911'
+M_CRS_2 = 'EPSG:26910'
+IMG_SIZE = 256
 ALPHA_NODATA = 9999
 
-class DownloadProgressBar():
-    """
-    https://stackoverflow.com/questions/37748105/how-to-use-progressbar-module-with-urlretrieve
-    """
-
-    def __init__(self):
-        self.pbar = None
-
-    def __call__(self, block_num, block_size, total_size):
-        if not self.pbar:
-            self.pbar = progressbar.ProgressBar(max_value=total_size)
-            self.pbar.start()
-
-        downloaded = block_num * block_size
-        if downloaded < total_size:
-            self.pbar.update(downloaded)
-        else:
-            self.pbar.finish()
 
 # very important class!
 class NAIPTileIndex:
@@ -118,8 +102,8 @@ class NAIPTileIndex:
             os.makedirs(base_path,exist_ok=True)
 
         for file_path in index_files:
-            download_url(index_blob_root + file_path, base_path + '/' + file_path,
-                         progress_updater=DownloadProgressBar())
+#             print(index_blob_root + file_path, base_path + '/' + file_path)
+            download_url(index_blob_root + file_path, base_path + '/' + file_path)
 
         self.base_path = base_path
         # tile_rtree is an rtree that stores I believe bounding boxes for the tifs
@@ -159,6 +143,7 @@ class NAIPTileIndex:
             return intersected_files
 
 
+        
 def download_url(url, destination_filename=None, progress_updater=None, force_download=False):
     """
     Download a URL to a temporary file
@@ -173,13 +158,25 @@ def download_url(url, destination_filename=None, progress_updater=None, force_do
     if (not force_download) and (os.path.isfile(destination_filename)):
         print('Bypassing download of already-downloaded file {}'.format(os.path.basename(url)))
         return destination_filename
+    # make directory if not yet made
+    dir = destination_filename.rsplit('/', 1)[0]
+    print("dir is ", dir)
+    if not os.path.exists(dir):
+        print(f"making {destination_filename.rsplit('/', 1)[0]}")
+        os.makedirs(dir) 
     print('Downloading file {} to {}'.format(os.path.basename(url),destination_filename),end='')
     urllib.request.urlretrieve(url, destination_filename, progress_updater)
-    assert(os.path.isfile(destination_filename))
     nBytes = os.path.getsize(destination_filename)
     print('...done, {} bytes.'.format(nBytes))
     return destination_filename
 
+
+def download_urls_batch(urls):
+    i = 0
+    for url, dest in urls:
+        print("on url, ", i)
+        i += 1
+        _ = download_url(url, dest, None, False)
 
 def display_naip_tile(filename):
     """
@@ -211,7 +208,7 @@ def display_naip_tile(filename):
 def setup_NAIPIndex(blob_root=paths.BLOB_ROOT, crs=NAIP_CRS, index_loc=None):
 
         index_files = ['tile_index.dat', 'tile_index.idx', 'tiles.p'] # these are the files that tell you which tiles are where
-        index_blob_root = re.sub('/naip$','/naip-index/rtree/',blob_root)
+        index_blob_root = f"{blob_root}naip-index/rtree/"
         temp_dir = os.path.join(tempfile.gettempdir(),'naip') if index_loc is None else index_loc
         os.makedirs(temp_dir,exist_ok=True)
         # Spatial index that maps lat/lon to NAIP tiles; we'll load this when we first
@@ -231,7 +228,7 @@ def Load_Cali_Bounds(base_dir : str):
 
 def Load_NAIP_Bounds(base_dir : str, state: str, year : str):
     if year == '2012':
-        return gpd.read_file(
+        return gpd(
             f"{base_dir}{state}/{year}/{state}_shpfl_{year}/naip_3_{year[2:4]}_1_1_{state}.shp")
     elif year == '2014':
         return gpd.read_file(
@@ -245,7 +242,7 @@ def get_Bandnames(gdf : NAIP_shpfile, bands: list, base_dir : str, ftype : str =
         return [r.descriptions[i-1] for i in bands]
 
 
-def Find_Rasters_Polygon(gdf : NAIP_shpfile, poly : Polygon, bands : list, base_dir : str,  res : float = None, ftype : str = "vrt"):
+def Find_Rasters_Polygon(gdf : NAIP_shpfile, poly : Polygon, bands : list, base_dir : str,  res : float = None, ftype : str = "vrt", nodata=None):
     check_bands(bands)
     null = Polygon()
     tt = gdf.intersection(poly)
@@ -253,7 +250,7 @@ def Find_Rasters_Polygon(gdf : NAIP_shpfile, poly : Polygon, bands : list, base_
     print(f"{len(rasters)} total rasters")
     rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
     if len(rasters) > 1:
-        return merge(rasters, res=res, indexes=bands)
+        return merge(rasters, res=res, indexes=bands, nodata=nodata)
     elif len(rasters) == 0:
         print("no matching rasters found")
     else:
@@ -305,6 +302,16 @@ MERGE_METHODS = {
     'max': copy_max
 }
 
+def get_tile(shpfile, filename):
+    # filename should be m_*tif
+    assert filename[0] == 'm', "filename should be of form m_*tif"
+    assert filename[-1] == 'f', "filename should be of form m_*tif"
+    filename = filename.split('/')[0]
+    names = shpfile.FileName.tolist()
+    names = [f"{n.rsplit('_', 1)[0]}.tif"for n in names]
+    ind = names.index(filename)
+    return shpfile.iloc[ind]
+
 def convert_points(lats, lons, src_crs, dest_crs, dest_trans):
     if not isinstance(lats, list):
         lats = [lats]
@@ -318,13 +325,14 @@ def convert_points(lats, lons, src_crs, dest_crs, dest_trans):
     return memes
 
 
-def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point,  base_dir  : str,ftype : str = 'vrt'):
+def Find_Rasters_Point(gdf : NAIP_shpfile, point : Point,  base_dir  : str,ftype : str = 'tif'):
     #check_bands(bands)
     rasters = gdf[gdf.contains(point)]
     rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.{ftype}" for _, fman in rasters.iterrows()]
     return rasters
     # can consider returning to opening the raster
 # TODO: the boundaries stored in the shp files aren't super accurate - don't use them!
+# Turns out thery are, we should use them!
 def Find_Boundary_Point(gdf : NAIP_shpfile, point : Point,  base_dir  : str):
     rasters = gdf[gdf.contains(point)]
     return rasters.geometry
@@ -336,6 +344,28 @@ def Find_Boundary_Polygon(gdf : NAIP_shpfile, poly : Polygon, base_dir : str):
     rasters =  gdf[tt != null]
     return rasters.geometry
 
+def cast_crs(fname, save_append, dest_crs):
+    file = rasterio.open(fname)
+    transform, width, height = rasterio.warp.calculate_default_transform(file.crs, dest_crs, file.width, file.height, *file.bounds)
+    destination = np.zeros([len(file.indexes), height, width], file.profile['dtype']) # try flipped
+    warped, new_affine = rasterio.warp.reproject(file.read(),destination, src_transform=file.transform,
+                src_crs=file.crs,
+                dst_transform=transform,
+                dst_crs=dest_crs,
+                resampling=Resampling.nearest)
+    # finally resave new version
+    f = f"{fname.rsplit('/', 1)[0]}/{save_append}_{fname.rsplit('/')[-1]}"
+#     print(f)
+    out_profile = file.profile
+    out_profile['transform'] = new_affine
+    out_profile['height'] = height
+    out_profile['width'] = width
+    out_profile['count'] = len(file.indexes)
+    out_profile['crs'] = dest_crs
+#     print("saving file now")
+    with rasterio.open(f, 'w', **out_profile) as dst:
+        dst.write(warped)
+    
 def merge(
     datasets,
     bounds=None,
@@ -375,6 +405,7 @@ def merge(
 
     check_bands(indexes)
     with dataset_opener(datasets[0]) as first:
+        first_crs = first.crs
         first_profile = first.profile
         first_res = first.res
         nodataval = first.nodatavals[0]
@@ -405,6 +436,10 @@ def merge(
         reses = []
         for dataset in datasets:
             with dataset_opener(dataset) as src:
+                if src.crs != first_crs:
+                    raise ValueError(f"raster CRS {src.crs} does not equal starter CRS! {first_crs}")
+#                 if src.res != first_res: #TODO: come up with a solution of what to do when resolutions differ...
+#                     raise ValueError(f"Resolutions of rasters dont match! {src.res} vs. {first_res}")
                 left, bottom, right, top = src.bounds
             xs.extend([left, right])
             ys.extend([bottom, top])
@@ -418,6 +453,8 @@ def merge(
         res = (res, res)
     elif len(res) == 1:
         res = (res[0], res[0])
+        
+
 # TODO: right now the code for calculating the transform and the bounds assumes
 # that the resolutions are the same across tiffs, which is not true. Need to correctly
 # calculate this...
@@ -427,7 +464,7 @@ def merge(
         dst_e = math.ceil(dst_e / res[0]) * res[0]
         dst_s = math.floor(dst_s / res[1]) * res[1]
         dst_n = math.ceil(dst_n / res[1]) * res[1]
-
+    print(f"res: {res} {dst_w} {dst_e}. {dst_s} {dst_n}")
     # Compute output array shape. We guarantee it will cover the output
     # bounds completely
 # because round() has weird behavior, instead we're going to
@@ -624,29 +661,40 @@ def from_bounds(
         height=max(row_stop - row_start, 0.0),
     )
 
-def Mask_Raster(raster : np.array, trans, polygon, crs=NAIP_CRS):
-        kwargs = {
-            'transform' :trans,
-            'driver': 'GTiff',
-            'height' : raster.shape[1],
-            'width' : raster.shape[2],
-            'dtype' : rasterio.float64
-        }
-        # TODO: check out what blockxsize and blockysize do and if they need to be updated also
-# TODO: solve bug where memfile won't accept any dtype but uint8
-        with MemoryFile() as memfile:
-            with memfile.open(**DefaultGTiffProfile(count=raster.shape[0], width = raster.shape[2], height = raster.shape[1],  crs=crs, transform=trans)) as dataset: # Open as DatasetWriter
-                profile = dataset.profile
-                profile.update(**kwargs)
-                dataset.write(raster.astype(rasterio.float64))
-                print(profile)
-                temp = dataset.read()
-                print(raster.dtype, temp.dtype)
-            with memfile.open(transform=trans, dtype=rasterio.float64) as dataset:  # Reopen as DatasetReader
-                print(dataset.profile)
-                cropped, trans = mask(dataset, polygon.geometry, invert=False, crop=True)
-                return cropped, trans
 
+    # new version
+def Mask_Raster(raster : np.array, trans, polygon, crs=NAIP_CRS, dest=None, nodata=None, crop=True, invert=False, pad=False):
+    kwargs = {
+        'transform' :trans,
+        'driver': 'GTiff',
+        'height' : raster.shape[1],
+        'width' : raster.shape[2],
+        'dtype' : rasterio.float64,
+        'count' : raster.shape[0],
+        'crs' : crs,
+        'nodata' : nodata
+    }
+
+    # TODO: check out what blockxsize and blockysize do and if they need to be updated also
+    with MemoryFile() as memfile:
+        with memfile.open(**DefaultGTiffProfile(**kwargs)) as dataset: # Open as DatasetWriter
+            profile = dataset.profile
+            profile.update(**kwargs)
+            # TODO: what if it's a different dtype?
+            dataset.write(raster.astype(rasterio.float64))
+        with memfile.open(transform=trans, dtype=rasterio.float64) as dataset:  # Reopen as DatasetReader
+            # this nodata check isn't doing anything? TODO:
+            if nodata is None:
+                cropped, trans = mask(dataset, polygon.geometry, crop=crop, nodata=nodata, invert=invert, pad=pad)
+            else:
+                cropped, trans = mask(dataset, polygon.geometry, crop=crop, nodata=nodata, invert=invert, pad=pad)
+            if dest is not None: 
+                prof = dataset.profile
+                prof['transform'] = trans
+                with rasterio.open(dest, 'w', **prof) as dst:
+                    dst.write(cropped)
+            return cropped, trans
+        
 def Grab_TIFF(df_row, tif_dir):
         return f"{tif_dir}{df_row.APFONAME[:5]}/{'_'.join(df_row.FileName.split('_')[:-1])}.tif"
 
@@ -727,6 +775,7 @@ def predict_raster_list(device_no, tiffs, modelname, res, year, means, model_pth
     else:
         device = torch.device(f"cuda:{device_no}")
         torch.cuda.set_device(device_no)
+        # TODO: move the config thing
     params = config.Run_Params(basedir, cfg_path=cfg_pth)
     daset = setup_dataset(params.params.observation, basedir, params.params.organism, params.params.region, params.params.normalize, params.params.no_altitude, params.params.dataset, params.params.threshold, -1, inc_latlon=False, pretrained_dset='old_tresnet')
     # just load in model directly
@@ -739,7 +788,7 @@ def predict_raster_list(device_no, tiffs, modelname, res, year, means, model_pth
     num_gen = gen.shape[0]
     num_fam = fam.shape[0]
     # now actually set up model
-    model = cnn.TResNet_M(params.params.pretrained, num_spec, num_gen, num_fam, basedir)
+    model = mods.TResNet_M(params.params.pretrained, num_spec, num_gen, num_fam, basedir)
     model.load_state_dict(state['model_state_dict'], strict=True)
     model = model.to(device)
     model.eval();
@@ -765,7 +814,7 @@ def alpha_div(predictions, threshold=0.5, dtype=np.uint16):
 
 # assumes that wind is [filt, filt, num_species]
 def combined(wind, dist_fn, agg_fn):
-    cx, cy = round(wind.shape[0]/2), round(wind.shape[1]/2)
+    cx, cy = wind.shape[0]//2, wind.shape[1]//2
     center = wind[cx,cy,:]
     diffs = []
     for i in range(wind.shape[0]):
@@ -777,7 +826,7 @@ def combined(wind, dist_fn, agg_fn):
 
 # assumes that wind is [filt, filt]
 def combined_perspec(wind, dist_fn, agg_fn):
-    cx, cy = round(wind.shape[0]/2), round(wind.shape[1]/2)
+    cx, cy = wind.shape[0]//2, wind.shape[1]//2
     center = wind[cx,cy]
     diffs = []
     for i in range(wind.shape[0]):
@@ -840,7 +889,7 @@ def laplace(wind, dist_fn, agg_fn):
     gy = np.multiply(wind, ly).sum()
     return agg_fn([gx, gy]), math.atan2(gx, gy)
 dist_fns = {
-    'L2' : lambda x, y: (np.linalg.norm((x-y))),
+    'L2' : lambda x, y: (np.linalg.norm((x-y))), # TODO: check - DONE
     'cosine' : lambda x, y: (distance.cosine(x,y)),
     'dot_prod' : lambda x, y: (np.dot(x,y)),
     'kl_div' : lambda x, y: (sum([xx*np.log(xx/yy) for xx,yy in zip(x,y)])),
@@ -850,13 +899,13 @@ filters = {
     'sobel': sobel,
     'prewitt': prewitt,
     'central' : central,
-    'combined': combined,
+    'combined': combined, #TODO: check
     'combined_perspec': combined_perspec,
     'laplace' : laplace
 }
 aggregate_fns = {
     'sum' : (lambda x: sum([abs(y) for y in x])),
-    'norm' : (lambda x: math.sqrt(sum([y**2 for y in x]))),
+    'norm' : (lambda x: math.sqrt(sum([y**2 for y in x]))), # TODO: Check DONE
     'average' : (lambda x: sum([abs(y) for y in x]) / len(x)),
     'mult' : (lambda z: reduce(lambda x, y: x*y, z))
 }
@@ -872,22 +921,23 @@ aggregate_fns = {
 # filter: one of the keys for the filter function, determines which convolutional filter to use
 # agg_name: one of the keys from the above aggregate_fns, determines which aggregation strategy to use
 # angle: whether to calculate the aggregated angle between neighboring predictions
+# Remember, the first axis must be the species axis!
 def convolve(probas, filt_size, sig, per_species, dist_name, fil_name, agg_name, angle=True, nodata=np.nan):
+
     agg_fn = aggregate_fns[agg_name]
     dist_fn = dist_fns[dist_name]
     filter = filters[fil_name]
-    height = probas.shape[-2]
-    width = probas.shape[-1]
+    height = probas.shape[0]
+    width = probas.shape[1]
     convo = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], nodata, dtype=np.float64)
 #     convo = np.full([(height-3),(width-3)], np.nan)
-#     print(convo.shape, probas.shape)
+    print(convo.shape, probas.shape)
     if angle:
         angles = np.full([(height-(filt_size[0]-1)),(width-(filt_size[1]-1))], nodata, dtype=np.float64)
     for i in range(convo.shape[0]):
 
         for j in range(convo.shape[1]): # range goes to 1- number, need to knock off a second for the filter size
-            wind = probas[:, i:i+filt_size[0], j:j+filt_size[1]]
-            # print(wind.shape)
+            wind = probas[i:i+filt_size[0], j:j+filt_size[1],:]
             if sig:
                 wind = torch.sigmoid(torch.tensor(wind)).numpy()
             if per_species:
@@ -937,7 +987,9 @@ def diversity_raster(rasname, metric, year, base_dir, modelname, nodata=9999, wa
         raise ValueError('Unknown method {0}, must be one of {1} or callable'
                          .format(metric, list(DIV_METHODS.keys())))
     with rasterio.open(rasname) as src:
+        # TODO: add mean adjustment :(
         ras = src.read()
+
         # will not handle if there is nan data in the file
         if "threshold" in kwargs:
             output = method(ras, kwargs)
@@ -977,7 +1029,7 @@ def get_alpha_files(shpfile, naip_dir, ca_tifb):
     print(tif_dir)
     fnames = []
     for _, fman in shpfile.iterrows():
-        fnames.append(naip.Grab_TIFF(fman, tif_dir))
+        fnames.append(Grab_TIFF(fman, tif_dir))
     return fnames
 
 def get_beta_files(shpfile, modelname, base_dir, ca_tifb):
@@ -985,12 +1037,12 @@ def get_beta_files(shpfile, modelname, base_dir, ca_tifb):
     tif_dir = alph_dir + ca_tifb
     print(tif_dir)
     for _, fman in shpfile.iterrows():
-        fnames.append(naip.Grab_TIFF(fman, tif_dir))
+        fnames.append(Grab_TIFF(fman, tif_dir))
     print(fnames[0])
     return fnames
 
 
-def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names, warp, means):
+def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names, warp, means, savename=None):
     with rasterio.open(rasname) as src:
         ras = src.read()
     # so if the model is an old model, need to modify the input to be scaled
@@ -998,17 +1050,25 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
         if "old" in modelname:
             for i, (channel, mean) in enumerate(zip(means, ras)):
                 ras[i,:,:] = mean - channel
+                
+        else:
+            dat = utils.scale(dat, out_range=(0,1), min_=0, max_=255)
+            datt = np.copy(dat)
+            datt = datt.astype(np.float)
+            for channel in range(len(means)):
+                datt[channel,:,:] = (dat[channel,:,:]-means[channel])/std[channel]
         width, height = src.width, src.height
         num_w, num_h  = width//res, height//res
         clean_w, clean_h = num_w *res, num_h*res
 # TODO: is this + 1 the reason there's seams??
         new_w = num_w + 1 if width % res != 0 else num_w
         new_h = num_h + 1 if height % res != 0 else num_h
-        output = np.zeros([num_spec, new_h, new_w]) # TODO: figure out if this is supposed to be h,w or w.h??
+        output = np.zeros([num_spec, new_h, new_w]) 
         images = []
         # grab all the locations that normally fit
         for i in range(0, clean_w, res):
             for j in range(0, clean_h, res):
+#                 print(f" j {j}, i {i}, res {res}")
                 ii, jj = int(i/res), int(j/res)
                 window = ras[:, j:j+res, i:i+res]
                 images.append((window, [ii,jj]))
@@ -1066,7 +1126,11 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
                 'dtype' : 'float32'
                 # so I ran torchy sig with both 64 and 32 and nothing seemed to change so ignoring for now
             })
-            fname = f"{base_dir}inference/prediction/raw/{modelname}/{rasname.split(paths.NAIP_BASE)[-1]}" # and steal filename from NAIP
+            if savename is None:
+                # TODO: this is broken, specifically the split part
+                fname = f"{base_dir}inference/prediction/raw/{modelname}/{rasname.split(paths.NAIP_BASE)[-1]}" # and steal filename from NAIP
+            else:
+                fname = savename
             if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
                 os.makedirs(fname.rsplit('/',1)[0])
             with rasterio.open(fname, 'w', **kwargs) as dst:
@@ -1074,8 +1138,98 @@ def predict_raster(rasname, model, batchsize, res, year, base_dir, modelname, nu
                 dst.descriptions = spec_names
     return fname
 
+def predict_raster_arbitrary_res(sat_file, save_file, b_size, res, spec_names, device, model, modelname, means, std=0, img_size=256):
+    # TODO: if batch size is too big, this breaks??
+    tock = time.time()
+    with rasterio.open(sat_file) as sat:
+        dat = sat.read()
+        swidth, sheight = sat.width, sat.height
+        if b_size > swidth:
+            raise NotImplementedError
+        # leave off the last pixels for which we don't have a full 256 image for
+        # TODO: remove magic number ofi mage size
+        i_ind = range(0, swidth-img_size, res)
+        j_ind = range(0, sheight-img_size, res)
+        n_specs = len(spec_names)
+             #TODO: hacky, eventually change or remove
+        if "old" in modelname:
+            # the order is messed up but it's that way for all other 
+            # network predictions, including how it was trained
+            # so oh well...
+            for i, (channel, mean) in enumerate(zip(means, dat)):
+                dat[i,:,:] = mean - channel
+        else:
+            dat = utils.scale(dat, out_range=(0,1), min_=0, max_=255)
+            datt = np.copy(dat)
+            datt = datt.astype(np.float)
+            for channel in range(len(means)):
+                datt[channel,:,:] = (dat[channel,:,:]-means[channel])/std[channel]
+            dat = datt
+        wid, hig = len(i_ind), len(j_ind)
+        # make receiver array
+        result = np.full([n_specs, hig, wid],np.nan,  dtype=np.float64)
+        ii = 0
+
+        with torch.no_grad():
+            if b_size > hig:
+                with tqdm(total=(math.ceil(hig/(b_size//hig))), unit="window") as prog:
+                    # if it can handle huge batch sizes, then take the 
+                    # floor(# rows this thing can take)
+                    # going to forget the leftover bit for now too much effort for not that much speedup
+                    for i in utils.chunks(i_ind, (b_size//hig)):
+                        ba  = [[dat[:, c:c+img_size, r:r+img_size] for c in j_ind] for r in i]
+                        ba = np.vstack(ba)
+                        tc = torch.tensor(ba, dtype=torch.float)
+                        tc = tc.to(device)
+                        out, a, b = model(tc)
+                        out = np.squeeze(out.detach().cpu().numpy())
+                        for k in range(len(i)):
+                            result[:,:,ii] = out.T[:,k:k+hig]
+                            ii += 1
+                        prog.update(1)
+
+            else:
+                with tqdm(total=(len(i_ind)*(len(j_ind)//b_size)), unit="window") as prog:
+                    for i in i_ind:
+                        jj = 0
+                        for j in utils.chunks(j_ind, b_size):
+                            # max batch size this way is len(j_ind)...
+                            ba = [dat[:, c:c+img_size, i:i+img_size] for c in j]
+                            # it really is the size lol
+                            tc = torch.tensor(ba, dtype=torch.float)
+                            tc = tc.to(device)
+                            out, a, b = model(tc)
+                             #  TODO: make sure flipping i, j fixed problems
+                            out = np.squeeze(out.detach().cpu().numpy())
+                            # TODO: this will fail on the last row, likely will need to troubleshoot the leftovers
+                            # doesn't fail b/c we cut off the leftovers above
+                            result[:,jj:jj+b_size,ii] = out.T
+                            jj +=b_size
+                            prog.update(1)
+                        ii += 1
+            prog.close()
 
 
+        out_profile = sat.profile
+        bounds = sat.bounds
+    out_res = (sat.width/wid, sat.height/hig)
+    out_profile['res'] = out_res
+    # dst_w = left, dst_n = top
+    trans = Affine.translation(bounds.left, bounds.top) * Affine.scale(out_res[0], -out_res[1])
+    out_profile['transform'] = trans
+    out_profile['height'] = hig
+    out_profile['width'] = wid # +1 ecause there's the leftover bits? or is it -1 on the range?
+    out_profile['count'] = n_specs
+    out_profile['dtype'] = np.float64
+    out_profile.update(BIGTIFF="IF_SAFER")
+    print("saving file now")
+    
+    with rasterio.open(save_file, 'w', **out_profile) as dst:
+        dst.write(result, range(1,n_specs+1))
+        dst.descriptions = spec_names
+    tick = time.time()
+    print(f"file {save_file.split('/')[-1]} took {(tick-tock)/60} minutes")
+    
 # might use, idk cuda GPU mem is weird
 def batchsized(device, rasname, model,base_size, res, num_spec):
     with rasterio.open(rasname) as src:
@@ -1123,5 +1277,19 @@ def batchsized(device, rasname, model,base_size, res, num_spec):
         if good:
             print(f"batch size is {i}")
             return i
-
-
+        # batch size of 5 didn't work, try incrementally smaller
+        # TODO: make this cleaner, modular
+    for i in range(5, 1, -1):
+        good = True
+        for j, chunk in enumerate(utils.chunks(images, i)):
+            batch = torch.stack([torch.tensor(c, device=device) for c, _ in chunk], dim=0)
+            try:
+                model(batch.float())[0].cpu().detach().numpy()
+                # print(f"best batch size is {i}")
+            except:
+                good = False
+                print(f"{i} didn't work")
+                break
+    if good:
+        print(f"batch size is {i}")
+        return i

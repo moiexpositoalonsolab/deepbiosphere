@@ -1,46 +1,24 @@
-# todo:
-# 1. DONE build a script that downloads all pointwise plant data for a given timeframe from gbif?
-# so we can only download large chunks of data asynchronously
-# so what I'll do is provide the download predicate
-# and a tutorial notebook that walks through a user of how to download
-# their own gbif occurrence records
-# but for myself,
-    # a. DONE make a download predicate
-    # b. DONE instantiate an asynchronous gbif download request for all the current california data
-    # c. DONE retreive the requested data
-    # d. move it into place and update the repository framework to support it
-    # e. automate this whole process for potential end users
-# 2. build a script to download all the tiffs for the known lat / lon from the new gbif data
-    # a. will include building a new tree directory to store the images in
-    # b. will also probably need to re-mount a new storage drive
-    # c. will also need to link gbif ids to image ids
-# 3. build a script to download all the tiffs for all the locations in california oh boy
-    # or alternately, see if can asynch do it with cloud-optimized geotiffs and rasterio?
-
-    # oh no wait... build a python script that builds the correct json predicate and prints the curl to call
-    # that way it should be very easy to swap out states, etc!
-
 import os
 import re
 import json
 import time
 import zipfile
 import requests
-from deepbiosphere.scripts import GEOCLEF_Utils as utils
-from deepbiosphere.scripts import GEOCLEF_Config as config
-from deepbiosphere.scripts.GEOCLEF_Config import paths
+import argparse
+import datetime
+from deepbiosphere import Utils as utils
+from deepbiosphere.Utils import paths
 # countries is a list of countries, states is a list of GADM GIDs which are constructed as
 # country code from https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3  [code].[state number]_1
 # where state number is the alphabetical sorting of states
 # TODO: use GADM to resolve state / country names to their administrative area ids
-def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", end_date="2021", area=['USA.5_1']):
+def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="2022", area=['USA.5_1']):
 
     # confirm email roughly matches email shape
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         raise ValueError("It looks like {} is not a valid email address!".format(email))
 
 
-    # TODO: convert taxon to json code
     # create download predicate json file
     down_pred = {
         'creator' : gbif_usr,
@@ -59,7 +37,7 @@ def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", en
                 "value": "HUMAN_OBSERVATION",
                 "matchCase": False
             },
-            # only grab observations with <= 30 m uncertainty
+            # only grab observations with <= 120 m uncertainty
             {
             "type": "and",
             "predicates": [
@@ -72,7 +50,7 @@ def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", en
                 {
                 "type": "lessThanOrEquals",
                 "key": "COORDINATE_UNCERTAINTY_IN_METERS",
-                "value": "30.0",
+                "value": "120.0",
                 "matchCase": False
                 }
             ]
@@ -193,9 +171,8 @@ def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", en
         ]
     }
     down_pred['predicate']['predicates'].append(dates)
-    # now create an occurrences folder from helper function in files script
-    config.setup_main_dirs(base_dir)
-    dirr = base_dir + 'occurrences/'
+    # use a pre-made occurrence directory for placing observations
+
 
     # curl --include --user userName:PASSWORD --header "Content-Type: application/json" --data @query.json https://api.gbif.org/v1/occurrence/download/request
     # need: pass user / pass
@@ -209,7 +186,6 @@ def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", en
     header = {'Content-Type' : "application/json"}
     # https://api.gbif.org/v1/occurrence/download/
     id = requests.post("https://api.gbif.org/v1/occurrence/download/request", json=down_pred)
-    # import pdb; pdb.set_trace()
     print("download id is {}".format(id.text))
     if not id.ok:
         raise ValueError(id.text)
@@ -223,9 +199,11 @@ def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", en
         resp = requests.get("https://api.gbif.org/v1/occurrence/download/{}".format(id.text))
     
     if resp.json()['status'] == "SUCCEEDED":
-        meme = requests.get("https://api.gbif.org/v1/occurrence/download/{}".format(id.text))
-        savelink = dirr + config.build_gbif_file(taxon, start_date, end_date, area, 'zip')
-        download_url(meme.json()['downloadLink'], savelink)
+        req = requests.get("https://api.gbif.org/v1/occurrence/download/{}".format(id.text))
+        curr_time = datetime.datetime.now()
+        savepath = f"{paths.OCCS}{taxon}_{start_date}_{end_date}_{area[0].replace('.','_')}_acq{curr_time.year}_{curr_time.month}_{curr_time.day}"
+        savelink = f"{savepath}.zip"
+        download_url(req.json()['downloadLink'], savelink)
         print("data successfully saved to {}".format(savelink))
     elif resp.json()['status'] == "CANCELLED":
         raise ValueError("data download was cancelled :(")
@@ -236,16 +214,18 @@ def request_gbif_records(base_dir, gbif_usr, email, taxon, start_date="2015", en
     with zipfile.ZipFile(savelink, 'r') as zip_ref:
         names = zip_ref.namelist()
         print( names)
+        currdir = f"{os.path.dirname(savepath)}/"
         if len(names) == 1:
-            zip_ref.extractall(dirr)
-            os.rename(dirr + names[0], dirr + config.build_gbif_file(taxon, start_date, end_date, area, 'csv'))
+            # and use savepath
+            zip_ref.extractall(currdir)
+            os.rename(currdir + names[0], f"{savepath}.csv")
         else:
             for n in names:
                 zip_ref.extractall(path=dirr, members=[n])
-                os.rename(dirr + n, dirr + config.build_gbif_file(taxon, start_date, end_date, area, 'csv') + str(i))
+                os.rename(currdir + n, f"{savepath}_{i}.csv")
                 i += 1
         
-        name = dirr + config.build_gbif_file(taxon, start_date, end_date, area, 'json')
+    name = f"{savepath}.json"
     down_pred['response'] = resp.json()
     with open(name, 'w') as f:
         json.dump(down_pred, f)    
@@ -258,4 +238,14 @@ def download_url(url, save_path, chunk_size=128):
             fd.write(chunk)
 
 if __name__ == "__main__":
-    request_gbif_records()
+
+    args = argparse.ArgumentParser()
+    args.add_argument('--gbif_user', type=str, required=True, help='Gbif user id')
+    args.add_argument('--gbif_email', type=str, required=True, help='Email address associated with gbif account', default=None)
+    args.add_argument('--organism', type=str, required=True, help='What organism/s to download', choices=['bacteria', 'plant','animal','plantanimal'])
+    args.add_argument('--start_date', type=str, help='Collect observations on and after this year', default='2015')
+    args.add_argument('--end_date', type=str, help='Collect observations on and before this year', default='2022')
+    args.add_argument('--area', type=str, help='GADM area code for where observations should be taken from', default=['USA.5_1'])
+    args, _ = args.parse_known_args()
+    
+    request_gbif_records(args.gbif_user, args.gbif_email, args.organism, start_date=args.start_date, end_date=args.end_date, area=args.area)

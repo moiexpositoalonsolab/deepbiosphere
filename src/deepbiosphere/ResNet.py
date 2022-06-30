@@ -5,8 +5,7 @@ from torch import Tensor
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 from typing import Type, Any, Callable, Union, List, Optional
-import deepbiosphere.scripts.GEOCLEF_Config as config
-
+import deepbiosphere.Utils as utils
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -91,7 +90,7 @@ class Bottleneck(nn.Module):
     # while original implementation places the stride at the first 1x1 convolution(self.conv1)
     # according to "Deep residual learning for image recognition"https://arxiv.org/abs/1512.03385.
     # This variant is also known as ResNet V1.5 and improves accuracy according to
-    # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch.
+    # https://ngc.nvidia.com/catalog/model/nvidia:resnet_50_v1_5_for_pytorch.
 
     expansion = 4
 
@@ -359,7 +358,6 @@ class Joint_ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         
-        # TODO: change to just batchnorm 512,
         self.intermediate1 = nn.Sequential(
 #             nn.Linear(512 * block.expansion, 1024),
             nn.BatchNorm1d(512),
@@ -529,9 +527,7 @@ class ResNet_NoFC(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        # TODO: don't cheat when getting the size of the layer
-        # is it this math??         
-        # self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
+        # magic # is self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
         self.spec = nn.Linear(32768 * block.expansion, num_spec)
         self.gen = nn.Linear(32768 * block.expansion, num_gen)
         self.fam = nn.Linear(32768 * block.expansion, num_fam)        
@@ -628,7 +624,7 @@ def _resnet(
 
     if pretrained != 'none':
         # going to be lazy and use load_state_dict_from_url, might change in the future
-        dirr = config.setup_pretrained_dirs(base_dir) + 'ResNet/'
+        dirr = utils.setup_pretrained_dirs(base_dir) + 'ResNet/'
         torch.hub.set_dir(dirr)
         state_dict = load_state_dict_from_url(model_urls[arch],progress=progress)
         model.load_state_dict(state_dict, strict=False)

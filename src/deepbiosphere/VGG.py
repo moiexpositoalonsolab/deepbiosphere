@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
 from typing import Union, List, Dict, Any, cast
-import deepbiosphere.scripts.GEOCLEF_Config as config
+import deepbiosphere.Utils as utils
 
 __all__ = [
     'VGG', 'vgg11', 'vgg11_bn', 'vgg13', 'vgg13_bn', 'vgg16', 'vgg16_bn',
@@ -45,7 +45,6 @@ class VGG(nn.Module):
             # initialize He-style
             nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
             nn.init.constant_(self.conv4band.bias, 0)                        
-            # TODO: make sure that conv4band has gradient flow
 
         self.features = features
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
@@ -219,7 +218,6 @@ class VGG_No_FC(nn.Module):
             # initialize He-style
             nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
             nn.init.constant_(self.conv4band.bias, 0)                        
-            # TODO: make sure that conv4band has gradient flow
 
         self.features = features
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
@@ -295,7 +293,6 @@ class VGG_Scaled_FC(nn.Module):
             # initialize He-style
             nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
             nn.init.constant_(self.conv4band.bias, 0)                        
-            # TODO: make sure that conv4band has gradient flow
 
         self.features = features
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
@@ -398,7 +395,7 @@ def _vgg(arch: str, cfg: str, batch_norm: bool, pretrained: str, base_dir : str,
         model = VGG_Scaled_FC(make_layers(cfgs[cfg], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, **kwargs)
     if pretrained != 'none':
         # going to be lazy and use load_state_dict_from_url, might change in the future
-        dirr = config.setup_pretrained_dirs(base_dir) + 'VGGNet/'
+        dirr = utils.setup_pretrained_dirs(base_dir) + 'VGGNet/'
         torch.hub.set_dir(dirr)
         state_dict = load_state_dict_from_url(model_urls[arch],progress=progress)
         model.load_state_dict(state_dict, strict=False)
