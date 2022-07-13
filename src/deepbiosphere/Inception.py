@@ -1,11 +1,13 @@
-import warnings
-from collections import namedtuple
-from functools import partial
-from typing import Callable, Any, Optional, Tuple, List
+# torch functions
 import torch
-import torch.nn.functional as F
 from torch import nn, Tensor
+import torch.nn.functional as F
+
+# misc functions
 import warnings
+from functools import partial
+from collections import namedtuple
+from typing import Callable, Any, Optional, Tuple, List
 
 
 InceptionOutputs = namedtuple("InceptionOutputs", ["logits", "aux_logits"])

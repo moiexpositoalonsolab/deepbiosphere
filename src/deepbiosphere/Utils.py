@@ -1,19 +1,33 @@
-from types import SimpleNamespace
-import torch
 import json
+import torch
+from types import SimpleNamespace
+
+## ---------- MAGIC NUMBERS ---------- ##
+
+# TODO: change all magic numbers to this
+# TODO: figure out what to do with this 
+# because I can't have it in Dtaset.py
+# or nAIP_Utils.py because then they both
+# recursively use the other. Might need
+# to chnage all magic values to be in this file
+# idk
+IMG_SIZE = 256
+
+
 
 ## ---------- Paths to important directories ---------- ##
 
 paths = {
-    'OCCS' : '/add/your/directory/here/occurrences/',
-    'SHPFILE' : '/add/your/directory/here/shpfiles/',
-    'MODELS' : '/add/your/directory/here/models/',
-    'IMAGES' : '/add/your/directory/here/images/',
-    'RASTERS' : '/add/your/directory/here/rasters/',
-    'BASELINES' : '/add/your/directory/here/baselines/',
-    'RESULTS' : '/add/your/directory/here/results/',
-    'SCRATCH' : "/add/your/directory/here/",
-    'BLOB_ROOT' :  'https://naipeuwest.blob.core.windows.net/naip/' # have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', #
+    'OCCS' : '/home/lgillespie/deepbiosphere/data/occurrences/',
+    'SHPFILES' : '/home/lgillespie/deepbiosphere/data/shpfiles/',
+    'MODELS' : '/home/lgillespie/deepbiosphere/models/',
+    'IMAGES' : '/home/lgillespie/deepbiosphere/data/images/',
+    'RASTERS' : '/home/lgillespie/deepbiosphere/data/rasters/',
+    'BASELINES' : '/home/lgillespie/deepbiosphere/data/baselines/',
+    'RESULTS' : '/home/lgillespie/deepbiosphere/data/results/',
+    'SCRATCH' : "/NOBACKUP/scratch/lgillespie/naip/",
+    # have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', #
+    'BLOB_ROOT' :  'https://naipeuwest.blob.core.windows.net/naip/' 
 }
 paths = SimpleNamespace(**paths)
 
@@ -24,6 +38,32 @@ def setup_pretrained_dirs():
         os.makedirs(f"{paths.MODELS}/pretrained/")
     return f"{paths.MODELS}/pretrained/"
 
+## ---------- Data manipulation ---------- ##
+
+# https://stackoverflow.com/questions/2659900/slicing-a-list-into-n-nearly-equal-length-partitions
+def partition(lst, n):
+    division = len(lst) / n
+    return [lst[round(division * i):round(division * (i + 1))] for i in range(n)]
+
+# https://stackoverflow.com/questions/312443/how-do-you-split-a-list-into-evenly-sized-chunks
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
+
+def dict_key_2_index(df, key):
+    return {
+        k:v for k, v in
+        zip(df[key].unique(), np.arange(len(df[key].unique())))
+    }
+
+# more clear version of uniform scaling
+# https://stackoverflow.com/questions/5294955/how-to-scale-down-a-range-of-numbers-with-a-known-min-and-max-value
+def scale(x, min_=None, max_=None, out_range=(-1,1)):
+
+    if min_ == None and max_ == None:
+        min_, max_ = np.min(x), np.max(x)
+    return ((out_range[1]-out_range[0])*(x-min_))/(max_-min_)+out_range[0]
 
 ## ---------- Accuracy metrics ---------- ##
 

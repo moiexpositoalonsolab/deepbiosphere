@@ -1,10 +1,10 @@
 # deepbiosphere packages
-import deepbiosphere.Models as mods
 import deepbiosphere.Run as run
-import deepbiosphere.NAIP_Utils as naip
 import deepbiosphere.Utils as utils
+import deepbiosphere.Models as mods
 from deepbiosphere.Utils import paths
 import deepbiosphere.Dataset as dataset
+import deepbiosphere.NAIP_Utils as naip
 
 # ML + statistics packages
 import torch
@@ -15,16 +15,14 @@ from torch.utils.data import DataLoader
 
 # miscellaneous packages
 import os
-import glob
 import csv
+import glob
 import time
 import json
-from datetime import date
-from tqdm import tqdm
-from os.path import exists
 import warnings
-from sklearn.exceptions import DataConversionWarning
-warnings.filterwarnings(action='ignore', category=RuntimeWarning)
+from tqdm import tqdm
+from datetime import date
+from os.path import exists
 
 
 def load_baseline_preds(nobs, nspecs, sp2id, model, band='unif_train_test', dset_name='big_cali_2012'):
@@ -36,7 +34,7 @@ def load_baseline_preds(nobs, nspecs, sp2id, model, band='unif_train_test', dset
             spec = file.split('/')[-1].split('_maxent_preds.csv')[0].replace('_', ' ')
             # fill in predictions to be in same order as CNN model
             results[:,sp2id[spec]] = pred.pres_pred
-        elif model == 'random_forest':
+        elif model == 'rf':
             spec = file.split('/')[-1].split('_rf_preds.csv')[0].replace('_', ' ')
             results[:,sp2id[spec]] = pred.presence
         else:
@@ -51,8 +49,8 @@ def write_overall_metric(dict_, sc, scorename, thres, weight):
     dict_['thres'] = thres
     return dict_
 
-def write_topk_metric(dict_, single_ytrue, preds, K, topKmet):
-    dict_['metric'] = f"obs_top_{K}"
+def write_topk_metric(dict_, single_ytrue, preds, K, topKmet, type_):
+    dict_['metric'] = f"{type_}_top_{K}"
     dict_['weight'] = np.nan
     dict_['value'] =  topKmet(single_ytrue, preds, K)
     return dict_
@@ -70,7 +68,7 @@ def write_obs_metrics(dict_, metric, vals, ids, writer):
         dict_['value'] = v.item()
         dict_['ID'] = id_
         writer.writerow(dict_)
-def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, write_obs=False, thres=0.5):
+def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, write_obs=False, thres=0.5, filename=None):
     tick = time.time()
     id2sp = {v:k for k, v in sp2id.items()}
     yobs = preds >= thres
@@ -83,7 +81,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         preds = np.ma.MaskedArray(preds, np.isnan(preds))        
     if np.ma.isMaskedArray(preds):
         preds = preds.filled(fill_value=0.0)
-    fname = f"{paths.RESULTS}overall_metrics_results.csv"
+    fname = f"{paths.RESULTS}overall_metrics_results.csv" if filename is None else f"{paths.RESULTS}{filename}overall_metrics_results.csv"
     fexists = os.path.isfile(fname)
     overallcsv = open (fname, 'a')
     basics = {
@@ -120,13 +118,13 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
                 overallwriter.writerow(write_overall_metric(basics, sc, score.__name__, thres, avg))
     # run + write topK metrics
     for i in [10,30,100]:
-        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.obs_topK))
-        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.species_topK))
+        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.obs_topK, 'obs'))
+        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.species_topK, 'species'))
     sc = utils.mean_average_precision(preds, ytrue)
     overallwriter.writerow(write_overall_metric(basics, sc, 'mAP', np.nan, np.nan))
     # now, write out per-species metrics
     print("starting per-species metrics")
-    fname = f"{paths.RESULTS}per_species_metrics_results.csv"
+    fname = f"{paths.RESULTS}per_species_metrics_results.csv" if filename is None else f"{paths.RESULTS}{filename}per_species_metrics_results.csv"
     fexists = os.path.isfile(fname)
     csvfile = open (fname, 'a')
     dict_ = { k: np.nan for k,v in sp2id.items()}
@@ -166,7 +164,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     csvfile.close()
     if write_obs:
         print('starting per-observation metrics')
-        fname = f"{paths.RESULTS}per_observations_metrics_results_band{band}.csv"
+        name = f"{paths.RESULTS}per_observations_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}{filename}per_observations_metrics_results_band{band}.csv"
         fexists = os.path.isfile(fname)
         csvfile = open (fname, 'a')
         del basics['weight']
@@ -189,16 +187,16 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     return (tock - tick)/60
 
 def run_inference(model, cfg, dloader, device):
-    # shuffle must be false to preserve observation order!
+
     y_pred = []
     for batch in tqdm(dloader, unit='batch'):
         # can ignore label
         _, _, _, inputs = batch
         # to handle joint model
-        if torch.is_tensor(inputs):
-            inputs = inputs.float().to(device)
-        else:
+        if cfg.datatype == 'joint_naip_bioclim':
             inputs = (inputs[0].float().to(device), inputs[1].float().to(device))
+        else:
+            inputs = inputs.float().to(device)
         # handle augmenting (annoying)
         if cfg.augment == 'fivecrop':
             # taken from https://pytorch.org/vision/main/generated/torchvision.transforms.TenCrop.html
@@ -207,7 +205,7 @@ def run_inference(model, cfg, dloader, device):
             ncrops, bs, c, h, w = imgs.size()
             # fuse batch size and ncrops
             imgs = imgs.view(-1, c, h, w)
-            (specs, gens, fams) = model(imgs.float())
+            (specs, gens, fams) = model(imgs)
             # now avg over crops
             specs = specs.view(bs, ncrops, -1).mean(dim=1)
 #             gens = gens.view(bs, ncrops, -1).mean(dim=1)
@@ -218,7 +216,7 @@ def run_inference(model, cfg, dloader, device):
         elif 'speconly' in cfg.model:
             y_pred.append(out.cpu())
         else:
-            spec, _, _ = model(inputs.float())
+            spec, _, _ = model(inputs)
             y_pred.append(spec.detach().cpu())
     y_pred = torch.cat(y_pred, dim=0)
     y_pred = torch.sigmoid(y_pred)

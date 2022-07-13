@@ -1,23 +1,23 @@
-# shamelessly pulled down from on 1/9/2021
-
+# torch functions
 import torch
 import torch.nn as nn
 import torch.nn.parallel
-import numpy as np
 import torch.nn.functional as F
 from torch.nn import Module as Module
+
+# misc functions
+import numpy as np
 from collections import OrderedDict
 from inplace_abn import InPlaceABN
 import deepbiosphere.Utils as utils
 
-# from inplace_abn import ABN
+'''
+pulled down from github https://github.com/Alibaba-MIIL/TResNet on 1/9/2021
+'''
 
 model_files = {
     'MSCOCO_TResnetL': 'MS_COCO_TRresNet_L_448_86.6.pth',
 }
-
-
-
 
 class bottleneck_head(nn.Module):
     def __init__(self, num_features, num_classes, bottleneck_features=200):
@@ -141,7 +141,7 @@ class TResNet(Module):
         super(TResNet, self).__init__()
 
         # JIT layers
-        space_to_depth = SpaceToDepthModule() 
+        space_to_depth = SpaceToDepthModule() # TODO: remove
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
@@ -191,6 +191,7 @@ class TResNet(Module):
             fc = bottleneck_head(self.num_features, num_classes,
                                  bottleneck_features=bottleneck_features)
         else:
+            # TODO: add this below to joint tresnet
             self.spec = nn.Linear(self.num_features, num_spec)
             if (self.num_gen != -1):
                 self.gen = nn.Linear(self.num_features, num_gen)
@@ -251,7 +252,7 @@ class TResNet(Module):
             fam = self.fam(self.embeddings)
             return (spec, gen, fam)
         # use only species genus taxonomic levels
-        elif (self.num_gen != -1) & (self.num_fam == -1):
+        elif (self.num_fam != -1):
             gen = self.gen(self.embeddings)
             return (spec, gen)
         # use only species taxonomic level
@@ -353,8 +354,15 @@ class Joint_TResNet(Module):
         )
         # finally, make predictions
         self.spec = nn.Linear(self.unification, num_spec)
-        self.gen = nn.Linear(self.unification, num_gen)
-        self.fam = nn.Linear(self.unification, num_fam)
+        if (self.num_gen != -1):
+            self.gen = nn.Linear(self.unification, num_gen)
+        if (self.num_fam != -1):
+            self.fam = nn.Linear(self.unification, num_fam)
+    # weird it wanted self.num_features..
+    
+#         self.spec = nn.Linear(self.unification, num_spec)
+#         self.gen = nn.Linear(self.unification, num_gen)
+#         self.fam = nn.Linear(self.unification, num_fam)
 
         # model initilization
         for m in self.modules():
@@ -410,10 +418,21 @@ class Joint_TResNet(Module):
         rasters = self.mlp(rasters)
         x = torch.cat((x, rasters), dim=1)
         x = self.intermediate2(x)
+        # use all 3 taxonomic levels for training
         spec = self.spec(x)
-        gen = self.gen(x)
-        fam = self.fam(x)
-        return (spec, gen, fam)
+        if (self.num_gen != -1) & (self.num_fam != -1):
+            gen = self.gen(x)
+            fam = self.fam(x)
+            return (spec, gen, fam)
+        # use only species genus taxonomic levels
+        elif (self.num_fam != -1):
+            gen = self.gen(x)
+            return (spec, gen)
+        # use only species taxonomic level
+        else:
+            return spec
+        
+        
 
 
 def set_parameter_requires_grad(model):

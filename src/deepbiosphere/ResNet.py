@@ -90,7 +90,7 @@ class Bottleneck(nn.Module):
     # while original implementation places the stride at the first 1x1 convolution(self.conv1)
     # according to "Deep residual learning for image recognition"https://arxiv.org/abs/1512.03385.
     # This variant is also known as ResNet V1.5 and improves accuracy according to
-    # https://ngc.nvidia.com/catalog/model/nvidia:resnet_50_v1_5_for_pytorch.
+    # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch
 
     expansion = 4
 
@@ -208,7 +208,6 @@ class ResNet(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        
         self.spec = nn.Linear(512 * block.expansion, num_spec)
         self.gen = nn.Linear(512 * block.expansion, num_gen)
         self.fam = nn.Linear(512 * block.expansion, num_fam)        
@@ -527,7 +526,8 @@ class ResNet_NoFC(nn.Module):
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        # magic # is self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
+        # magic num below is self.num_features = (self.planes * 8) * Bottleneck.expansion 
+        # where expansion is just 4, another magic number
         self.spec = nn.Linear(32768 * block.expansion, num_spec)
         self.gen = nn.Linear(32768 * block.expansion, num_gen)
         self.fam = nn.Linear(32768 * block.expansion, num_fam)        

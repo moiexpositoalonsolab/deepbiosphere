@@ -1,18 +1,18 @@
-import os
-import numpy as np
-import operator
-from functools import reduce
+# torch functions
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
+import torch.nn.functional as F
 
-# trick is going to be figuring out the presence-only calculations
-# Brier loss using sigmoid with only present classes
+# misc functions
+import os
+import operator
+import numpy as np
+from functools import reduce
+
 
 def pass_(input):
     return input
-
 
 # presence-only cross entropy
 # from https://gist.github.com/mjdietzx/50d3c26f1fd543f1808ffffacc987cbf

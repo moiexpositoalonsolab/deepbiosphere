@@ -1,29 +1,40 @@
-from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
-import multiprocessing
-import argparse
-from tqdm import tqdm
-from deepbiosphere.Utils import paths
-import deepbiosphere.NAIP_Utils  as naip
-import deepbiosphere.GEOCLEF_Utils as utils
-import deepbiosphere.Dataset as dataset
-import json
+# GIS packages
 import rasterio
-from rasterio.windows import Window
-from scipy.spatial import cKDTree
-from collections import Counter
 import geopandas as gpd
-import pandas as pd
+from scipy.spatial import cKDTree
+from rasterio.windows import Window
+from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
+
+# stats / data management packages
 import torch
-import glob
 import numpy as np
+import pandas as pd
+
+# deepbio packages
+import deepbiosphere.Utils as utils
+from deepbiosphere.Utils import paths
+import deepbiosphere.Dataset as dataset
+import deepbiosphere.NAIP_Utils  as naip
+
+# misc packages
+import os
+import glob
 import math
 import time
-import os
+import json
+import argparse
+from tqdm import tqdm
+import multiprocessing
+from collections import Counter
+
 '''
 Code for generating the base csv used in all subsequent analyses.
 This file adds overlapping species, adds spatial splits, determines
 what points are valid from the underlying rasters and image data,
-and adds all that information to the csv for future reference
+and adds all that information to the csv for future reference, including
+a metadata file which dictates how to convert between indices and species,
+what clusters observations were assigned to, and other points for full
+reproducibility.
 '''
 
 
@@ -141,7 +152,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
     daset['unif_train_test'].iloc[test] = 'test'
     daset['unif_train_test'].iloc[train] = 'train'
     daset['cluster_dist'] = next_dists
-    # finally, get distance to neighboring observationt
+    # finally, get distance to neighboring observation
     daset['neighbor_dist'] = np.take_along_axis(dist,np.expand_dims((dist<=overlap_dist).sum(axis=1), axis=1), axis=1)
     # finally, find distance to next-nearest
     daset['cluster_assgn'] = cluster_name
@@ -283,8 +294,7 @@ def map_to_index(daset):
 
 def add_filenames(daset, state, year, tiff_dset_name, idCol='gbifID'):
     # get shapefile for that year (should only be 1 so can use glob to resolve)
-    shp_pth = glob.glob(f"{paths.SHPFILE}naip_tiffs/{state}_shpfl_{year}/*shp")[0]
-    tif_shps = gpd.read_file(shp_pth)
+    tif_shps = naip.load_naip_bounds(paths.SHPFILES, state, year)
     # also set up what is the current directory based on year and state
     # tiny bit hacky but the shapefiles from the gov don't have the resolution
     # saved in a consistent format across years so for now this is easiest
@@ -563,7 +573,7 @@ def add_overlapping_filter(daset, res, threshold=200, idCol='gbifID'):
 
 def add_ecoregions(dframe, idCol):
     diff = time.time()
-    file = f"{paths.SHPFILE}ecoregions/ca/ca_eco_l3.shp"
+    file = f"{paths.SHPFILES}ecoregions/ca/ca_eco_l3.shp"
     shp_file = gpd.read_file(file)
     shp_file = shp_file.to_crs(dframe.crs)
     # default join is "intersects"
@@ -774,7 +784,7 @@ def remove_singletons_duplicates(daset, res):
 
 
 # generate the csv
-def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist, outline=f"{paths.SHPFILE}gadm36_USA/gadm36_USA_1.shp", to_keep=None):
+def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp", to_keep=None):
     daset = pd.read_csv(dset_path, sep=sep)
     pts = [Point(lon, lat) for lon, lat in zip(daset[loname], daset[latname])]
     # GBIF returns coordinates in WGS84 according to the API
@@ -819,7 +829,8 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     del daset['index_right']
     # get resolution depending on what year it is
     # before 2015 was 1 meter, after was 60 cm
-    res = 1.0 if year in ['2012', '2014'] else 0.6
+    # res = 1.0 if year in ['2012', '2014'] else 0.6
+    res = 1.0 # TODO: going to see if more adjacent species increases accuracy for later years
     # this boolean allows us to just add the images if we so desire
     # keep only the points inside of rasters
     rasters = dataset.get_bioclim_rasters()

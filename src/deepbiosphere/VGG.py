@@ -1,11 +1,9 @@
-# shamelessly pulled down from https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py on 1/9/2021
-
 import math
 import torch
 import torch.nn as nn
+import deepbiosphere.Utils as utils
 from torch.hub import load_state_dict_from_url
 from typing import Union, List, Dict, Any, cast
-import deepbiosphere.Utils as utils
 
 __all__ = [
     'VGG', 'vgg11', 'vgg11_bn', 'vgg13', 'vgg13_bn', 'vgg16', 'vgg16_bn',
@@ -20,7 +18,9 @@ model_urls = {
     'vgg16_bn': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth',
 }
 
-
+'''
+Pulled down from https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py on 1/9/2021
+'''
 class VGG(nn.Module):
 
     def __init__(

@@ -1,3 +1,8 @@
+# deepbiosphere functions
+from deepbiosphere.Utils import paths
+from deepbiosphere import Utils as utils
+
+# misc functions
 import os
 import re
 import json
@@ -6,8 +11,8 @@ import zipfile
 import requests
 import argparse
 import datetime
-from deepbiosphere import Utils as utils
-from deepbiosphere.Utils import paths
+
+
 # countries is a list of countries, states is a list of GADM GIDs which are constructed as
 # country code from https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3  [code].[state number]_1
 # where state number is the alphabetical sorting of states
