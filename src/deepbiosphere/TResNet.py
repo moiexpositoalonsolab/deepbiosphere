@@ -141,7 +141,7 @@ class TResNet(Module):
         super(TResNet, self).__init__()
 
         # JIT layers
-        space_to_depth = SpaceToDepthModule() # TODO: remove
+        space_to_depth = SpaceToDepthModule() 
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
@@ -173,7 +173,6 @@ class TResNet(Module):
         layer4 = self._make_layer(Bottleneck, self.planes * 8, layers[3], stride=2, use_se=False,
                                   anti_alias_layer=anti_alias_layer)  # 7x7
 
-        #
         self.body = nn.Sequential(OrderedDict([
             ('SpaceToDepth', space_to_depth),
             ('conv1', conv1),
@@ -191,7 +190,6 @@ class TResNet(Module):
             fc = bottleneck_head(self.num_features, num_classes,
                                  bottleneck_features=bottleneck_features)
         else:
-            # TODO: add this below to joint tresnet
             self.spec = nn.Linear(self.num_features, num_spec)
             if (self.num_gen != -1):
                 self.gen = nn.Linear(self.num_features, num_gen)
@@ -358,11 +356,6 @@ class Joint_TResNet(Module):
             self.gen = nn.Linear(self.unification, num_gen)
         if (self.num_fam != -1):
             self.fam = nn.Linear(self.unification, num_fam)
-    # weird it wanted self.num_features..
-    
-#         self.spec = nn.Linear(self.unification, num_spec)
-#         self.gen = nn.Linear(self.unification, num_gen)
-#         self.fam = nn.Linear(self.unification, num_fam)
 
         # model initilization
         for m in self.modules():
@@ -409,9 +402,7 @@ class Joint_TResNet(Module):
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
         x = self.body(x)
-#         self.embeddings = self.global_pool(x)
         x = self.global_pool(x)
-#         x = torch.flatten(self.embeddings, 1)
         x = torch.flatten(x, 1)
 
         x = self.intermediate1(x)

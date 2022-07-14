@@ -37,7 +37,8 @@ from types import SimpleNamespace
 # models to compare
 MODELS = {
     'tresnet_m' : mods.TResNet_M,
-    'tresnet_m_speconly' : mods.Joint_TResNet_M,
+    'tresnet_m_speconly' : mods.TResNet_M,
+    'joint_tresnet_m_speconly' : mods.Joint_TResNet_M,
     'joint_tresnet_m' : mods.Joint_TResNet_M,
     'tresnet_l' : mods.TResNet_L,
     'joint_tresnet_l' : mods.Joint_TResNet_L,
@@ -235,7 +236,6 @@ def run(args, rng):
             out = model(inputs)
             # handle special cases for loss
             # BCE requires float for targets for some reason
-            # can't handle spec_only TODO
             if (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
                 (specs, gens, fams) = out
                 loss_spec = loss(specs, spec_true.float())
@@ -453,7 +453,7 @@ if __name__ == "__main__":
     args.add_argument('--state', type=str, help='What state / region to train on', default='ca')
     args.add_argument('--dataset_name', type=str, required=True, help='Name of dataset file to use')
     args.add_argument('--dataset_type', type=str, required=True, help='Type of dataset to use (multispecies or single species)',choices=['multi_species', 'single_species', 'single_label'])
-    args.add_argument('--datatype', type=str, required=True, help='What kind of data to train on', choices=['bioclim', 'naip', 'joint_bioclim_naip']) 
+    args.add_argument('--datatype', type=str, required=True, help='What kind of data to train on', choices=['bioclim', 'naip', 'joint_naip_bioclim']) 
     args.add_argument('--pretrain', type=str, required=True, help='What kind of pretraining to sue', choices=['none', 'imagenet', 'mscoco']) 
     args.add_argument('--band', type=int, default=-1, help='which band to use. -1 indicates that the spatial exclusion split of the data will be used')
     args.add_argument('--lr', type=float, required=True, help='what learning rate to use')

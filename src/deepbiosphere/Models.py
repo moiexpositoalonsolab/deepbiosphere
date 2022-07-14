@@ -3,7 +3,7 @@ import deepbiosphere.VGG as vgg
 import deepbiosphere.Utils as utils
 import deepbiosphere.ResNet as resnet
 import deepbiosphere.TResNet as tresnet
-from deepbiosphere.Utils.paths import paths
+from deepbiosphere.Utils import paths
 import deepbiosphere.Inception as inception
 
 #  torch  stats functions

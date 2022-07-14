@@ -148,7 +148,7 @@ class DeepbioDataset(Dataset):
 
         print("reading in data")
         # load in observations & metadata
-        daset = pd.read_csv(f"{paths.OCCS}{dataset_name}.csv")
+        daset = pd.read_csv(f"{paths.OCCS}{dataset_name}.csv")        
         with open(f"{paths.OCCS}{dataset_name}_metadata.json", 'r') as f:
             metadata = json.load(f)
         pts = [Point(lon, lat) for lon, lat in zip(daset[loName], daset[latName])]
@@ -271,7 +271,7 @@ class DeepbioDataset(Dataset):
                 return self.specs[idx], self.gens[idx], self.fams[idx], self.bioclim[idx]
             else: 
                 return self.all_specs[idx], self.all_gens[idx], self.all_fams[idx], self.bioclim[idx]
-        elif self.datatype == 'joint_bioclim_naip':
+        elif self.datatype == 'joint_naip_bioclim':
             fileHandle = np.load(f"{paths.IMAGES}{self.filenames[idx]}")
             img = fileHandle[f"{self.imagekeys[idx]}"]
             # scale+normalize image
