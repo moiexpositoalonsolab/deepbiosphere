@@ -1,5 +1,6 @@
 import json
 import torch
+import numpy as np
 from types import SimpleNamespace
 
 ## ---------- MAGIC NUMBERS ---------- ##
@@ -12,7 +13,6 @@ from types import SimpleNamespace
 # to chnage all magic values to be in this file
 # idk
 IMG_SIZE = 256
-
 
 
 ## ---------- Paths to important directories ---------- ##
