@@ -19,7 +19,7 @@ IMG_SIZE = 256
 
 paths = {
     'OCCS' : '/add/your/directory/here/occurrences/',
-    'SHPFILE' : '/add/your/directory/here/shpfiles/',
+    'SHPFILES' : '/add/your/directory/here/shpfiles/',
     'MODELS' : '/add/your/directory/here/models/',
     'IMAGES' : '/add/your/directory/here/images/',
     'RASTERS' : '/add/your/directory/here/rasters/',
