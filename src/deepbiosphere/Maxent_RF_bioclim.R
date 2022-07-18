@@ -300,18 +300,16 @@ Sys.unsetenv('DISPLAY')
 
 
 # set up reticulate modules
-# TODO: change name when file name changes!
-cfg <- import("deepbiosphere.scripts.GEOCLEF_Config", convert = FALSE)
-dataset <- import("deepbiosphere.scripts.Dataset", convert = FALSE)
-naip <- import("deepbiosphere.scripts.NAIP_Utils", convert = FALSE)
-build <- import("deepbiosphere.scripts.BuildData", convert = FALSE)
+utils <- import("deepbiosphere.Utils", convert = FALSE)
+naip <- import("deepbiosphere.NAIP_Utils", convert = FALSE)
+build <- import("deepbiosphere.BuildData", convert = FALSE)
 np <- import("numpy", convert = FALSE)
 rasterio <- import("rasterio", convert = FALSE)
-paths <- cfg$paths
+paths <- utils$paths
 setwd(py_to_r(paths$BASELINES))
 
 # set up argument parser for command line version
-option_list = list(  # TODO cahnge back!!!
+option_list = list(  
   make_option(c("--sdm"), type="character", default='biomod', 
               help="Which SDM to use (options are maxent (maxent), random forest (rf), and ensemble (biomod))", metavar="character"),
   make_option(c("--lonCol"), type="character", default="decimalLongitude",
@@ -339,8 +337,8 @@ opt = parse_args(opt_parser)
 # 
 startime = Sys.time()
 
-# 1. use Reticulate to grab the rasters from deepbiosphere the same way they're used for JRF
-clim <- dataset$get_bioclim_rasters()
+# 1. use Reticulate to grab the rasters from deepbiosphere the same way they're used for training other models (specifically using the normalize switch)
+clim <- build$get_bioclim_rasters(normalized='normalize')
 # generate list of R rasters, hackily from python
 tostack <- list()
 # can't use lapply because clim is a python object, so this is the
@@ -377,7 +375,7 @@ clim <-  clim[[kept]]
 ## 2. Parse species data
 ##----------------------------------------------------------------------------##
 
-#nbackground on best practices from Valavi et al. 2022
+# num. background on best practices from Valavi et al. 2022
 print(paste('using sdm ', opt$sdm ,"with dataset ", opt$dset_name, " and band ", opt$band))
 dset <- read.csv(paste0(py_to_r(paths$OCCS), opt$dset_name, '.csv'))
 

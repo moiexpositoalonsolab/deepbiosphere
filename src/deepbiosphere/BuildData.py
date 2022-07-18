@@ -3,6 +3,7 @@ import rasterio
 import geopandas as gpd
 from scipy.spatial import cKDTree
 from rasterio.windows import Window
+from rasterio.mask import mask as Mask
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
 
 # stats / data management packages
@@ -25,6 +26,7 @@ import json
 import argparse
 from tqdm import tqdm
 import multiprocessing
+from typing import List, Tuple
 from collections import Counter
 
 '''
@@ -37,12 +39,113 @@ what clusters observations were assigned to, and other points for full
 reproducibility.
 '''
 
+#------------ Types for typing hints ------------# 
+# List = typing.List
+# Lock = ??? 
+
 
 # conversion factor for latitude (longitude can change)
 # https://stackoverflow.com/questions/5217348/how-do-i-convert-kilometres-to-degrees-in-geodjango-geos
 DEG_2_KM = 0.008 # degrees to kilometers, 1 km aprox for latitude only
 
+
+def get_state_outline(state,file=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp"):
+    # get outline of us
+    us1 = gpd.read_file(file) # the state's shapefiles
+    stcol = [h.split('.')[-1].lower() for h in us1.HASC_1]
+    us1['state_col'] = stcol
+    # only going to use California
+    shps = us1[us1.state_col == state]
+    return shps
+
+
+def get_bioclim_rasters(normalized='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.NAIP_CRS, out_range=(-1,1), state='ca'):
+
+    # TODO: only works for us, gadm at the moment..
+    shpfile = get_state_outline(state)
+    # first, get raster files
+    # always grabs standard WSG84 version which starts with b for bioclim
+    if ras_paths is None:
+        rasters = f"{paths.RASTERS}wc_30s_current/wc*bio_*.tif"
+        ras_paths = glob.glob(rasters)
+    if len(ras_paths) < 1:
+        raise FileNotFoundError(f"no files found for {ras_paths}!")
+    ras_agg = []
+    transfs = []
+    # then load in rasters
+    for raster in tqdm(ras_paths, total=len(ras_paths), desc=" loading in rasters"):
+        # load in raster
+        src = rasterio.open(raster)
+        # got to make sure it's all in the same crs
+        # or indexing won't work
+        assert str(src.crs) == crs; "CRS doesn't match!"
+        shpfile = shpfile.to_crs(src.crs)
+        # rasterio mask function
+        cropped, transf = Mask(src, shpfile.geometry, crop=True, pad=True,all_touched=True)
+        masked = np.ma.masked_array(cropped, mask=(cropped==cropped.min()))
+        transfs.append(transf)
+        # depending on the chosen normalization strategy, normalize data
+
+        if normalized == 'normalize':
+            # z = (x- mean)/std
+            masked = (masked - masked.mean()) / np.std(masked)
+        elif normalized == 'min_max':
+            masked = utils.scale(masked, out_range=out_range)
+        elif normalized == 'none':
+            pass
+        else:
+            raise NotImplementedError(f"No normalization for {normalized} implemented!")
+        # finally, save raster name
+        ras_name = raster.split('/')[-1].split('.tif')[0]
+        ras_agg.append((masked, transf, ras_name))
+    # finally, make sure that all the rasters are the same transform!
+    for i, t1 in enumerate(transfs):
+        for j, t2 in enumerate(transfs):
+            assert t1 == t2, f"rasters don't match for {i}, {j} bioclim!"
+    # returns a list of numpy arrays with each raster
+    # plus the transform per-raster in order to use them together
+    return ras_agg
+
+
+def add_bioclim(dset, rasters):
+    #  precompute  the bioclim variables at each test locatoin
+    # 3rd element is the bioclim raster name
+    bioclim = {ras[2]:[] for ras in rasters}
+    for point in tqdm(daset.geometry,total=len(daset), unit='point'):
+        # since we've confirmed all the rasters have identical
+        # transforms previously, can just calculate the x,y coord once 
+        x,y = rasterio.transform.rowcol(rasters[0][1], *point.xy)
+        for j, (ras, transf, ras_name) in enumerate(rasters):
+            bioclim[ras_name].append(ras[0,x,y])
+    # now add the bioclim values to the dataset
+    for name, vals in bioclim.items():
+        dset[name] = vals
+    # and return
+    return dset
+
+
 def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID', frac=.1):
+    """_summary_
+
+    :param daset: _description_
+    :type daset: _type_
+    :param res: _description_
+    :type res: _type_
+    :param latname: _description_
+    :type latname: _type_
+    :param loname: _description_
+    :type loname: _type_
+    :param excl_dist: _description_
+    :type excl_dist: _type_
+    :param rng: _description_
+    :type rng: _type_
+    :param idCol: _description_, defaults to 'gbifID'
+    :type idCol: str, optional
+    :param frac: _description_, defaults to .1
+    :type frac: float, optional
+    :return: _description_
+    :rtype: _type_
+    """
     # rasterio pixels are up to 1200 m across
     # so be sure to grab points with no data leakage
     assert (res>=0.09) and (res <=30), "resolution should be in meters!"
@@ -172,8 +275,8 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
 
     return daset, train_clusters, test_clusters
 
-def save_data(daset, year, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname):
-    print("saving data!")
+def save_data(daset, year, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm):
+    print("saving data!)
     filepath = f"{paths.OCCS}{daset_id}"
     # theoretically we should remove useless columns
     # as well, but will save that to be manual for now
@@ -204,13 +307,30 @@ def save_data(daset, year, means, tr_clus, te_clus, sp, gen, fam, daset_id, coun
         'fam_2_id' : fam,
         'species_counts' : count_spec,
         'genus_counts' : count_gen,
-        'family_counts' : count_fam
+        'family_counts' : count_fam,
+        'bioclim_normalize' : bioclim_norm
     }
 
     with open(f"{filepath}_metadata.json", 'w') as f:
         json.dump(all_dat, f, indent=4)
 
-def calculate_means_parallel(rasters, procid, lock, year):
+# gonna not do type hints for now, just put it in the docstring instead as it's too complicated with
+# the interpreter complaining...
+def calculate_means_parallel(rasters, procid, lock, year: str):
+    """
+    calculate_means_parallel g
+
+    _extended_summary_
+
+    Args:
+        rasters (List[str]): _description_
+        procid (str): _description_
+        lock (multiprocessing.Manager.Lock): _description_
+        year (str): _description_
+
+    Returns:
+        Tuple[List,List]: _description_
+    """
     means = []
     stds = []
 
@@ -571,9 +691,9 @@ def add_overlapping_filter(daset, res, threshold=200, idCol='gbifID'):
     return daset, count_spec, count_gen, count_fam
 
 
-def add_ecoregions(dframe, idCol):
+def add_ecoregions(dframe, idCol, state):
     diff = time.time()
-    file = f"{paths.SHPFILES}ecoregions/ca/ca_eco_l3.shp"
+    file = f"{paths.SHPFILES}ecoregions/{state}/{state}_eco_l3.shp"
     shp_file = gpd.read_file(file)
     shp_file = shp_file.to_crs(dframe.crs)
     # default join is "intersects"
@@ -600,23 +720,28 @@ def add_ecoregions(dframe, idCol):
     return daset
 
 
-
-def filter_raster_oob(daset,rasters):
+def filter_raster_oob(daset):
     # go through each location and query the raster for that point
     # TODO: this code assumes it's a bioclim only set of rasters
     daset['out_of_bounds'] = False
-    daset = daset.to_crs(naip.NAIP_CRS) # bioclim rasters are guaranteed to be WSG84 crs
+    #convert to WSG85 since bioclim rasters are guaranteed to be WSG84 crs
+    daset = daset.to_crs(naip.NAIP_CRS) 
+    # grab only bioclim columns 
+    # TODO: come up with a bit neater way than only pulling '_bio' named columns
+    bio_names = [c for c in daset.columns if '_bio' in c]
+    bioclims = daset[bio_names]
     # then, go through and append the bioclim variables to the csv
-    for i, row in tqdm(daset.iterrows(),total=len(daset),desc='checking points inside raster', unit='  observations'):
-        for j, (ras, transf) in enumerate(rasters):
-        # go through each location and query the raster for that point
-            x,y = rasterio.transform.rowcol(transf, *row.geometry.xy)
-            if np.ma.is_masked(ras[0,x,y]):
-                daset['out_of_bounds'][i] = True
-                # no need going through other rasters bc out of bounds
-                break
+    for i, row in tqdm(bioclims.iterrows(),total=len(bioclims),desc='checking points inside raster', unit='  observations'):
+        bio = np.ma.stack(row.values)
+        if np.ma.is_masked(bio):
+            daset['out_of_bounds'][i] = True
     # filter out those out-of-bounds points
     daset = daset[~daset.out_of_bounds]
+    # finally, convert bioclim columns from masked arrays
+    # to floats for faster data reading
+    for col in bio_names:
+          # only one entry per cell
+        daset[col] = [i.compressed()[0] for i in daset[col]]
     return daset
 
 # Basically copying code from below that returns back just the polygons for visualization
@@ -784,7 +909,7 @@ def remove_singletons_duplicates(daset, res):
 
 
 # generate the csv
-def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp", to_keep=None):
+def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp", normalize, to_keep=None):
     daset = pd.read_csv(dset_path, sep=sep)
     pts = [Point(lon, lat) for lon, lat in zip(daset[loname], daset[latname])]
     # GBIF returns coordinates in WGS84 according to the API
@@ -814,17 +939,17 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     daset = daset[daset['class'].isin(vasculars)]
     # if there's a list of species to keep provided
     # go ahead and filter down now
+    # species will have to match exactly for this to work!
     if to_keep is not None:
           daset = daset[daset.species.isin(to_keep)]
     # and read in state outline
-    us1 = gpd.read_file(outline) # the state's shapefiles
-    ca = us1[us1.NAME_1 == 'California']
+    shps = get_state_outline(state,file=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp")
     # ensure dataframes are in the same crs
-    ca = ca.to_crs(naip.NAIP_CRS)
+    shps = shps.to_crs(naip.NAIP_CRS)
     # keep only points inside of GADM california
     if 'index_right' in daset.columns:
         del daset['index_right']
-    daset = gpd.sjoin(daset, ca, op='within')
+    daset = gpd.sjoin(daset, shps, op='within')
     # remove leftover index from ca shapefile
     del daset['index_right']
     # get resolution depending on what year it is
@@ -833,10 +958,11 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     res = 1.0 # TODO: going to see if more adjacent species increases accuracy for later years
     # this boolean allows us to just add the images if we so desire
     # keep only the points inside of rasters
-    rasters = dataset.get_bioclim_rasters()
-    daset = filter_raster_oob(daset, rasters)
+    rasters = dataset.get_bioclim_rasters(state, normalize=normalize)
+    daset = add_bioclim(daset, rasters)
+    daset = filter_raster_oob(daset)
     # add ecoregion
-    daset = add_ecoregions(daset, idCol)
+    daset = add_ecoregions(daset, idCol, state)
     # remove species only in one location in dataset
     # also remove extra duplicate observations
     daset = remove_singletons_duplicates(daset, res)
@@ -882,7 +1008,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
 #     means = calculate_means(tiff_dset_name, parallel, args.year)
     means = None
     # and finally save everything out to disk
-    save_data(daset, year, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname)
+    save_data(daset, year, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bio_norm)
 
 if __name__ == "__main__":
     # set up argparser
@@ -896,6 +1022,8 @@ if __name__ == "__main__":
     args.add_argument('--loname', type=str, help='Name of the column that contains latitude information', default='decimalLongitude')
     args.add_argument('--sep', type=str, required=True, help='The separator used to delimeter the base dataset')
     args.add_argument('--year', type=str, help='What year of NAIP to use to build the dataset')
+    args.add_argument('--state', type=str, help='What state to build the dataset in', default='ca')
+    args.add_argument('--normalize', type=str, help='How to normalize the bioclim variables', default='normalize', choices=['normalize', 'min_max', 'none'])
     args.add_argument('--state', type=str, help='What state to build the dataset in', default='ca')
     args.add_argument('--excl_dist', type=int, help='How far away to exclude data points in the uniform split', default=1300)
     args.add_argument('--threshold', type=int, help='Minimum number of observations required to keep a species in the dataset', default=200)
@@ -916,6 +1044,6 @@ if __name__ == "__main__":
     if args.species_file is not None:
         with open(args.species_file, 'r') as f:
             species = json.load(f)
-        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist, to_keep=species)
+        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist, args.normalize, to_keep=species)
     else:
-        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist)
+        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist, args.normalize)

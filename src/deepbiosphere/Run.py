@@ -18,6 +18,7 @@ import scipy.stats
 import pandas as pd
 from torch.utils.tensorboard import SummaryWriter
 from sklearn.metrics import precision_score, recall_score, f1_score, label_ranking_average_precision_score
+import sklearn.metrics as mets
 from numpy.random import default_rng
 # trying to make random number gernerator more reproducible
 # https://stackoverflow.com/questions/62309424/does-numpy-random-seed-always-give-the-same-random-number-every-time
@@ -96,14 +97,14 @@ def get_deltaP(x,y):
 def record_deltaP(x,y, tb_writer, step, split, taxon):
     dp = get_deltaP(x,y)
     tb_writer.add_scalar(f"{split}/{taxon}_deltaP", dp, step)
-   
+
 # TODO: when using test_only, just instantiate the test_dset by hand, duh
 def instantiate_datasets(cfg):
     if cfg.all_points:
         dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'all_points', cfg.latname, cfg.loname, cfg.idCol, cfg.augment)
-        specs = [spec for sublist in train_dset.dataset.specs_overlap_id for spec in sublist]
+        specs = [spec for sublist in dset.dataset.specs_overlap_id for spec in sublist]
         return dset, None, specs
-    else: 
+    else:
         test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.latname, cfg.loname, cfg.idCol, 'none')
         train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.latname, cfg.loname, cfg.idCol, cfg.augment)
         # figure out what species are present in both the train and the test split
@@ -112,7 +113,7 @@ def instantiate_datasets(cfg):
         test_specs = [spec for sublist in test_dset.dataset.specs_overlap_id for spec in sublist]
         shared_species = list(set(train_specs) & set(test_specs))
         return train_dset, test_dset, shared_species
-    
+
 
 # grab the right kind of model for the configuration
 def instantiate_model(device, cfg, dset):
@@ -126,9 +127,9 @@ def instantiate_model(device, cfg, dset):
             model =  MODELS[cfg.model](cfg.pretrain, num_spec=dset.nspec, num_gen=-1, num_fam=-1,  base_dir=paths.MODELS)
     else:
         if 'joint' in cfg.model:
-            model = MODELS[cfg.model](cfg.pretrain, num_spec=dset.nspec, num_gen=dset.ngen, num_fam=dset.nfam, env_rasters=dset.nrasters, base_dir=paths.MODELS) 
+            model = MODELS[cfg.model](cfg.pretrain, num_spec=dset.nspec, num_gen=dset.ngen, num_fam=dset.nfam, env_rasters=dset.nrasters, base_dir=paths.MODELS)
         else:
-            model = MODELS[cfg.model](cfg.pretrain, num_spec=dset.nspec, num_gen=dset.ngen, num_fam=dset.nfam, base_dir=paths.MODELS) 
+            model = MODELS[cfg.model](cfg.pretrain, num_spec=dset.nspec, num_gen=dset.ngen, num_fam=dset.nfam, base_dir=paths.MODELS)
     model = model.to(device)
     return model
 
@@ -141,8 +142,8 @@ def load_config(exp_id, band, loss, model):
     path = f"{paths.MODELS}configs/{model}_{loss}_band{band}_{exp_id}.json"
     with open(path, 'r') as f:
         return SimpleNamespace(**json.load(f))
-    
-    
+
+
 def load_model(device, cfg, dset, epoch, eval_=True):
     model_path= f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e{epoch}.tar"
     mdict =  torch.load(model_path, map_location=device)
@@ -151,9 +152,9 @@ def load_model(device, cfg, dset, epoch, eval_=True):
     model = model.to(device)
     if eval_:
         model.eval()
-    return model   
+    return model
 
-    
+
 def run(args, rng):
 
     start = time.time()
@@ -430,7 +431,7 @@ def run(args, rng):
         'dataset' : args.dataset_name,
         'band' : args.band,
         'gpu_mem' : torch.cuda.memory_allocated(device),
-        'epochs' : args.epoch
+        'epochs' : args.epochs
     }
     # save how long it took to run
     headers = ['time (in hours)', 'date', 'code', 'model', 'dataset', 'band', 'gpu_mem' , 'epochs']
@@ -453,8 +454,8 @@ if __name__ == "__main__":
     args.add_argument('--state', type=str, help='What state / region to train on', default='ca')
     args.add_argument('--dataset_name', type=str, required=True, help='Name of dataset file to use')
     args.add_argument('--dataset_type', type=str, required=True, help='Type of dataset to use (multispecies or single species)',choices=['multi_species', 'single_species', 'single_label'])
-    args.add_argument('--datatype', type=str, required=True, help='What kind of data to train on', choices=['bioclim', 'naip', 'joint_naip_bioclim']) 
-    args.add_argument('--pretrain', type=str, required=True, help='What kind of pretraining to sue', choices=['none', 'imagenet', 'mscoco']) 
+    args.add_argument('--datatype', type=str, required=True, help='What kind of data to train on', choices=['bioclim', 'naip', 'joint_naip_bioclim'])
+    args.add_argument('--pretrain', type=str, required=True, help='What kind of pretraining to sue', choices=['none', 'imagenet', 'mscoco'])
     args.add_argument('--band', type=int, default=-1, help='which band to use. -1 indicates that the spatial exclusion split of the data will be used')
     args.add_argument('--lr', type=float, required=True, help='what learning rate to use')
     args.add_argument('--latname', type=str, help='Name of the column that contains latitude information', default='decimalLatitude')
