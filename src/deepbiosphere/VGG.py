@@ -385,7 +385,7 @@ cfgs = {
 def _vgg(arch: str, cfg: str, batch_norm: bool, pretrained: str, base_dir : str, progress: bool, arch_type : str, num_spec : int, num_gen : int, num_fam : int, **kwargs: Any):
     
     # I should be able to deal with model architecture here b/c load_state_dict should keymatch properly
-    if pretrained is not 'none':
+    if pretrained != 'none':
         kwargs['init_weights'] = False
     if arch_type == 'plain':
         model = VGG(make_layers(cfgs[cfg], batch_norm=batch_norm, pretrained=pretrained), num_spec=num_spec, num_gen=num_gen, num_fam=num_fam, pretrained=pretrained, **kwargs)
