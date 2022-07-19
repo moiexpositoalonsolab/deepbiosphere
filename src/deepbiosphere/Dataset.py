@@ -118,7 +118,6 @@ class DeepbioDataset(TorchDataset):
         self.bioclim = torch.tensor(daset[bio_cols].values)
         self.nrasters = self.bioclim.shape[1]
 
-
         # every species in dataset
         # is guaranteed to be in the species
         # column so this is chill for now
@@ -150,8 +149,11 @@ class DeepbioDataset(TorchDataset):
         # next, map the indices and save them as numpy
         self.idx_map = {
             k:v for k, v in
-            zip(np.arange(len(self.dataset.index)), self.dataset.index)
+            zip(np.arange(len(daset.index)), daset.index)
         }
+        
+        self.pres_specs = [spec for sublist in daset.specs_overlap_id for spec in sublist]
+        self.len_dset = len(daset)
         # handle various cases of dataset_type
         # if training only on the specific species in the image
         if self.dataset_type == 'single_species':
@@ -195,7 +197,7 @@ class DeepbioDataset(TorchDataset):
         self.filenames = daset[f'filepath_{year}'].values
             
     def __len__(self):
-        return len(self.dataset)
+        return self.len_dset
 
     def check_idx(df_idx):
         return df_idx in self.index

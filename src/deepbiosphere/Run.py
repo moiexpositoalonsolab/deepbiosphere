@@ -109,9 +109,7 @@ def instantiate_datasets(cfg):
         train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.latname, cfg.loname, cfg.idCol, cfg.augment)
         # figure out what species are present in both the train and the test split
         # and only calculate accuracy metrics for those shared species
-        train_specs = [spec for sublist in train_dset.dataset.specs_overlap_id for spec in sublist]
-        test_specs = [spec for sublist in test_dset.dataset.specs_overlap_id for spec in sublist]
-        shared_species = list(set(train_specs) & set(test_specs))
+        shared_species = list(set(train_dset.pres_specs) & set(test_dset.pres_specs))
         return train_dset, test_dset, shared_species
 
 
@@ -169,7 +167,7 @@ def run(args, rng):
     #  only for debuggig
     if args.testing:
         # just take first 5K observations to speed up testing
-        train_dset.dataset = train_dset.dataset[:5000]
+        train_dset.len_dset = 5000
 
     if not args.all_points:
         # sanity check that there's no observation leakage
