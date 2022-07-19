@@ -6,7 +6,9 @@ from pyproj import Proj
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
 from scipy.spatial import cKDTree
 import rasterio
-from torch.utils.data import Dataset
+# Gotta rename otherwise this file gets overwritten
+# in the global vars 
+from torch.utils.data import Dataset as TorchDataset
 # deepbiosphere packages
 import deepbiosphere.NAIP_Utils  as naip
 import deepbiosphere.Utils as utils
@@ -96,7 +98,7 @@ def parse_string_to_float(string):
 
 
 
-class DeepbioDataset(Dataset):
+class DeepbioDataset(TorchDataset):
 
     def __init__(self, dataset_name, datatype, dataset_type, state, year, band, split, latName, loName, idCol, augment, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp"):
 
@@ -114,7 +116,7 @@ class DeepbioDataset(Dataset):
         # get the bioclim rows
         bio_cols = [c for c in daset.columns if '_bio' in c]
         self.bioclim = torch.tensor(daset[bio_cols].values)
-        self.nrasters = self.rasters.shape[1]
+        self.nrasters = self.bioclim.shape[1]
 
 
         # every species in dataset
@@ -143,9 +145,8 @@ class DeepbioDataset(Dataset):
             else:
                 # save either the test or train split of the data
                 daset = daset[daset.unif_train_test == split]
-        daset = daset.to_crs(naip.NAIP_CRS)
-        self.dataset = daset
-        print(f"{split} dataset has {len(self.dataset)} points")
+        #self.dataset = daset
+        print(f"{split} dataset has {len(daset)} points")
         # next, map the indices and save them as numpy
         self.idx_map = {
             k:v for k, v in

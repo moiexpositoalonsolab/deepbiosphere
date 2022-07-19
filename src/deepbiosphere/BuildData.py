@@ -276,7 +276,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
     return daset, train_clusters, test_clusters
 
 def save_data(daset, year, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm):
-    print("saving data!)
+    print("saving data!")
     filepath = f"{paths.OCCS}{daset_id}"
     # theoretically we should remove useless columns
     # as well, but will save that to be manual for now
@@ -909,7 +909,7 @@ def remove_singletons_duplicates(daset, res):
 
 
 # generate the csv
-def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp", normalize, to_keep=None):
+def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist,normalize, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp", to_keep=None):
     daset = pd.read_csv(dset_path, sep=sep)
     pts = [Point(lon, lat) for lon, lat in zip(daset[loname], daset[latname])]
     # GBIF returns coordinates in WGS84 according to the API
