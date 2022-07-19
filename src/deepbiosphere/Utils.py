@@ -18,14 +18,14 @@ IMG_SIZE = 256
 ## ---------- Paths to important directories ---------- ##
 
 paths = {
-    'OCCS' : '/home/lgillesp/deepbiosphere_data/occurrences/',
-    'SHPFILES' : '/home/lgillesp/deepbiosphere_data/shpfiles/',
-    'MODELS' : '/home/lgillesp/deepbiosphere_data/models/',
-    'IMAGES' : '/central/scratchio/lgillesp/deepbiosphere/images/',
-    'RASTERS' : '/home/lgillesp/deepbiosphere_data/rasters/',
-    'BASELINES' : '/home/lgillesp/deepbiosphere_data/baselines/',
-    'RESULTS' : '/home/lgillesp/deepbiosphere_data/results/',
-    'SCRATCH' : "NA",
+    'OCCS' : '/add/your/directory/here/occurrences/',
+    'SHPFILES' : '/add/your/directory/here/shpfiles/',
+    'MODELS' : '/add/your/directory/here/models/',
+    'IMAGES' : '/add/your/directory/here/images/',
+    'RASTERS' : '/add/your/directory/here/rasters/',
+    'BASELINES' : '/add/your/directory/here/baselines/',
+    'RESULTS' : '/add/your/directory/here/results/',
+    'SCRATCH' : "/add/your/directory/here/",
     'BLOB_ROOT' :  'https://naipeuwest.blob.core.windows.net/naip/' # have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', #
 }
 paths = SimpleNamespace(**paths)
