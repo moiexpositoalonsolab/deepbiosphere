@@ -106,6 +106,8 @@ class DeepbioDataset(TorchDataset):
         # load in observations & metadata
         daset = pd.read_csv(f"{paths.OCCS}{dataset_name}.csv")        
         metadata = json.load(open(f"{paths.OCCS}{dataset_name}_metadata.json", 'r'))
+        # TODO: read in the id and lat / lon columns from the metadata file!!!
+        
         # pandas saves lists as strings in csv, gotta parse back to strings
         parsed = [parse_string_to_int(s) for s in daset.specs_overlap_id]
         daset['specs_overlap_id'] = parsed

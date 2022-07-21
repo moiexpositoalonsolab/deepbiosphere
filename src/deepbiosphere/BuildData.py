@@ -59,7 +59,7 @@ def get_state_outline(state,file=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp")
     return shps
 
 
-def get_bioclim_rasters(normalized='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.NAIP_CRS, out_range=(-1,1), state='ca'):
+def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.NAIP_CRS, out_range=(-1,1), state='ca'):
 
     # TODO: only works for us, gadm at the moment..
     shpfile = get_state_outline(state)
@@ -86,15 +86,15 @@ def get_bioclim_rasters(normalized='normalize', base_dir=paths.RASTERS, ras_path
         transfs.append(transf)
         # depending on the chosen normalization strategy, normalize data
 
-        if normalized == 'normalize':
+        if normalize == 'normalize':
             # z = (x- mean)/std
             masked = (masked - masked.mean()) / np.std(masked)
-        elif normalized == 'min_max':
+        elif normalize == 'min_max':
             masked = utils.scale(masked, out_range=out_range)
-        elif normalized == 'none':
+        elif normalize == 'none':
             pass
         else:
-            raise NotImplementedError(f"No normalization for {normalized} implemented!")
+            raise NotImplementedError(f"No normalization for {normalize} implemented!")
         # finally, save raster name
         ras_name = raster.split('/')[-1].split('.tif')[0]
         ras_agg.append((masked, transf, ras_name))
@@ -111,7 +111,7 @@ def add_bioclim(dset, rasters):
     #  precompute  the bioclim variables at each test locatoin
     # 3rd element is the bioclim raster name
     bioclim = {ras[2]:[] for ras in rasters}
-    for point in tqdm(daset.geometry,total=len(daset), unit='point'):
+    for point in tqdm(dset.geometry,total=len(dset), unit='point'):
         # since we've confirmed all the rasters have identical
         # transforms previously, can just calculate the x,y coord once 
         x,y = rasterio.transform.rowcol(rasters[0][1], *point.xy)
@@ -275,7 +275,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
 
     return daset, train_clusters, test_clusters
 
-def save_data(daset, year, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm):
+def save_data(daset, year, state, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm, parallel):
     print("saving data!")
     filepath = f"{paths.OCCS}{daset_id}"
     # theoretically we should remove useless columns
@@ -308,7 +308,15 @@ def save_data(daset, year, means, tr_clus, te_clus, sp, gen, fam, daset_id, coun
         'species_counts' : count_spec,
         'genus_counts' : count_gen,
         'family_counts' : count_fam,
-        'bioclim_normalize' : bioclim_norm
+        'bioclim_normalize' : bioclim_norm,
+        'year' : year,
+        'state' : state,
+        'threshold' : threshold,
+        'excl_dist' : excl_dist,
+        'parallel' : parallel,
+        'latName' : latname,
+        'loName' : loname,
+        'idCol' : idCol
     }
 
     with open(f"{filepath}_metadata.json", 'w') as f:
@@ -316,7 +324,7 @@ def save_data(daset, year, means, tr_clus, te_clus, sp, gen, fam, daset_id, coun
 
 # gonna not do type hints for now, just put it in the docstring instead as it's too complicated with
 # the interpreter complaining...
-def calculate_means_parallel(rasters, procid, lock, year: str):
+def calculate_means_parallel(rasters, procid, lock, year: str, write_file):
     """
     calculate_means_parallel g
 
@@ -347,11 +355,16 @@ def calculate_means_parallel(rasters, procid, lock, year: str):
         stds.append(torch.std(dat,dim=[1,2]).tolist())
         with lock:
             prog.update(1)
+    # write to file if set
+    if write_file: 
+        fname = f'{paths.MISC}means_{year}_{procid}.json'
+        with open(fname, 'w') as f:
+            json.dump({'means' : means, 'stds' : stds, "files" : rasters }, f)
     with lock:
         prog.close()
     return means, stds
 
-def calculate_means(tiff_dset_name, parallel, year, rasters=None):
+def calculate_means(tiff_dset_name, parallel, year, rasters=None, write_file=False):
    # Decision: going to do it acros all satellite image, not all images in the dataset
     # load in previously generated means
     f = f"{paths.OCCS}dataset_means.json"
@@ -365,7 +378,7 @@ def calculate_means(tiff_dset_name, parallel, year, rasters=None):
 # parallel process the rasters
     lock = multiprocessing.Manager().Lock()
     pool =  multiprocessing.Pool(parallel)
-    res_async = [pool.apply_async(calculate_means_parallel, args=(ras, i, lock, year)) for i, ras in enumerate(ras_pars)]
+    res_async = [pool.apply_async(calculate_means_parallel, args=(ras, i, lock, year, write_file)) for i, ras in enumerate(ras_pars)]
     res_dfs = [r.get() for r in res_async]
     pool.close()
     pool.join()
@@ -734,7 +747,7 @@ def filter_raster_oob(daset):
     for i, row in tqdm(bioclims.iterrows(),total=len(bioclims),desc='checking points inside raster', unit='  observations'):
         bio = np.ma.stack(row.values)
         if np.ma.is_masked(bio):
-            daset['out_of_bounds'][i] = True
+            daset.at[i, 'out_of_bounds'] = True
     # filter out those out-of-bounds points
     daset = daset[~daset.out_of_bounds]
     # finally, convert bioclim columns from masked arrays
@@ -909,8 +922,8 @@ def remove_singletons_duplicates(daset, res):
 
 
 # generate the csv
-def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist,normalize, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp", to_keep=None):
-    daset = pd.read_csv(dset_path, sep=sep)
+def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, threshold, rng, idCol, parallel, add_images, only_images, excl_dist,normalize, calculate_means, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp", to_keep=None):
+    daset = pd.read_csv(dset_path, sep=sep, engine='python')
     pts = [Point(lon, lat) for lon, lat in zip(daset[loname], daset[latname])]
     # GBIF returns coordinates in WGS84 according to the API
     # https://www.gbif.org/article/5i3CQEZ6DuWiycgMaaakCo/gbif-infrastructure-data-processing
@@ -943,7 +956,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     if to_keep is not None:
           daset = daset[daset.species.isin(to_keep)]
     # and read in state outline
-    shps = get_state_outline(state,file=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp")
+    shps = get_state_outline(state)
     # ensure dataframes are in the same crs
     shps = shps.to_crs(naip.NAIP_CRS)
     # keep only points inside of GADM california
@@ -958,7 +971,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     res = 1.0 # TODO: going to see if more adjacent species increases accuracy for later years
     # this boolean allows us to just add the images if we so desire
     # keep only the points inside of rasters
-    rasters = dataset.get_bioclim_rasters(state, normalize=normalize)
+    rasters = get_bioclim_rasters(state=state, normalize=normalize)
     daset = add_bioclim(daset, rasters)
     daset = filter_raster_oob(daset)
     # add ecoregion
@@ -1005,11 +1018,13 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     # map species, genus, family to universal index
     daset, sp,gen,fam = map_to_index(daset)
     # get the means for this naip dataset
-#     means = calculate_means(tiff_dset_name, parallel, args.year)
-    means = None
+    if calculate_means:
+        means = calculate_means(tiff_dset_name, parallel, args.year)
+    else:
+        means = None
     # and finally save everything out to disk
-    save_data(daset, year, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bio_norm)
-
+    save_data(daset, year, state, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bio_norm, parallel)
+    
 if __name__ == "__main__":
     # set up argparser
     args = argparse.ArgumentParser()
@@ -1024,7 +1039,7 @@ if __name__ == "__main__":
     args.add_argument('--year', type=str, help='What year of NAIP to use to build the dataset')
     args.add_argument('--state', type=str, help='What state to build the dataset in', default='ca')
     args.add_argument('--normalize', type=str, help='How to normalize the bioclim variables', default='normalize', choices=['normalize', 'min_max', 'none'])
-    args.add_argument('--state', type=str, help='What state to build the dataset in', default='ca')
+    args.add_argument('--calculate_means', action='store_true', help="If you wish to calculate the means and std deviation for the image dataset, set this flag. (WARNING: using this option can require up to 1.5 TiB RAM and 60 CPUs. We recommend using the pre-computed values or batch calculating the means offline.)")
     args.add_argument('--excl_dist', type=int, help='How far away to exclude data points in the uniform split', default=1300)
     args.add_argument('--threshold', type=int, help='Minimum number of observations required to keep a species in the dataset', default=200)
     args.add_argument('--add_images', dest='add_images', action='store_true', help='Set this if you want to generate images for the observations')
@@ -1044,6 +1059,6 @@ if __name__ == "__main__":
     if args.species_file is not None:
         with open(args.species_file, 'r') as f:
             species = json.load(f)
-        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist, args.normalize, to_keep=species)
+        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist, args.normalize, args.calculate_means, to_keep=species)
     else:
-        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist, args.normalize)
+        make_dataset(args.dset_path, args.daset_id, args.latname, args.loname, args.sep, args.year, args.state, args.threshold, rng, args.idCol, args.parallel, args.add_images, args.only_images, args.excl_dist, args.normalize, args.calculate_means)
