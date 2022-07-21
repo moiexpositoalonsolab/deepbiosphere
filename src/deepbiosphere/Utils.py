@@ -25,7 +25,8 @@ paths = {
     'RASTERS' : '/add/your/directory/here/rasters/',
     'BASELINES' : '/add/your/directory/here/baselines/',
     'RESULTS' : '/add/your/directory/here/results/',
-    'SCRATCH' : "/add/your/directory/here/",
+    'MISC' : '/add/your/directory/here/misc/',
+    'SCRATCH' : "/add/your/directory/here/", # useful if using an instutition-wide compute cluster that has temporary high throuput / IO memory space
     'BLOB_ROOT' :  'https://naipeuwest.blob.core.windows.net/naip/' # have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', #
 }
 paths = SimpleNamespace(**paths)
