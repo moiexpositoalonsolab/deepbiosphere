@@ -39,9 +39,9 @@ what clusters observations were assigned to, and other points for full
 reproducibility.
 '''
 
-#------------ Types for typing hints ------------# 
+#------------ Types for typing hints ------------#
 # List = typing.List
-# Lock = ??? 
+# Lock = ???
 
 
 # conversion factor for latitude (longitude can change)
@@ -113,7 +113,7 @@ def add_bioclim(dset, rasters):
     bioclim = {ras[2]:[] for ras in rasters}
     for point in tqdm(dset.geometry,total=len(dset), unit='point'):
         # since we've confirmed all the rasters have identical
-        # transforms previously, can just calculate the x,y coord once 
+        # transforms previously, can just calculate the x,y coord once
         x,y = rasterio.transform.rowcol(rasters[0][1], *point.xy)
         for j, (ras, transf, ras_name) in enumerate(rasters):
             bioclim[ras_name].append(ras[0,x,y])
@@ -275,7 +275,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
 
     return daset, train_clusters, test_clusters
 
-def save_data(daset, year, state, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm, parallel):
+def save_data(daset, year, state, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm, parallel, threshold):
     print("saving data!")
     filepath = f"{paths.OCCS}{daset_id}"
     # theoretically we should remove useless columns
@@ -356,7 +356,7 @@ def calculate_means_parallel(rasters, procid, lock, year: str, write_file):
         with lock:
             prog.update(1)
     # write to file if set
-    if write_file: 
+    if write_file:
         fname = f'{paths.MISC}means_{year}_{procid}.json'
         with open(fname, 'w') as f:
             json.dump({'means' : means, 'stds' : stds, "files" : rasters }, f)
@@ -738,8 +738,8 @@ def filter_raster_oob(daset):
     # TODO: this code assumes it's a bioclim only set of rasters
     daset['out_of_bounds'] = False
     #convert to WSG85 since bioclim rasters are guaranteed to be WSG84 crs
-    daset = daset.to_crs(naip.NAIP_CRS) 
-    # grab only bioclim columns 
+    daset = daset.to_crs(naip.NAIP_CRS)
+    # grab only bioclim columns
     # TODO: come up with a bit neater way than only pulling '_bio' named columns
     bio_names = [c for c in daset.columns if '_bio' in c]
     bioclims = daset[bio_names]
@@ -1023,8 +1023,8 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     else:
         means = None
     # and finally save everything out to disk
-    save_data(daset, year, state, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bio_norm, parallel)
-    
+    save_data(daset, year, state, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, normalize, parallel, threshold)
+
 if __name__ == "__main__":
     # set up argparser
     args = argparse.ArgumentParser()
