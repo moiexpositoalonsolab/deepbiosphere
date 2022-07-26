@@ -6,7 +6,7 @@ from types import SimpleNamespace
 ## ---------- MAGIC NUMBERS ---------- ##
 
 # TODO: change all magic numbers to this
-# TODO: figure out what to do with this 
+# TODO: figure out what to do with this
 # because I can't have it in Dtaset.py
 # or nAIP_Utils.py because then they both
 # recursively use the other. Might need
@@ -139,7 +139,7 @@ def obs_topK(ytrue, yobs, K):
     # convert to probabilities if not done already
     if (yobs.min() <= 0.0) or (yobs.max() >= 1.0):
         yobs = torch.sigmoid(yobs)
-    # convert 
+    # convert
     tk = torch.topk(yobs, K)
     # compare indices and will be 1 for every row where
     # yob is in topK, 0 else. Summing across all dimensions
@@ -147,15 +147,15 @@ def obs_topK(ytrue, yobs, K):
     perob = (tk[1]== ytrue.unsqueeze(1).repeat(1,K)).sum().item()
     # don't forget to average
     return perob / len(ytrue)
-    
-    
+
+
 def species_topK(ytrue, yobs, K):
     yobs = torch.as_tensor(yobs)
     ytrue = torch.as_tensor(ytrue)
     # convert to probabilities if not done already
     if (yobs.min() <= 0.0) or (yobs.max() >= 1.0):
         yobs = torch.sigmoid(yobs)
-    # convert 
+    # convert
     tk = torch.topk(yobs, K)
     # get all unique species label and their indices
     # the order is backward somehow TOOD
