@@ -14,7 +14,6 @@ import pandas as pd
 # deepbio packages
 import deepbiosphere.Utils as utils
 from deepbiosphere.Utils import paths
-import deepbiosphere.Dataset as dataset
 import deepbiosphere.NAIP_Utils  as naip
 
 # misc packages
@@ -39,11 +38,6 @@ what clusters observations were assigned to, and other points for full
 reproducibility.
 '''
 
-#------------ Types for typing hints ------------#
-# List = typing.List
-# Lock = ???
-
-
 # conversion factor for latitude (longitude can change)
 # https://stackoverflow.com/questions/5217348/how-do-i-convert-kilometres-to-degrees-in-geodjango-geos
 DEG_2_KM = 0.008 # degrees to kilometers, 1 km aprox for latitude only
@@ -60,7 +54,6 @@ def get_state_outline(state,file=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp")
 
 
 def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.NAIP_CRS, out_range=(-1,1), state='ca'):
-
     # TODO: only works for us, gadm at the moment..
     shpfile = get_state_outline(state)
     # first, get raster files
@@ -85,7 +78,6 @@ def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths
         masked = np.ma.masked_array(cropped, mask=(cropped==cropped.min()))
         transfs.append(transf)
         # depending on the chosen normalization strategy, normalize data
-
         if normalize == 'normalize':
             # z = (x- mean)/std
             masked = (masked - masked.mean()) / np.std(masked)

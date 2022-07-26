@@ -18,15 +18,15 @@ IMG_SIZE = 256
 ## ---------- Paths to important directories ---------- ##
 
 paths = {
-    'OCCS' : '/home/lgillespie/deepbiosphere/data/occurrences/',
-    'SHPFILES' : '/home/lgillespie/deepbiosphere/data/shpfiles/',
-    'MODELS' : '/home/lgillespie/deepbiosphere/models/',
-    'IMAGES' : '/home/lgillespie/deepbiosphere/data/images/',
-    'RASTERS' : '/home/lgillespie/deepbiosphere/data/rasters/',
-    'BASELINES' : '/home/lgillespie/deepbiosphere/data/baselines/',
-    'RESULTS' : '/home/lgillespie/deepbiosphere/data/results/',
-    'SCRATCH' : "/NOBACKUP/scratch/lgillespie/naip/",
-    'MISC' : '/home/lgillespie/deepbiosphere/data/misc/',
+    'OCCS' : '/add/your/directory/here/occurrences/',
+    'SHPFILES' : '/add/your/directory/here/shpfiles/',
+    'MODELS' : '/add/your/directory/here/models/',
+    'IMAGES' : '/add/your/directory/here/images/',
+    'RASTERS' : '/add/your/directory/here/rasters/',
+    'BASELINES' : '/add/your/directory/here/baselines/',
+    'RESULTS' : '/add/your/directory/here/results/',
+    'MISC' : '/add/your/directory/here/misc/',
+    'SCRATCH' : "/add/your/directory/here/", # useful if using an instutition-wide compute cluster that has temporary high throuput / IO memory space
     'BLOB_ROOT' :  'https://naipeuwest.blob.core.windows.net/naip/' # have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', #
 }
 paths = SimpleNamespace(**paths)

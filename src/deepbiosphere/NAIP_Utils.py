@@ -58,7 +58,7 @@ def load_naip_bounds(base_dir : str, state: str, year : str):
 # mask returns an array and a transform, can just use that with rasterio.plot.show()
 
 
-# TODO: convert to use with new code 
+# TODO: convert to use with new code
 def predict_raster_list(device_no, tiffs, cfg, res, year, means, model_pth, cfg_pth, base_dir, warp):
     # necessary to work with parallel
     if device_no == 'cpu':
@@ -348,7 +348,7 @@ def predict_raster_arbitrary_res(sat_file, save_file, b_size, res, spec_names, d
         n_specs = len(spec_names)
              #TODO: hacky, eventually change or remove
         if "old" in modelname:
-            # the order is messed up but it's that way for all other 
+            # the order is messed up but it's that way for all other
             # network predictions, including how it was trained
             # so oh well...
             for i, (channel, mean) in enumerate(zip(means, dat)):
@@ -368,7 +368,7 @@ def predict_raster_arbitrary_res(sat_file, save_file, b_size, res, spec_names, d
         with torch.no_grad():
             if b_size > hig:
                 with tqdm(total=(math.ceil(hig/(b_size//hig))), unit="window") as prog:
-                    # if it can handle huge batch sizes, then take the 
+                    # if it can handle huge batch sizes, then take the
                     # floor(# rows this thing can take)
                     # going to forget the leftover bit for now too much effort for not that much speedup
                     for i in utils.chunks(i_ind, (b_size//hig)):
@@ -418,7 +418,7 @@ def predict_raster_arbitrary_res(sat_file, save_file, b_size, res, spec_names, d
     out_profile['dtype'] = np.float64
     out_profile.update(BIGTIFF="IF_SAFER")
     print("saving file now")
-    
+
     with rasterio.open(save_file, 'w', **out_profile) as dst:
         dst.write(result, range(1,n_specs+1))
         dst.descriptions = spec_names
