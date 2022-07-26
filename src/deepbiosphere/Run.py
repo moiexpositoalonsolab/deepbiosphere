@@ -166,8 +166,10 @@ def run(args, rng):
         shared_species = [spec for sublist in train_dset.dataset.specs_overlap_id for spec in sublist]
     #  only for debuggig
     if args.testing:
+        None
         # just take first 5K observations to speed up testing
-        train_dset.len_dset = 5000
+        # removing for really tiny dataset with only 1k obs
+        # train_dset.len_dset = 5000
 
     if not args.all_points:
         # sanity check that there's no observation leakage
@@ -205,7 +207,6 @@ def run(args, rng):
     if args.seed > 0:
         torch.cuda.manual_seed(args.seed)
         torch.manual_seed(args.seed)
-
     # set up parallelized data loader here
     train_loader = DataLoader(train_dset, args.batchsize, shuffle=True, pin_memory=False, num_workers=args.processes, collate_fn=collate, drop_last=False)
     if not args.all_points:
@@ -217,6 +218,9 @@ def run(args, rng):
         # have to turn on batchnorm and dropout again
         print(f"Starting epoch {epoch}")
         model.train()
+        taa = time.time()
+        print(f"{tick-taa} seconds for loading batch")
+        tock = time.time()
         for b in tqdm(train_loader, total=len(train_loader), unit='batch'):
             # reset optimizer for next batch
             optimizer.zero_grad()
@@ -231,8 +235,12 @@ def run(args, rng):
                 inputs = (inputs[0].float().to(device), inputs[1].float().to(device))
             else:
                 inputs = inputs.float().to(device)
+            tick = time.time()
+            print(f"{tick-tock} seconds to load data")
             # get outputs
             out = model(inputs)
+            tick = time.time()
+            print(f"{tick-tock} seconds to push through model")
             # handle special cases for loss
             # BCE requires float for targets for some reason
             if (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
@@ -244,8 +252,8 @@ def run(args, rng):
             # special case for inception since it only uses the species information
             elif args.model =='inception':
                 l1, aux = out
-                loss_1 = loss(l1, spec_true)
-                loss_2 = loss(aux, spec_true)
+                loss_1 = loss(l1, spec_true.float())
+                loss_2 = loss(aux, spec_true.float())
                 total_loss = loss_1 + loss_2
                 # spoof losses for tbwriter
                 loss_spec = loss_1
@@ -266,8 +274,12 @@ def run(args, rng):
                 loss_gen = loss(gens, gen_true)
                 loss_fam = loss(fams, fam_true)
                 total_loss = loss_spec + loss_gen + loss_fam
+            tick = time.time()
+            print(f"{tick-tock} seconds to calculate loss")
             total_loss.backward()
             optimizer.step()
+            tick = time.time()
+            print(f"{tick-tock} seconds to calculate gradients")
             if not args.testing:
                 #if ALS loss, save the delta p for tuning focal hyperparameters
                 if 'ASL' in args.loss:
@@ -278,6 +290,8 @@ def run(args, rng):
                 tb_writer.add_scalar("train/gen_loss", loss_gen.item(), steps)
                 tb_writer.add_scalar("train/fam_loss", loss_fam.item(), steps)
                 tb_writer.add_scalar("train/tot_loss", total_loss.item(), steps)
+            tick = time.time()
+            print(f"{tick-tock} seconds to store values")
             steps+=args.batchsize
         if not args.all_points:
             # test (only if not using entire dataset for training)
