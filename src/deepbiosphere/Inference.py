@@ -211,10 +211,11 @@ def run_inference(model, cfg, dloader, device):
 #             gens = gens.view(bs, ncrops, -1).mean(dim=1)
 #             fams = fams.view(bs, ncrops, -1).mean(dim=1)
             y_pred.append(specs.cpu())
-        elif cfg.model == 'inception':
-            y_pred.append(out.cpu())
-        elif 'speconly' in cfg.model:
-            y_pred.append(out.cpu())
+        elif (cfg.model == 'inception') or ('speconly' in cfg.model):
+            out = model(inputs)
+            y_pred.append(out.detach().cpu())
+        # elif 'speconly' in cfg.model:
+        #     y_pred.append(out.cpu())
         else:
             spec, _, _ = model(inputs)
             y_pred.append(spec.detach().cpu())
