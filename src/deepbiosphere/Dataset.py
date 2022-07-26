@@ -6,31 +6,28 @@ from pyproj import Proj
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
 from scipy.spatial import cKDTree
 import rasterio
-# Gotta rename otherwise this file gets overwritten
-# in the global vars 
 from torch.utils.data import Dataset as TorchDataset
 # deepbiosphere packages
 import deepbiosphere.NAIP_Utils  as naip
 import deepbiosphere.Utils as utils
+import deepbiosphere.BuildData as build
 from deepbiosphere.Utils import paths
 
 # torch / stats packages
 import torch
-import torchvision.transforms as T
-import torchvision.transforms.functional as TF
 import numpy as np
 import pandas as pd
+import torchvision.transforms as T
+import torchvision.transforms.functional as TF
 # miscellaneous packages
 import os
-import copy
-from tqdm import tqdm
-import random
 import time
 import math
 import glob
 import json
-
-
+import copy
+import random
+from tqdm import tqdm
 
 ## ---------- MAGIC NUMBERS ---------- ##
 # image size when fivecropping
@@ -39,7 +36,6 @@ FC_SIZE = 128
 DEGS = [15,30,45, 60,-75, 90]
 # the kernel to use for gaussian blurring and sharpening
 GKS = 5
-
 
 def random_augment(self,img):
     aug_choice = random.sample(range(4),1)
@@ -93,19 +89,17 @@ def parse_string_to_float(string):
     split = string.split(", ")
     return [float(s) for s in split]
 
-
-
-
-
-
 class DeepbioDataset(TorchDataset):
 
     def __init__(self, dataset_name, datatype, dataset_type, state, year, band, split, latName, loName, idCol, augment, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp"):
 
         print("reading in data")
         # load in observations & metadata
-        daset = pd.read_csv(f"{paths.OCCS}{dataset_name}.csv")        
+        daset = pd.read_csv(f"{paths.OCCS}{dataset_name}.csv")
+        # TODO: read in the id and lat / lon columns from the metadata file!!!
         metadata = json.load(open(f"{paths.OCCS}{dataset_name}_metadata.json", 'r'))
+        # TODO: read in the id and lat / lon columns from the metadata file!!!
+        
         # pandas saves lists as strings in csv, gotta parse back to strings
         parsed = [parse_string_to_int(s) for s in daset.specs_overlap_id]
         daset['specs_overlap_id'] = parsed
@@ -113,11 +107,6 @@ class DeepbioDataset(TorchDataset):
         daset['gens_overlap_id'] = parsed
         parsed = [parse_string_to_int(s) for s in daset.fams_overlap_id]
         daset['fams_overlap_id'] = parsed
-        # get the bioclim rows
-        bio_cols = [c for c in daset.columns if '_bio' in c]
-        self.bioclim = torch.tensor(daset[bio_cols].values)
-        self.nrasters = self.bioclim.shape[1]
-
         # every species in dataset
         # is guaranteed to be in the species
         # column so this is chill for now
@@ -144,14 +133,16 @@ class DeepbioDataset(TorchDataset):
             else:
                 # save either the test or train split of the data
                 daset = daset[daset.unif_train_test == split]
-        #self.dataset = daset
+        self.len_dset = len(daset)
+        self.ids = daset[idCol]
+        self.pres_specs = [spec for sublist in daset.specs_overlap_id for spec in sublist]
         print(f"{split} dataset has {len(daset)} points")
         # next, map the indices and save them as numpy
         self.idx_map = {
             k:v for k, v in
             zip(np.arange(len(daset.index)), daset.index)
         }
-        
+
         self.pres_specs = [spec for sublist in daset.specs_overlap_id for spec in sublist]
         self.len_dset = len(daset)
         # handle various cases of dataset_type
@@ -192,10 +183,35 @@ class DeepbioDataset(TorchDataset):
         self.gens = torch.tensor(daset.genus_id.tolist())
         self.fams = torch.tensor(daset.family_id.tolist())
         self.index = daset.index
+        # for when using bioclim data, read in the bioclim rasters
+        # usually the dataset will have the values pre-computed
+        bio_cols = [c for c in daset.columns if '_bio' in c]
+        if len(bio_cols) > 1:
+            print("bioclim pre-loaded!")
+            self.bioclim = torch.tensor(daset[bio_cols].values)
+            self.nrasters = self.bioclim.shape[1]
+        else:
+            self.rasters = build.get_bioclim_rasters()
+            self.nrasters = len(self.rasters)
+            pts = [Point(lon, lat) for lon, lat in zip(daset[loName], daset[latName])]
+            # GBIF returns coordinates in WGS84 according to the API
+            # https://www.gbif.org/article/5i3CQEZ6DuWiycgMaaakCo/gbif-infrastructure-data-processing
+            daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.NAIP_CRS)
+            #  precompute  the bioclim variables at each test locatoin
+            bioclim = []
+            for point in tqdm(daset.geometry,total=len(daset), unit='point'):
+                curr_bio = []
+                # since we've confirmed all the rasters have identical
+                # transforms, can just calculate the x,y coord once
+                x,y = rasterio.transform.rowcol(self.rasters[0][1], *point.xy)
+                for j, (ras, transf) in enumerate(self.rasters):
+                    curr_bio.append(ras[0,x,y])
+                bioclim.append(curr_bio)
+            self.bioclim = torch.tensor(np.squeeze(np.stack(bioclim)))
         # finally, grab the files for reading the images
         self.imagekeys = daset[idCol].values
         self.filenames = daset[f'filepath_{year}'].values
-            
+
     def __len__(self):
         return self.len_dset
 
@@ -206,11 +222,11 @@ class DeepbioDataset(TorchDataset):
     # idx should not* be from the original
     # dataframe index
     def __getitem__(self, idx):
-        
+
         if self.datatype == 'bioclim':
             if self.dataset_type == 'single_label':
                 return self.specs[idx], self.gens[idx], self.fams[idx], self.bioclim[idx]
-            else: 
+            else:
                 return self.all_specs[idx], self.all_gens[idx], self.all_fams[idx], self.bioclim[idx]
         elif self.datatype == 'joint_naip_bioclim':
             fileHandle = np.load(f"{paths.IMAGES}{self.filenames[idx]}")
@@ -229,12 +245,12 @@ class DeepbioDataset(TorchDataset):
                 imgs  = TF.five_crop(torch.tensor(img), size=(FC_SIZE,FC_SIZE))
                 which = random.sample(range(len(imgs)), 1)
                 img = imgs[which[0]]
-            # handle whether training with neighor labels or just individual 
+            # handle whether training with neighor labels or just individual
             if self.dataset_type == 'single_label':
                 return self.specs[idx], self.gens[idx], self.fams[idx], (img, self.bioclim[idx])
             else:
                 return self.all_specs[idx], self.all_gens[idx], self.all_fams[idx], (img, self.bioclim[idx])
-        else: 
+        else:
             fileHandle = np.load(f"{paths.IMAGES}{self.filenames[idx]}")
             img = fileHandle[f"{self.imagekeys[idx]}"]
             # scale+normalize image

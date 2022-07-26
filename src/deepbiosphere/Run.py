@@ -11,6 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import torchvision.transforms.functional as TF
+import sklearn.metrics as mets
 
 # statistics packages
 import numpy as np
@@ -98,11 +99,10 @@ def record_deltaP(x,y, tb_writer, step, split, taxon):
     dp = get_deltaP(x,y)
     tb_writer.add_scalar(f"{split}/{taxon}_deltaP", dp, step)
 
-# TODO: when using test_only, just instantiate the test_dset by hand, duh
 def instantiate_datasets(cfg):
     if cfg.all_points:
         dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'all_points', cfg.latname, cfg.loname, cfg.idCol, cfg.augment)
-        specs = [spec for sublist in dset.dataset.specs_overlap_id for spec in sublist]
+        specs = dset.pres_specs
         return dset, None, specs
     else:
         test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.latname, cfg.loname, cfg.idCol, 'none')
@@ -168,8 +168,8 @@ def run(args, rng):
     if args.testing:
         None
         # just take first 5K observations to speed up testing
-        # removing for really tiny dataset with only 1k obs
-        # train_dset.len_dset = 5000
+        if train_dset.len_dset > 5000:
+            train_dset.len_dset = 5000
 
     if not args.all_points:
         # sanity check that there's no observation leakage
