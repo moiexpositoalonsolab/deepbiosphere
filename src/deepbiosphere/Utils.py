@@ -168,10 +168,12 @@ def species_topK(ytrue, yobs, K):
         specs[unq[0][val.item()].item()].append(row)
     sas = []
     for spec, i in specs.items():
-        # spoof ytrue for this species
-        yt = torch.full((len(i),K), spec)
-        # and calculate 'per-obs' accuracy
-        sas.append((torch.stack(i)== yt).sum().item()/len(i))
+        # if nan, ignore species
+        if spec == spec:
+            # spoof ytrue for this species
+            yt = torch.full((len(i),K), spec)
+            # and calculate 'per-obs' accuracy
+            sas.append((torch.stack(i)== yt).sum().item()/len(i))
     # and take average
     return sum(sas)/len(ytrue)
 
