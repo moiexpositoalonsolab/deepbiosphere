@@ -53,7 +53,8 @@ MODELS = {
 LOSSES = {
     'ASL' : losses.AsymmetricLoss(),
     'ASLScaled' : losses.AsymmetricLossScaled(),
-    "BCE" : nn.BCEWithLogitsLoss(),
+    "BCE" : losses.BCE(),
+    # TODO: get rid of a-priori instantiation...
     "BCEScaled" : losses.AsymmetricLossScaled(gamma_neg=0, gamma_pos=0, clip=0.0),
     'BCEProbScaled' : losses.AsymmetricLossScaled(gamma_neg=1, gamma_pos=1, clip=0.0),
     'FocalLossScaled' : losses.AsymmetricLossScaled(gamma_neg=4, gamma_pos=1, clip=0.0),
@@ -218,9 +219,6 @@ def run(args, rng):
         # have to turn on batchnorm and dropout again
         print(f"Starting epoch {epoch}")
         model.train()
-        taa = time.time()
-        print(f"{tick-taa} seconds for loading batch")
-        tock = time.time()
         for b in tqdm(train_loader, total=len(train_loader), unit='batch'):
             # reset optimizer for next batch
             optimizer.zero_grad()
@@ -235,30 +233,30 @@ def run(args, rng):
                 inputs = (inputs[0].float().to(device), inputs[1].float().to(device))
             else:
                 inputs = inputs.float().to(device)
-            tick = time.time()
-            print(f"{tick-tock} seconds to load data")
             # get outputs
             out = model(inputs)
-            tick = time.time()
-            print(f"{tick-tock} seconds to push through model")
             # handle special cases for loss
-            # BCE requires float for targets for some reason
-            if (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
-                (specs, gens, fams) = out
-                loss_spec = loss(specs, spec_true.float())
-                loss_gen = loss(gens, gen_true.float())
-                loss_fam = loss(fams, fam_true.float())
-                total_loss = loss_spec + loss_gen + loss_fam
             # special case for inception since it only uses the species information
-            elif args.model =='inception':
+            if args.model =='inception':
                 l1, aux = out
-                loss_1 = loss(l1, spec_true.float())
-                loss_2 = loss(aux, spec_true.float())
+                if (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
+                    loss_1 = loss(l1, spec_true.float())
+                    loss_2 = loss(aux, spec_true.float())
+                else:
+                    loss_1 = loss(l1, spec_true)
+                    loss_2 = loss(aux, spec_true)
                 total_loss = loss_1 + loss_2
                 # spoof losses for tbwriter
                 loss_spec = loss_1
                 loss_gen = loss_2
                 loss_fam = torch.tensor(0)
+            # BCE requires float for targets for some reason
+            elif (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
+                (specs, gens, fams) = out
+                loss_spec = loss(specs, spec_true.float())
+                loss_gen = loss(gens, gen_true.float())
+                loss_fam = loss(fams, fam_true.float())
+                total_loss = loss_spec + loss_gen + loss_fam
             # again, special case for only species model
             elif 'speconly' in args.model:
                 spec = out
@@ -274,12 +272,8 @@ def run(args, rng):
                 loss_gen = loss(gens, gen_true)
                 loss_fam = loss(fams, fam_true)
                 total_loss = loss_spec + loss_gen + loss_fam
-            tick = time.time()
-            print(f"{tick-tock} seconds to calculate loss")
             total_loss.backward()
             optimizer.step()
-            tick = time.time()
-            print(f"{tick-tock} seconds to calculate gradients")
             if not args.testing:
                 #if ALS loss, save the delta p for tuning focal hyperparameters
                 if 'ASL' in args.loss:
@@ -290,8 +284,6 @@ def run(args, rng):
                 tb_writer.add_scalar("train/gen_loss", loss_gen.item(), steps)
                 tb_writer.add_scalar("train/fam_loss", loss_fam.item(), steps)
                 tb_writer.add_scalar("train/tot_loss", total_loss.item(), steps)
-            tick = time.time()
-            print(f"{tick-tock} seconds to store values")
             steps+=args.batchsize
         if not args.all_points:
             # test (only if not using entire dataset for training)
@@ -329,21 +321,26 @@ def run(args, rng):
                     else:
                         out = model(inputs)
                     # get loss on test set as well
+# TODO: clean up this messiness...
+                    # first, special cases like inception
+                    if args.model == 'inception':
+                        y_pred.append(out.cpu())
+                        if (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
+                            total_loss = loss(out, spec_true.float())
+                        else:
+                            total_loss = loss(out, spec_true)
+                        loss_spec = total_loss
+                        # spoof other two losses
+                        loss_gen = torch.tensor(0)
+                        loss_fam = torch.tensor(0)
                     # BCE requires float for targets for some reason
-                    if (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
+                    elif (args.loss == 'BCE') or (args.loss == 'BCEWeighted'):
                         (specs, gens, fams) = out
                         y_pred.append(specs.cpu())
                         loss_spec = loss(specs, spec_true.float())
                         loss_gen = loss(gens, gen_true.float())
                         loss_fam = loss(fams, fam_true.float())
                         total_loss = loss_spec + loss_gen + loss_fam
-                    elif args.model == 'inception':
-                        y_pred.append(out.cpu())
-                        total_loss = loss(out, spec_true)
-                        loss_spec = total_loss
-                        # spoof other two losses
-                        loss_gen = torch.tensor(0)
-                        loss_fam = torch.tensor(0)
                     elif 'speconly' in args.model:
                         y_pred.append(out.cpu())
                         loss_spec = loss(out, spec_true)
@@ -369,8 +366,12 @@ def run(args, rng):
                         tb_writer.add_scalar("test/tot_loss", total_loss.item(), test_steps)
                     test_steps += args.batchsize
                 # prepping for sklearn metrics
+                # depends on the loss fn what transform to apply
                 y_pred = torch.cat(y_pred, dim=0)
-                y_pred = torch.sigmoid(y_pred)
+                if args.loss in ['CE', 'CEWeighted']:
+                    y_pred = torch.softmax(y_pred,axis=1)
+                else:
+                    y_pred = torch.sigmoid(y_pred)
                 y_obs = y_pred >= 0.5
                 y_pred = y_pred.numpy()
                 y_obs = y_obs.numpy()

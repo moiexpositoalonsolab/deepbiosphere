@@ -41,13 +41,10 @@ ALPHA_NODATA = 9999
 
 ## ---------- class type hints ---------- ##
 # TOOD: remove??
-NAIP_shpfile  = gpd.geodataframe.GeoDataFrame
-Point = shapely.geometry.Point
+#NAIP_shpfile  = gpd.geodataframe.GeoDataFrame
+#Point = shapely.geometry.Point
 
-def load_cali_bounds(base_dir : str):
-     us1 = gpd.read_file(f'{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp') # the state's shapefiles
-     ca = us1[us1.NAME_1 == 'California']
-     return ca
+
 
 def load_naip_bounds(base_dir : str, state: str, year : str):
     return gpd.read_file(glob.glob(f"{base_dir}/naip_tiffs/{state}_shpfl_{year}/*.shp")[0])
@@ -88,6 +85,15 @@ def predict_raster_list(device_no, tiffs, cfg, res, year, means, model_pth, cfg_
     batchsize = batchsized(device, tiffs[0], model,params.params.batch_size, res, num_spec) # params.params.batch_size
     for raster in tqdm(tiffs):
         file = predict_raster(raster, model, batchsize, res, year, base_dir, modelname, num_spec, device, spec_names, warp, means)
+
+def get_state_outline(state, file=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp"):
+    # get outline of us
+    us1 = gpd.read_file(file) # the state's shapefiles
+    stcol = [h.split('.')[-1].lower() for h in us1.HASC_1]
+    us1['state_col'] = stcol
+    # only going to use California
+    shps = us1[us1.state_col == state]
+    return shps
 
 def diversity_raster_list(rasters, div, year, base_dir, modelname, warp, nodata):
     for ras in tqdm(rasters):
