@@ -72,6 +72,9 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     tick = time.time()
     id2sp = {v:k for k, v in sp2id.items()}
     yobs = preds >= thres
+    # make directory if it doesn't exist
+    if not os.path.exists(f"{paths.RESULTS}accuracy_metrics/"):
+        os.makedirs(f"{paths.RESULTS}accuracy_metrics/")
     # for locations with NaNs, impute
     # a probability of 0 at those locations
     # (only really relevant for baseline models)
@@ -81,7 +84,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         preds = np.ma.MaskedArray(preds, np.isnan(preds))        
     if np.ma.isMaskedArray(preds):
         preds = preds.filled(fill_value=0.0)
-    fname = f"{paths.RESULTS}overall_metrics_results.csv" if filename is None else f"{paths.RESULTS}{filename}overall_metrics_results.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/overall_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}accuracy_metrics/{filename}overall_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     overallcsv = open (fname, 'a')
     basics = {
@@ -124,7 +127,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     overallwriter.writerow(write_overall_metric(basics, sc, 'mAP', np.nan, np.nan))
     # now, write out per-species metrics
     print("starting per-species metrics")
-    fname = f"{paths.RESULTS}per_species_metrics_results.csv" if filename is None else f"{paths.RESULTS}{filename}per_species_metrics_results.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/per_species_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}accuracy_metrics/{filename}per_species_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     csvfile = open (fname, 'a')
     dict_ = { k: np.nan for k,v in sp2id.items()}
@@ -164,7 +167,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     csvfile.close()
     if write_obs:
         print('starting per-observation metrics')
-        name = f"{paths.RESULTS}per_observations_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}{filename}per_observations_metrics_results_band{band}.csv"
+        fname = f"{paths.RESULTS}accuracy_metrics/per_observations_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}accuracy_metrics/{filename}per_observations_metrics_results_band{band}.csv"
         fexists = os.path.isfile(fname)
         csvfile = open (fname, 'a')
         del basics['weight']
@@ -186,7 +189,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     tock = time.time()
     return (tock - tick)/60
 
-def run_inference(model, cfg, dloader, device):
+def run_inference(model, cfg, dloader, device, softmax_=False):
 
     y_pred = []
     for batch in tqdm(dloader, unit='batch'):
@@ -220,5 +223,11 @@ def run_inference(model, cfg, dloader, device):
             spec, _, _ = model(inputs)
             y_pred.append(spec.detach().cpu())
     y_pred = torch.cat(y_pred, dim=0)
-    y_pred = torch.sigmoid(y_pred)
+    if softmax_:
+        if cfg.loss in ['CPO', 'CE', 'CEWeighted']:
+            y_pred = torch.softmax(y_pred, dim=1)
+        else:
+            y_pred = torch.sigmoid(y_pred)
+    else:
+        y_pred = torch.sigmoid(y_pred)
     return y_pred.numpy()
