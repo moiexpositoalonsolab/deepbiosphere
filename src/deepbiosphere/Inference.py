@@ -23,6 +23,7 @@ import warnings
 from tqdm import tqdm
 from datetime import date
 from os.path import exists
+from tqdm import tqdm
 
 
 def load_baseline_preds(nobs, nspecs, sp2id, model, band='unif_train_test', dset_name='big_cali_2012'):
@@ -50,9 +51,9 @@ def write_overall_metric(dict_, sc, scorename, thres, weight):
     return dict_
 
 def write_topk_metric(dict_, single_ytrue, preds, K, topKmet, type_):
-    dict_['metric'] = f"{type_}_top_{K}"
+    dict_['metric'] = f"{type_}_top{K}"
     dict_['weight'] = np.nan
-    dict_['value'] =  topKmet(single_ytrue, preds, K)
+    dict_['value'] =  topKmet(single_ytrue, preds, K)[0]
     return dict_
 
 def write_spec_metric(dict_, metric, thres, vals, id2sp):
@@ -119,13 +120,11 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
             for avg in averages:
                 sc = score(ytrue[:,sharedspecs], yobs[:,sharedspecs], average=avg, zero_division=0.0)
                 overallwriter.writerow(write_overall_metric(basics, sc, score.__name__, thres, avg))
-    # run + write topK metrics
-    for i in [10,30,100]:
+    # run + write topK metrics 
+    for i in [5,30,100]:
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.obs_topK, 'obs'))
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.species_topK, 'species'))
-    sc = utils.mean_average_precision(preds, ytrue)
-    overallwriter.writerow(write_overall_metric(basics, sc, 'mAP', np.nan, np.nan))
-    # now, write out per-species metrics
+        # now, write out per-species metrics
     print("starting per-species metrics")
     fname = f"{paths.RESULTS}accuracy_metrics/per_species_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}accuracy_metrics/{filename}per_species_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
@@ -137,6 +136,8 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     writer = csv.DictWriter(csvfile, delimiter=',', lineterminator='\n',fieldnames=dict_.keys())
     if not fexists:
         writer.writeheader()  # file doesn't exist yet, write a header
+
+    # run + write out roc-auc, prc-auc
     aucs = []
     prcs = []
     assert len(preds.shape) == 2, 'too many dimensions in probabilty vector!'
@@ -153,17 +154,31 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
             prcs.append(np.nan)
     # also write out average AUCs
     aucmean = np.ma.MaskedArray(aucs, np.isnan(aucs)).mean()
-    overallwriter.writerow(write_overall_metric(basics, aucmean, 'average_ROC_AUC', np.nan, np.nan))
+    overallwriter.writerow(write_overall_metric(basics, aucmean, 'ROC_AUC', np.nan, np.nan))
     prcmean = np.ma.MaskedArray(prcs, np.isnan(prcs)).mean()
-    overallwriter.writerow(write_overall_metric(basics, prcmean, 'average_PRC_AUC', np.nan, np.nan))
-    overallcsv.close()  
+    overallwriter.writerow(write_overall_metric(basics, prcmean, 'PRC_AUC', np.nan, np.nan))
+    # and calibrated AUCs
+    cal_rocs, cal_prcs = utils.mean_calibrated_roc_auc_prc_auc(ytrue, yobs)
+    cal_rocmean = np.ma.MaskedArray(cal_rocs, np.isnan(cal_rocs)).mean()
+    overallwriter.writerow(write_overall_metric(basics, cal_rocmean, 'calibrated_ROC_AUC', np.nan, np.nan))
+    cal_prcmean = np.ma.MaskedArray(cal_prcs, np.isnan(cal_prcs)).mean()
+    overallwriter.writerow(write_overall_metric(basics, cal_prcmean, 'calibrated_PRC_AUC', np.nan, np.nan))
+    overallcsv.close()
+    
+    # get individual species for topK spec
+    for i in [5,30,100]:
+        _, specs = utils.species_topK(single_ytrue, preds, i)
+        writer.writerow(write_spec_metric(dict_, f'species_top{i}', i, specs, id2sp))
+    
     a = mets.precision_recall_fscore_support(ytrue, yobs, zero_division=0)
     writer.writerow(write_spec_metric(dict_, 'ROC_AUC', np.nan, aucs, id2sp))
     writer.writerow(write_spec_metric(dict_, 'PRC_AUC', np.nan, prcs, id2sp))
-    writer.writerow(write_spec_metric(dict_, 'Precision', thres, a[0], id2sp))
-    writer.writerow(write_spec_metric(dict_, 'Recall', thres, a[1], id2sp))
-    writer.writerow(write_spec_metric(dict_, 'F1', thres, a[2], id2sp))
-    writer.writerow(write_spec_metric(dict_, 'Support', thres, a[3], id2sp))
+    writer.writerow(write_spec_metric(dict_, 'calibrated_ROC_AUC', np.nan, cal_rocs, id2sp))
+    writer.writerow(write_spec_metric(dict_, 'calibrated_PRC_AUC', np.nan, cal_prcs, id2sp))
+    writer.writerow(write_spec_metric(dict_, 'precision_score', thres, a[0], id2sp))
+    writer.writerow(write_spec_metric(dict_, 'recall_score', thres, a[1], id2sp))
+    writer.writerow(write_spec_metric(dict_, 'f1_score', thres, a[2], id2sp))
+    writer.writerow(write_spec_metric(dict_, 'support', thres, a[3], id2sp))
     csvfile.close()
     if write_obs:
         print('starting per-observation metrics')
@@ -178,13 +193,23 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         if not fexists:
             writer.writeheader()  # file doesn't exist yet, write a header
         # finally, per-observation metrics
-        basics['metric'] = f"precision_perobs"
+        basics['metric'] = f"precision_score"
         val = utils.precision_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
-        write_obs_metrics(basics, 'precision_perobs', val, ids, writer)
+        write_obs_metrics(basics, 'precision_score', val, ids, writer)
         val =  utils.recall_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
-        write_obs_metrics(basics, 'recall_perobs', val, ids, writer)
+        write_obs_metrics(basics, 'recall_score', val, ids, writer)
         val =  utils.accuracy_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
         write_obs_metrics(basics, 'accuracy_perobs', val, ids, writer)
+        val =  utils.f1_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
+        write_obs_metrics(basics, 'f1_score', val, ids, writer)
+        
+        # get individual species for topK obs
+        # ignoring for now
+        # for i in [5,30,100]:
+        #     _, obs = utils.obs_topK(single_ytrue, preds, i)
+        # itn's not zipping obs properly, maybe a shape problem TODO:
+        #     write_obs_metrics(basics, f'obs_top{i}', obs, ids, writer)
+
         csvfile.close()  
     tock = time.time()
     return (tock - tick)/60

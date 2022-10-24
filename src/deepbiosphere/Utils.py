@@ -1,6 +1,8 @@
 import json
 import torch
 import numpy as np
+from tqdm import tqdm
+import sklearn.metrics as mets
 from types import SimpleNamespace
 
 ## ---------- MAGIC NUMBERS ---------- ##
@@ -15,18 +17,20 @@ from types import SimpleNamespace
 IMG_SIZE = 256
 
 
+
 ## ---------- Paths to important directories ---------- ##
 
 paths = {
-    'OCCS' : '/add/your/directory/here/occurrences/',
-    'SHPFILES' : '/add/your/directory/here/shpfiles/',
-    'MODELS' : '/add/your/directory/here/models/',
-    'IMAGES' : '/add/your/directory/here/images/',
-    'RASTERS' : '/add/your/directory/here/rasters/',
-    'BASELINES' : '/add/your/directory/here/baselines/',
-    'RESULTS' : '/add/your/directory/here/results/',
-    'MISC' : '/add/your/directory/here/misc/',
-    'SCRATCH' : "/add/your/directory/here/", # useful if using an instutition-wide compute cluster that has temporary high throuput / IO memory space
+    'OCCS' : '/home/lgillespie/deepbiosphere/data/occurrences/',
+    'SHPFILES' : '/home/lgillespie/deepbiosphere/data/shpfiles/',
+    'MODELS' : '/home/lgillespie/deepbiosphere/models/',
+    'IMAGES' : '/home/lgillespie/deepbiosphere/data/images/',
+    'RASTERS' : '/home/lgillespie/deepbiosphere/data/rasters/',
+    'BASELINES' : '/home/lgillespie/deepbiosphere/data/baselines/',
+    'RESULTS' : '/home/lgillespie/deepbiosphere/data/results/',
+    'MISC' : '/home/lgillespie/deepbiosphere/data/misc/',
+    'DOCS' : '/home/lgillespie/deepbiosphere/docs/',
+    'SCRATCH' : "/NOBACKUP/scratch/lgillespie/naip/",
     'BLOB_ROOT' :  'https://naipeuwest.blob.core.windows.net/naip/' # have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', #
 }
 paths = SimpleNamespace(**paths)
@@ -96,8 +100,6 @@ def precision_per_obs(ob_t: torch.tensor, y_t: torch.tensor, threshold=.5):
     ans[ans != ans] = 0
     return ans
 
-
-
 def recall_per_obs(ob_t, y_t, threshold=.5):
     ob_t = torch.as_tensor(ob_t)
     y_t = torch.as_tensor(y_t)
@@ -112,8 +114,6 @@ def recall_per_obs(ob_t, y_t, threshold=.5):
     # this relies on the assumption that all nans are 0-division
     ans[ans != ans] = 0
     return ans
-
-
 
 def accuracy_per_obs(ob_t, y_t, threshold=.5):
     ob_t = torch.as_tensor(ob_t)
@@ -130,8 +130,14 @@ def accuracy_per_obs(ob_t, y_t, threshold=.5):
     ans[ans != ans] = 0
     return ans
 
-
-# unfair for observations with >30 species, but whatever
+def f1_per_obs(ob_t, y_t, threshold=.5):
+    pre = precision_per_obs(ob_t, y_t, threshold)
+    rec = recall_per_obs(ob_t, y_t, threshold)
+    ans =  2*(pre*rec)/(pre+rec)
+    # if denom=0, F1 is 0
+    ans[ans != ans] = 0.0
+    return ans
+    
 def obs_topK(ytrue, yobs, K):
     # ytrue should be spec_id, not all_specs_id
     yobs = torch.as_tensor(yobs)
@@ -146,10 +152,11 @@ def obs_topK(ytrue, yobs, K):
     # gives you final sum (since only 1 obs per row)
     perob = (tk[1]== ytrue.unsqueeze(1).repeat(1,K)).sum().item()
     # don't forget to average
-    return perob / len(ytrue)
-
+    return (perob / len(ytrue)), (tk[1]== ytrue.unsqueeze(1).repeat(1,K))
 
 def species_topK(ytrue, yobs, K):
+    assert yobs.shape[1] > 1, "predictions are not multilabel!"
+    nspecs = yobs.shape[1]
     yobs = torch.as_tensor(yobs)
     ytrue = torch.as_tensor(ytrue)
     # convert to probabilities if not done already
@@ -158,7 +165,6 @@ def species_topK(ytrue, yobs, K):
     # convert
     tk = torch.topk(yobs, K)
     # get all unique species label and their indices
-    # the order is backward somehow TOOD
     unq = torch.unique(ytrue, sorted=False, return_inverse=True)
     # make a dict to store the results for each species
     specs = {v.item():[] for v in unq[0]}
@@ -167,43 +173,60 @@ def species_topK(ytrue, yobs, K):
     for val, row in zip(unq[1], tk[1]):
         specs[unq[0][val.item()].item()].append(row)
     sas = []
-    for spec, i in specs.items():
-        # if nan, ignore species
-        if spec == spec:
-            # spoof ytrue for this species
-            yt = torch.full((len(i),K), spec)
-            # and calculate 'per-obs' accuracy
-            sas.append((torch.stack(i)== yt).sum().item()/len(i))
-    # and take average
-    return sum(sas)/len(ytrue)
+    # add every species so csv writing works
+    for i in range(nspecs):
+        # ignore not present species
+        spec = specs.get(i)
+        if spec is None:
+            sas.append(np.nan)
+            continue
+        nspecs += 1
+        # spoof ytrue for this species
+        yt = torch.full((len(spec),K), i)
+        # and calculate 'per-obs' accuracy
+        sas.append((torch.stack(spec)== yt).sum().item()/len(spec))
+    sas = np.array(sas)
+    gsas = sas[~np.isnan(sas)]
+    sas = np.array(sas)
+    gsas = sas[~np.isnan(sas)]
+    return (sum(gsas) / len(gsas)), sas
 
-# taken from torchmetrics
-# code taken from https://github.com/pytorch/tnt/pull/21/files/d6f1f0065cade3e2f8104049ba08fcf6d85d15c8
-# explanation: https://blog.paperspace.com/mean-average-precision/
-def mean_average_precision(scores, targets):
-    scores = torch.as_tensor(scores)
-    targets = torch.as_tensor(targets)
-    if scores.numel() == 0:
-        return 0
-    ap = torch.zeros(scores.shape[1])
-    rg = torch.arange(1, scores.shape[0]+1).float()
-    # compute average precision for each class
-    for k in range(scores.shape[1]):
-        # sort scores
-        currsc = scores[:, k]
-        currtarg = targets[:, k]
-        # ignore classes with no presence in set
-        if currtarg.sum() == 0:
-            ap[k] = np.nan
+
+def mean_calibrated_roc_auc_prc_auc(y_true, y_obs, npoints=50):
+    assert y_true.shape == y_obs.shape
+    assert y_true.shape[1] > 1
+    assert y_obs.shape[1] > 1
+    roc_auc, prc_auc = [],[]
+    for i in tqdm(range(y_obs.shape[1]), total=y_obs.shape[1], unit='species'):
+        ra,pa = calibrated_roc_auc_prc_auc(y_true[:,i], y_obs[:,i])
+        roc_auc.append(ra)
+        prc_auc.append(pa)
+    return roc_auc, prc_auc
+
+# precision: tp / (tp + fp)
+# recall, TPR: tp / (tp + fn)
+# FPR = FP/(FP+TN)
+def calibrated_roc_auc_prc_auc(y_true, y_obs, npoints=50):
+    cutoffs = np.linspace(0.0, 1.0, npoints)
+    tpr, fpr, pre = [],[],[]
+    # ignore when there is no actual present case of this species
+    if y_true.sum() == 0:
+        return (np.nan, np.nan)
+    for i in cutoffs:
+        pred = (y_obs >= i).astype(np.short)
+        tn, fp, fn, tp = mets.confusion_matrix(y_true, pred).ravel()
+        if (tp + fn) > 0:
+            tpr.append(tp / (tp + fn))
         else:
-            _, sortind = torch.sort(currsc, 0, True)
-            truth = currtarg[sortind]
-            # compute true positive sums
-            tp = truth.float().cumsum(0)
-
-            # compute precision curve
-            precision = tp.div(rg)
-            # compute average precision
-            ap[k] = precision[truth.bool()].sum() / max(truth.sum(), 1)
-    # ignore absent classes
-    return ap[~torch.isnan(ap)].mean().item()
+            tpr.append(0)
+        if (fp+tn) > 0:
+            fpr.append(fp/(fp+tn))
+        else:
+            fpr.append(0)
+        if (tp + fp) > 0:
+            pre.append(tp / (tp + fp))
+        else:
+            pre.append(0)
+    # precision-recall x=recall, y=precision
+    # roc: x= fpr, y= tpr
+    return (mets.auc(tpr, pre),  mets.auc(fpr, tpr))

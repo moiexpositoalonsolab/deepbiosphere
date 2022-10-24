@@ -382,9 +382,9 @@ def run(args, rng):
                 y_true = y_true[:,shared_species]
                 # ranking metrics
                 sc = label_ranking_average_precision_score(test_dset.all_specs, y_pred)
-                top10 = utils.obs_topK(test_dset.specs, y_pred, 10)
-                top30 = utils.obs_topK(test_dset.specs, y_pred, 30)
-                top100 = utils.obs_topK(test_dset.specs, y_pred, 100)
+                top10, _ = utils.obs_topK(test_dset.specs, y_pred, 10)
+                top30, _ = utils.obs_topK(test_dset.specs, y_pred, 30)
+                top100, _ = utils.obs_topK(test_dset.specs, y_pred, 100)
                 mAP = utils.mean_average_precision(y_pred, test_dset.all_specs)
                 aucs = []
                 prcs = []
