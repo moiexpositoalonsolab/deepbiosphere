@@ -10,7 +10,7 @@ from torch.utils.data import Dataset as TorchDataset
 # deepbiosphere packages
 import deepbiosphere.NAIP_Utils  as naip
 import deepbiosphere.Utils as utils
-import deepbiosphere.BuildData as build
+import deepbiosphere.Build_Data as build
 from deepbiosphere.Utils import paths
 
 # torch / stats packages
@@ -196,7 +196,7 @@ class DeepbioDataset(TorchDataset):
             pts = [Point(lon, lat) for lon, lat in zip(daset[loName], daset[latName])]
             # GBIF returns coordinates in WGS84 according to the API
             # https://www.gbif.org/article/5i3CQEZ6DuWiycgMaaakCo/gbif-infrastructure-data-processing
-            daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.NAIP_CRS)
+            daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.GBIF_CRS)
             #  precompute  the bioclim variables at each test locatoin
             bioclim = []
             for point in tqdm(daset.geometry,total=len(daset), unit='point'):
@@ -204,7 +204,7 @@ class DeepbioDataset(TorchDataset):
                 # since we've confirmed all the rasters have identical
                 # transforms, can just calculate the x,y coord once
                 x,y = rasterio.transform.rowcol(self.rasters[0][1], *point.xy)
-                for j, (ras, transf) in enumerate(self.rasters):
+                for j, (ras, transf,_,_) in enumerate(self.rasters):
                     curr_bio.append(ras[0,x,y])
                 bioclim.append(curr_bio)
             self.bioclim = torch.tensor(np.squeeze(np.stack(bioclim)))
