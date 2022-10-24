@@ -217,8 +217,8 @@ def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="20
     # unzip files from gbif
     i = 0
     with zipfile.ZipFile(savelink, 'r') as zip_ref:
+        # names = the unique DOI GBIF assigns to each download
         names = zip_ref.namelist()
-        print( names)
         currdir = f"{os.path.dirname(savepath)}/"
         if len(names) == 1:
             # and use savepath
