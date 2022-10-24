@@ -137,7 +137,7 @@ class TResNet(Module):
 
 
     def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, width_factor=1.0,
-                 do_bottleneck_head=False,bottleneck_features=512):
+                 do_bottleneck_head=False,bottleneck_features=512, encode=False):
         super(TResNet, self).__init__()
 
         # JIT layers
@@ -146,6 +146,7 @@ class TResNet(Module):
         global_pool_layer = FastAvgPool2d(flatten=True)
 
         self.pretrained = pretrained
+        self.encode = encode
         self.num_spec = num_spec
         self.num_gen = num_gen
         self.num_fam = num_fam
@@ -237,12 +238,14 @@ class TResNet(Module):
             x = self.conv4band(x)
         elif self.pretrained == 'feat_ext':
             x = x[:,:3]
-        # removing since doing dataset normalization
-#         if self.pretrained != 'none':
-#             x = x / 255.0 # from TResNet inference code likely for data scaling but idk¯\_(ツ)_/¯
 
         x = self.body(x)
         self.embeddings = self.global_pool(x)
+        # if we're encoding, we want
+        # everything in forward() except output layers
+        if self.encode:
+            return self.embeddings
+        
         spec = self.spec(self.embeddings)
         # use all 3 taxonomic levels for training
         if (self.num_gen != -1) & (self.num_fam != -1):
@@ -256,15 +259,14 @@ class TResNet(Module):
         # use only species taxonomic level
         else:
             return spec
-
-
+    
 
 
 class Joint_TResNet(Module):
 
 
     def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, nlayers=4, drop=.25, width_factor=1.0,
-                 do_bottleneck_head=False,bottleneck_features=512):
+                 do_bottleneck_head=False,bottleneck_features=512, encode=False):
         super(Joint_TResNet, self).__init__()
 
         # JIT layers
@@ -273,6 +275,7 @@ class Joint_TResNet(Module):
         global_pool_layer = FastAvgPool2d(flatten=True)
 
         self.pretrained = pretrained
+        self.encode = encode
         self.num_spec = num_spec
         self.num_gen = num_gen
         self.num_fam = num_fam
@@ -409,6 +412,12 @@ class Joint_TResNet(Module):
         rasters = self.mlp(rasters)
         x = torch.cat((x, rasters), dim=1)
         x = self.intermediate2(x)
+        
+        # if we're encoding, we want
+        # everything in forward() except output layers
+        if self.encode:
+            return x
+        
         # use all 3 taxonomic levels for training
         spec = self.spec(x)
         if (self.num_gen != -1) & (self.num_fam != -1):
