@@ -1,13 +1,15 @@
 # rasterio packages
 import rasterio
 from rasterio import Affine
+from rasterio import profiles
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.enums import Resampling
 from rasterio.enums import Resampling
 
 # GIS packages
-import shapely
+import shapely as shp
 import geopandas as gpd
+from pyproj import Transformer as projTransf
 from shapely.geometry import Point, Polygon
 
 # deepbio functions
@@ -19,6 +21,7 @@ from deepbiosphere.Utils import paths
 import torch
 import numpy as np
 from scipy.spatial import distance
+import torchvision.transforms.functional as TF
 
 # misc functions
 import os
@@ -32,10 +35,10 @@ from functools import reduce
 
 # standard WSG84 CRS. This is what
 # CRS the GBIF observations come in
-NAIP_CRS='EPSG:4326'
+GBIF_CRS='EPSG:4326'
 # The two CRS for the NAIP tifs
-M_CRS_1 = 'EPSG:26911'
-M_CRS_2 = 'EPSG:26910'
+NAIP_CRS_1 = 'EPSG:26911'
+NAIP_CRS_2 = 'EPSG:26910'
 # random value to fill in for missing alpha diversity values
 ALPHA_NODATA = 9999
 
@@ -54,6 +57,29 @@ def load_naip_bounds(base_dir : str, state: str, year : str):
 # TODO: solve the whole merge bug problem thing
 # mask returns an array and a transform, can just use that with rasterio.plot.show()
 
+def find_rasters_point(gdf, point,  base_dir  : str):
+    #check_bands(bands)
+    rasters = gdf[gdf.contains(point)]
+    rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.tif" for _, fman in rasters.iterrows()]
+    return rasters
+
+def find_rasters_polygon(gdf, polygon, base_dir):
+
+    rasters = gdf[gdf.intersects(polygon)]
+    rasters = [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.tif" for _, fman in rasters.iterrows()]
+    return rasters
+
+def find_rasters_gdf(raster_gdf, slice_gdf, base_dir):
+    raster_gdf = raster_gdf.to_crs(slice_gdf.crs)
+    select = np.zeros((len(raster_gdf)))
+    for shape in slice_gdf.geometry:
+        select[raster_gdf.intersects(shape).values] = True
+    subset = raster_gdf[select > 0]
+    return [f"{base_dir}/{fman.APFONAME[:5]}/{'_'.join(fman.FileName.split('_')[:-1])}.tif" for _, fman in subset.iterrows()], subset
+    
+
+def bounding_box_to_polygon(bounds):
+    return shp.geometry.Polygon([(bounds.left, bounds.top), (bounds.left, bounds.bottom), (bounds.right, bounds.bottom), (bounds.right, bounds.top)])
 
 # TODO: convert to use with new code
 def predict_raster_list(device_no, tiffs, cfg, res, year, means, model_pth, cfg_pth, base_dir, warp):
@@ -302,17 +328,17 @@ def diversity_raster(rasname, metric, year, base_dir, modelname, nodata=9999, wa
                 raise ValueError(f"you must set a nodata value that is not in the range of your output array [{output.min()}, {output.max()}]! ")
         kwargs = src.meta.copy()
         kwargs.update({'count' : 1, 'dtype' : output.dtype, 'nodata' : nodata, 'width': output.shape[-1], 'height': output.shape[-2]})
-        if warp and src.crs != NAIP_CRS:
+        if warp and src.crs != GBIF_CRS:
             # use rasterio to reproject https://rasterio.readthedocs.io/en/latest/topics/reproject.html
-            nnt, wid, hig = calculate_default_transform(src.crs, NAIP_CRS, src.width, src.height, *src.bounds)
+            nnt, wid, hig = calculate_default_transform(src.crs, GBIF_CRS, src.width, src.height, *src.bounds)
             kwargs.update({
                 'width': wid,
                 'height': hig,
                 'transform' : nnt,
-                'crs' : NAIP_CRS,
+                'crs' : GBIF_CRS,
             })
             dest = np.full([hig, wid], nodata, dtype=dtype)
-            reproject(output, dest, src_transform=src.transform, src_crs=src.crs, dst_transform=nnt,dst_crs=NAIP_CRS,resampling=Resampling.bilinear)
+            reproject(output, dest, src_transform=src.transform, src_crs=src.crs, dst_transform=nnt,dst_crs=GBIF_CRS,resampling=Resampling.bilinear)
             output = dest
         fname = f"{base_dir}inference/prediction/{metric}_diversity/{modelname}{rasname.split(modelname)[-1]}"
         if not os.path.exists(fname.rsplit('/',1)[0]): # make directory if needed
@@ -338,93 +364,271 @@ def get_beta_files(shpfile, modelname, base_dir, ca_tifb):
     print(fnames[0])
     return fnames
 
-
-def predict_raster_arbitrary_res(sat_file, save_file, b_size, res, spec_names, device, model, modelname, means, std=0, img_size=utils.IMG_SIZE):
+  
+def predict_joint_array_arbitrary_res(dat, transform, crs, save_file, rasters, b_size, res, spec_names, device, model, modelname, means, std, img_size=utils.IMG_SIZE):
     # TODO: if batch size is too big, this breaks??
     tock = time.time()
-    with rasterio.open(sat_file) as sat:
-        dat = sat.read()
-        swidth, sheight = sat.width, sat.height
-        if b_size > swidth:
-            raise NotImplementedError
-        # leave off the last pixels for which we don't have a full 256 image for
-        # TODO: remove magic number ofi mage size
-        i_ind = range(0, swidth-img_size, res)
-        j_ind = range(0, sheight-img_size, res)
-        n_specs = len(spec_names)
-             #TODO: hacky, eventually change or remove
-        if "old" in modelname:
-            # the order is messed up but it's that way for all other
-            # network predictions, including how it was trained
-            # so oh well...
-            for i, (channel, mean) in enumerate(zip(means, dat)):
-                dat[i,:,:] = mean - channel
-        else:
-            dat = utils.scale(dat, out_range=(0,1), min_=0, max_=255)
-            datt = np.copy(dat)
-            datt = datt.astype(np.float)
-            for channel in range(len(means)):
-                datt[channel,:,:] = (dat[channel,:,:]-means[channel])/std[channel]
-            dat = datt
-        wid, hig = len(i_ind), len(j_ind)
-        # make receiver array
-        result = np.full([n_specs, hig, wid],np.nan,  dtype=np.float64)
-        ii = 0
+    assert len(dat.shape) == 3, 'wrong dimensions for array!'
+    swidth, sheight = dat.shape[2], dat.shape[1]
+    nwidth, nheight = swidth-img_size, sheight-img_size
+    # nwidth, nheight = swidth-(img_size+res), sheight-(img_size+res)
+    print(nheight, nwidth)
+    i_ind = range(0, nwidth, res)
+    j_ind = range(0, nheight, res)
+    n_specs = len(spec_names)
+    wid, hig = len(i_ind), len(j_ind)
+    print(wid, hig)
+    # make receiver array
+    result = np.full([n_specs, hig, wid],np.nan,  dtype=np.float32)
+    ii = 0
+    # can't handle a batch size larger than one row
+    if b_size > wid:
+        raise NotImplementedError
 
-        with torch.no_grad():
-            if b_size > hig:
-                with tqdm(total=(math.ceil(hig/(b_size//hig))), unit="window") as prog:
-                    # if it can handle huge batch sizes, then take the
-                    # floor(# rows this thing can take)
-                    # going to forget the leftover bit for now too much effort for not that much speedup
-                    for i in utils.chunks(i_ind, (b_size//hig)):
-                        ba  = [[dat[:, c:c+img_size, r:r+img_size] for c in j_ind] for r in i]
-                        ba = np.vstack(ba)
-                        tc = torch.tensor(ba, dtype=torch.float)
-                        tc = tc.to(device)
-                        out, a, b = model(tc)
-                        out = np.squeeze(out.detach().cpu().numpy())
-                        for k in range(len(i)):
-                            result[:,:,ii] = out.T[:,k:k+hig]
-                            ii += 1
-                        prog.update(1)
-
-            else:
-                with tqdm(total=(len(i_ind)*(len(j_ind)//b_size)), unit="window") as prog:
-                    for i in i_ind:
-                        jj = 0
-                        for j in utils.chunks(j_ind, b_size):
-                            # max batch size this way is len(j_ind)...
-                            ba = [dat[:, c:c+img_size, i:i+img_size] for c in j]
-                            # it really is the size lol
-                            tc = torch.tensor(ba, dtype=torch.float)
-                            tc = tc.to(device)
-                            out, a, b = model(tc)
-                             #  TODO: make sure flipping i, j fixed problems
-                            out = np.squeeze(out.detach().cpu().numpy())
-                            # TODO: this will fail on the last row, likely will need to troubleshoot the leftovers
-                            # doesn't fail b/c we cut off the leftovers above
-                            result[:,jj:jj+b_size,ii] = out.T
-                            jj +=b_size
-                            prog.update(1)
-                        ii += 1
-            prog.close()
-
-
-        out_profile = sat.profile
-        bounds = sat.bounds
-    out_res = (sat.width/wid, sat.height/hig)
-    out_profile['res'] = out_res
+    print(nwidth, nheight, swidth, sheight, wid, hig)
+        
+        
+    with torch.no_grad():
+        with tqdm(total=len(i_ind)*(len(j_ind)//b_size)*2, unit="window") as prog:
+            # go row by row down raster
+            for i in i_ind:
+                jj = 0
+                # chunk up the row into batches
+                for j in utils.chunks(j_ind, b_size):
+                    # grab the x / y of top left corner of each image for the climate
+                    xys = rasterio.transform.xy(transform, *zip(*[(c,i) for c in j]))
+                    # transform x,y into lat/lon crs
+                    transf = projTransf.from_crs(crs, GBIF_CRS)
+                    xys = list(transf.itransform(zip(*xys)))
+                    # and grab the climate from the raster
+                    # alas can't use list comprehention
+#                     clims = [raster[0, *rasterio.transform.rowcol(transf, x, y)] for raster, transf in rasters for y,x in xys]
+                    clims = []
+                    for y, x in xys:
+                        clim = []
+                        for (raster, transf,_) in rasters:
+                            row, col = rasterio.transform.rowcol(transf, x, y)
+                            clim.append(raster[0,row,col])
+                        clims.append(clim)
+                    clim = np.vstack(clims)
+                    # grab each image at the resolution we prefer from image raster
+                    tc = [dat[:, c:c+img_size, i:i+img_size] for c in j]
+                    # normalize, scale
+                    tc = [utils.scale(t, out_range=(0,1), min_=0, max_=255) for t in tc]
+                    tc = [TF.normalize(torch.tensor(t, dtype=torch.float), means, std) for t in tc]
+                    # zip together climate and images
+                    inputs = [ (t, torch.tensor(c, dtype=torch.float)) for t, c in zip(tc, clim)]
+                    inputs = list(zip(*inputs))
+                    # for j, i in enumerate(inputs[0]):
+                    #     print(j, i.shape)
+                    inputs = (torch.stack(inputs[0]), torch.stack(inputs[1]))
+                    inputs = ( inputs[0].to(device), inputs[1].to(device))
+                    out = model(inputs)
+                    out = np.squeeze(out[0].detach().cpu().numpy())
+                    # flip outputs to move species axis to 1st axis,
+                    # batch axis to row
+                    result[:,jj:jj+b_size,ii] = out.T
+                    jj +=b_size
+                    prog.update(1)
+                ii += 1
+    prog.close()
+    # ugly code to save results to raster    
+    out_profile = profiles.DefaultGTiffProfile()
+    # get the true bounds of image (accounts for lost pixels on edge)
+    west,  north = rasterio.transform.xy(transform, [0],[0])
+    east, south = rasterio.transform.xy(transform, [nheight],[nwidth])
+    transf = rasterio.transform.from_bounds(west[0], south[0], east[0], north[0], wid, hig)
+    bounds = rasterio.transform.array_bounds(hig, wid, transf)
+    # get true resolution as well
+    out_res = (nwidth/wid, nheight/hig)
     # dst_w = left, dst_n = top
-    trans = Affine.translation(bounds.left, bounds.top) * Affine.scale(out_res[0], -out_res[1])
-    out_profile['transform'] = trans
+    # trans = Affine.translation(bounds.left, bounds.top) * Affine.scale(out_res[0], -out_res[1])
+    out_profile['res'] = out_res
+    out_profile['bounds'] = bounds
+    out_profile['transform'] = transf
     out_profile['height'] = hig
-    out_profile['width'] = wid # +1 ecause there's the leftover bits? or is it -1 on the range?
+    out_profile['width'] = wid 
     out_profile['count'] = n_specs
-    out_profile['dtype'] = np.float64
+    out_profile['dtype'] = result.dtype
     out_profile.update(BIGTIFF="IF_SAFER")
     print("saving file now")
+    if not os.path.exists(os.path.dirname(save_file)):
+        os.makedirs(os.path.dirname(save_file))
+    with rasterio.open(save_file, 'w', **out_profile) as dst:
+        dst.write(result, range(1,n_specs+1))
+        dst.descriptions = spec_names
+    tick = time.time()
+    print(f"file {save_file.split('/')[-1]} took {(tick-tock)/60} minutes")
 
+
+# TODO: can't handle resolution lower than the actual resolution used for training
+def predict_raster_arbitrary_res(sat_file, save_file, b_size, res, spec_names, device, model, modelname, means, std, img_size=utils.IMG_SIZE):
+    # TODO: if batch size is too big, this breaks??
+    tock = time.time()
+    sat  = rasterio.open(sat_file)
+    dat = sat.read()
+    swidth, sheight = sat.width, sat.height
+    # leave off the last pixels for which we don't have a full 256 image for
+    nwidth, nheight = swidth-img_size, sheight-img_size
+    i_ind = range(0, nwidth, res)
+    j_ind = range(0, nheight, res)
+    n_specs = len(spec_names)
+    wid, hig = len(i_ind), len(j_ind)
+    # make receiver array
+    result = np.full([n_specs, hig, wid],np.nan,  dtype=np.float32)
+    ii = 0
+    # can't handle a batch size larger than one row
+    if b_size > wid:
+        raise NotImplementedError
+
+    with torch.no_grad():
+        with tqdm(total=len(i_ind)*(len(j_ind)//b_size)*2, unit="window") as prog:
+            # go row by row down raster
+            for i in i_ind:
+                jj = 0
+                # chunk up the row into batches
+                for j in utils.chunks(j_ind, b_size):
+                    # grab each image at the resolution we prefer from image raster
+                    tc = [dat[:, c:c+img_size, i:i+img_size] for c in j]
+                    # normalize, scale
+                    tc = [utils.scale(t, out_range=(0,1), min_=0, max_=255) for t in tc]
+                    tc = [TF.normalize(torch.tensor(t), means, std) for t in tc]
+                    tc = torch.stack(tc)
+                    tc = tc.to(device)
+                    out = model(tc.float())
+                    if len(out) == 3:
+                        # handles models that predict all taxa versus
+                        # just species
+                        out = np.squeeze(out[0].detach().cpu().numpy())
+                    else:
+                        out = np.squeeze(out.detach().cpu().numpy())
+                    # flip outputs to move species axis to 1st axis,
+                    # batch axis to row
+                    result[:,jj:jj+b_size,ii] = out.T
+                    jj +=b_size
+                    prog.update(1)
+                ii += 1
+    prog.close()
+    # ugly code to save results to raster    
+    out_profile = sat.profile
+    # get the true bounds of image (accounts for lost pixels on edge)
+    # TODO: check it is west, north not other way around!
+    west,  north = rasterio.transform.xy(sat.transform, [0],[0])
+    east, south = rasterio.transform.xy(sat.transform, [nheight],[nwidth])
+    transf = rasterio.transform.from_bounds(west[0], south[0], east[0], north[0], wid, hig)
+    bounds = rasterio.transform.array_bounds(hig, wid, transf)
+    # get true resolution as well
+    out_res = (nwidth/wid, nheight/hig)
+    # dst_w = left, dst_n = top
+    # trans = Affine.translation(bounds.left, bounds.top) * Affine.scale(out_res[0], -out_res[1])
+    out_profile['res'] = out_res
+    out_profile['bounds'] = bounds
+    out_profile['transform'] = transf
+    out_profile['height'] = hig
+    out_profile['width'] = wid 
+    out_profile['count'] = n_specs
+    out_profile['dtype'] = result.dtype
+    out_profile.update(BIGTIFF="IF_SAFER")
+    print("saving file now")
+    sat.close()
+    if not os.path.exists(os.path.dirname(save_file)):
+        os.makedirs(os.path.dirname(save_file))
+    with rasterio.open(save_file, 'w', **out_profile) as dst:
+        dst.write(result, range(1,n_specs+1))
+        dst.descriptions = spec_names
+    tick = time.time()
+    print(f"file {save_file.split('/')[-1]} took {(tick-tock)/60} minutes")
+
+    
+def predict_joint_raster_arbitrary_res(sat_file, save_file, rasters, b_size, res, spec_names, device, model, modelname, means, std, img_size=utils.IMG_SIZE):
+    # TODO: if batch size is too big, this breaks??
+    tock = time.time()
+    sat  = rasterio.open(sat_file)
+    dat = sat.read()
+    swidth, sheight = sat.width, sat.height
+    # leave off the last pixels for which we don't have a full 256 image for
+    # and make sure rounds to resolution!
+    # nwidth = swidth-(swidth%img_size)
+    # nwidth = nwidth-(nwidth%res)
+    # nheight = sheight-(sheight%img_size)
+    # nheight = nheight-(nheight%res)
+    nwidth, nheight = swidth-img_size, sheight-img_size
+    i_ind = range(0, nwidth, res)
+    j_ind = range(0, nheight, res)
+    n_specs = len(spec_names)
+    wid, hig = len(i_ind), len(j_ind)
+    # make receiver array
+    result = np.full([n_specs, hig, wid],np.nan,  dtype=np.float32)
+    ii = 0
+    # can't handle a batch size larger than one row
+    if b_size > wid:
+        raise NotImplementedError
+
+    with torch.no_grad():
+        with tqdm(total=len(i_ind)*(len(j_ind)//b_size)*2, unit="window") as prog:
+            # go row by row down raster
+            for i in i_ind:
+                jj = 0
+                # chunk up the row into batches
+                for j in utils.chunks(j_ind, b_size):
+                    # grab the x / y of top left corner of each image for the climate
+                    xys = rasterio.transform.xy(sat.transform, *zip(*[(c,i) for c in j]))
+                    # transform x,y into lat/lon crs
+                    transf = projTransf.from_crs(sat.crs, GBIF_CRS)
+                    xys = list(transf.itransform(zip(*xys)))
+                    # and grab the climate from the raster
+                    # alas can't use list comprehention
+#                     clims = [raster[0, *rasterio.transform.rowcol(transf, x, y)] for raster, transf in rasters for y,x in xys]
+                    clims = []
+                    for y, x in xys:
+                        clim = []
+                        for (raster, transf,_, i_) in rasters:
+                            row, col = rasterio.transform.rowcol(transf, x, y)
+                            clim.append(raster[0,row,col])
+                        clims.append(clim)
+                    clim = np.vstack(clims)
+                    # grab each image at the resolution we prefer from image raster
+                    tc = [dat[:, c:c+img_size, i:i+img_size] for c in j]
+                    # normalize, scale
+                    tc = [utils.scale(t, out_range=(0,1), min_=0, max_=255) for t in tc]
+                    tc = [TF.normalize(torch.tensor(t, dtype=torch.float), means, std) for t in tc]
+                    # zip together climate and images
+                    inputs = [ (t, torch.tensor(c, dtype=torch.float)) for t, c in zip(tc, clim)]
+                    inputs = list(zip(*inputs))
+                    inputs = (torch.stack(inputs[0]), torch.stack(inputs[1]))
+                    inputs = ( inputs[0].to(device), inputs[1].to(device))
+                    out = model(inputs)
+                    out = np.squeeze(out[0].detach().cpu().numpy())
+                    # flip outputs to move species axis to 1st axis,
+                    # batch axis to row
+                    result[:,jj:jj+b_size,ii] = out.T
+                    jj +=b_size
+                    prog.update(1)
+                ii += 1
+    prog.close()
+    # ugly code to save results to raster    
+    out_profile = sat.profile
+    # get the true bounds of image (accounts for lost pixels on edge)
+    west,  north = rasterio.transform.xy(sat.transform, [0],[0])
+    east, south = rasterio.transform.xy(sat.transform, [nheight],[nwidth])
+    transf = rasterio.transform.from_bounds(west[0], south[0], east[0], north[0], wid, hig)
+    bounds = rasterio.transform.array_bounds(hig, wid, transf)
+    # get true resolution as well
+    out_res = (nwidth/wid, nheight/hig)
+    # dst_w = left, dst_n = top
+    # trans = Affine.translation(bounds.left, bounds.top) * Affine.scale(out_res[0], -out_res[1])
+    out_profile['res'] = out_res
+    out_profile['bounds'] = bounds
+    out_profile['transform'] = transf
+    out_profile['height'] = hig
+    out_profile['width'] = wid 
+    out_profile['count'] = n_specs
+    out_profile['dtype'] = result.dtype
+    out_profile.update(BIGTIFF="IF_SAFER")
+    print("saving file now")
+    sat.close()
+    if not os.path.exists(os.path.dirname(save_file)):
+        os.makedirs(os.path.dirname(save_file))
     with rasterio.open(save_file, 'w', **out_profile) as dst:
         dst.write(result, range(1,n_specs+1))
         dst.descriptions = spec_names
