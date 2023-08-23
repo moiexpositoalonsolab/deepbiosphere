@@ -9,7 +9,6 @@ from tqdm import tqdm
 import sklearn.metrics as mets
 from types import SimpleNamespace
 import matplotlib.pyplot as plt
-from tqdm import trange
 from tensorboard.backend.event_processing import event_accumulator
 
 ## ---------- MAGIC NUMBERS ---------- ##
@@ -17,10 +16,7 @@ from tensorboard.backend.event_processing import event_accumulator
 # TODO: move all magic numbers to this
 IMG_SIZE = 256
 
-
-
 ## ---------- Paths to important directories ---------- ##
-
 
 paths = SimpleNamespace(
     OCCS = '/your/path/here/',
@@ -34,10 +30,7 @@ paths = SimpleNamespace(
     DOCS = '/your/path/here/',
     SCRATCH = '/your/path/here/',
     RUNS = '/your/path/here/',
-    BLOB_ROOT = '/your/path/here/')
-
-
-# have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', 
+    BLOB_ROOT = 'https://naipblobs.blob.core.windows.net/')
 
 ## ---------- Base class for function type checking enum ---------- ##
 
@@ -79,6 +72,8 @@ def setup_pretrained_dirs():
         os.makedirs(f"{paths.MODELS}/pretrained/")
     return f"{paths.MODELS}/pretrained/"
 
+## ---------- Tensorboard helper methods ---------- ##
+
 def get_tfevent(cfg):
     # get all the possible tfEvent files
     files = glob.glob(f'{paths.RUNS}/*{cfg.exp_id}*')
@@ -90,8 +85,6 @@ def get_tfevent(cfg):
     filetimes = {file : abs(os.path.getmtime(file)-model_time) for file in files}
     filetimes =sorted(filetimes.items(), key=lambda x: x[1])
     return filetimes[0]
-
-## ---------- Tensorboard helper methods ---------- ##
 
 def extract_test_accs(cfg, n_test_obs):
     # get all the possible tfEvent files
@@ -193,64 +186,6 @@ def scale(x, min_=None, max_=None, out_range=(-1,1)):
     if min_ == None and max_ == None:
         min_, max_ = np.min(x), np.max(x)
     return ((out_range[1]-out_range[0])*(x-min_))/(max_-min_)+out_range[0]
-
-## ---------- plotting functions ---------- ##
-
-# Based on: https://github.com/dominikjaeckle/Color2D
-# https://stackoverflow.com/questions/41966600/matplotlib-colormap-with-two-parameter/41967868#41967868
-class ColorMap2D:
-    def __init__(self, filename=None, xmin=None, xmax=None, ymin=None, ymax=None, transformation=None):
-        self._colormap_file = filename or "./bremm.png"
-        
-        self._img = plt.imread(self._colormap_file)
-        if transformation == 'flip':
-            self._img = np.flip(self._img, axis=0)
-        elif transformation == 'flip and transpose':
-            self._img = np.transpose(np.flip(np.rollaxis(self._img, 0, 1), axis=1), axes=[1,0,2])
-        
-        self._width = self._img.shape[1]
-        self._height = self._img.shape[0]
-
-        self.xmin, self.xmax = xmin, xmax
-        self.ymin, self.ymax = ymin, ymax
-
-    def _scale(self, u: float, u_min: float, u_max: float) -> float:
-        return ((u + 1) - (u_min + 1)) / ((u_max + 1) - (u_min + 1))
-
-    def _scale_x(self, x: float) -> int:
-        val = self._scale(x, self._range_x[0], self._range_x[1])
-        # clip extreme values to range
-        val  = max((val, 0))
-        val  = min((val, 1))
-        return int(val * (self._width - 1))
-
-    def _scale_y(self, y: float) -> int:
-        val = self._scale(y, self._range_y[0], self._range_y[1])
-        val  = max((val, 0))
-        val  = min((val, 1))
-        return int(val * (self._height - 1))
-
-    def __call__(self, X):
-        assert len(X.shape) == 2
-        # allow for self-defined range
-        if self.xmin is None:
-            self.xmin = X[:, 0].min()
-        if self.xmax is None:
-            self.xmax = X[:, 0].max()
-        if self.ymin is None:
-            self.ymin = X[:, 1].min()
-        if self.ymax is None:
-            self.ymax = X[:, 1].max()
-        self._range_x = (self.xmin, self.xmax)
-        self._range_y = (self.ymin, self.ymax)
-
-        output = np.zeros((X.shape[0], 3))
-        for i in trange(X.shape[0]):
-            x, y = X[i, :]
-            xp = self._scale_x(x)
-            yp = self._scale_y(y)
-            output[i, :] = self._img[xp, yp]
-        return output
 
 
 ## ---------- Accuracy metrics ---------- ##
