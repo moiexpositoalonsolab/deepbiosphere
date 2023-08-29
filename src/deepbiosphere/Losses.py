@@ -389,7 +389,8 @@ class AsymmetricLoss(nn.Module):
             self.loss *= self.asymmetric_w
 
         # return -self.loss.sum()
-        return self.op(-self.loss)
+        # return self.op(-self.loss)
+        return self.op(-self.loss[~self.loss.isnan()])
 
 
 # from https://github.com/Alibaba-MIIL/ASL/blob/main/src/loss_functions/losses.py
@@ -450,7 +451,8 @@ class AsymmetricLossScaled(nn.Module):
         self.loss = self.pos_loss + self.neg_loss
 
         # return -self.loss.sum()
-        return self.op(-self.loss)
+        # return self.op(-self.loss)
+        return self.op(-self.loss[~self.loss.isnan()])
 
 
 
