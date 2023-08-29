@@ -17,20 +17,19 @@ IMG_SIZE = 256
 
 ## ---------- Paths to important directories ---------- ##
 
-paths = {
-    'OCCS' : '/add/your/directory/here/occurrences/',
-    'SHPFILES' : '/add/your/directory/here/shpfiles/',
-    'MODELS' : '/add/your/directory/here/models/',
-    'IMAGES' : '/add/your/directory/here/images/',
-    'RASTERS' : '/add/your/directory/here/rasters/',
-    'BASELINES' : '/add/your/directory/here/baselines/',
-    'RESULTS' : '/add/your/directory/here/results/',
-    'MISC' : '/add/your/directory/here/misc/',
-    'SCRATCH' : "/add/your/directory/here/", # useful if using an instutition-wide compute cluster that has temporary high throuput / IO memory space
-    'BLOB_ROOT' :  'https://naipeuwest.blob.core.windows.net/naip/' # have to usethe slow european image, us image got removed finally 'https://naipblobs.blob.core.windows.net/', #
-}
-paths = SimpleNamespace(**paths)
-
+paths = SimpleNamespace(
+    OCCS = '/your/path/here/',
+    SHPFILES = '/your/path/here/',
+    MODELS = '/your/path/here/',
+    IMAGES = '/your/path/here/',
+    RASTERS = '/your/path/here/',
+    BASELINES = '/your/path/here/',
+    RESULTS = '/your/path/here/',
+    MISC = '/your/path/here/',
+    DOCS = '/your/path/here/',
+    SCRATCH = '/your/path/here/',
+    RUNS = '/your/path/here/',
+    BLOB_ROOT = 'https://naipblobs.blob.core.windows.net/')
 ## ---------- File loading ---------- ##
 
 def setup_pretrained_dirs():
