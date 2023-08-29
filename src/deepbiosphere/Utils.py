@@ -41,7 +41,7 @@ paths = SimpleNamespace(
 
 ## ---------- Base class for function type checking enum ---------- ##
 
-# hacky enum class to enable 
+# hacky enum class to enable
 # enums to call functions.
 # only dot operator and bracket
 # operator work. Parens operator will fail
@@ -49,9 +49,9 @@ class FuncEnum(enum.Enum):
     # can't pass kwargs
     def __call__(self, *args):
         return self.value(*args)
-    
-# overrides uniterpretable error 
-# messages for missing dot or 
+
+# overrides uniterpretable error
+# messages for missing dot or
 # bracket operators
 class MetaEnum(enum.EnumMeta):
     def __getitem__(cls, name):
@@ -59,8 +59,8 @@ class MetaEnum(enum.EnumMeta):
         if name in cls._member_map_.values():
             return name
         # keying in with function name
-        elif name in cls._member_map_.keys(): 
-            return cls._member_map_[name] 
+        elif name in cls._member_map_.keys():
+            return cls._member_map_[name]
         else:
             raise ValueError("%r is not a valid %s" % (name, cls.__qualname__))
     def __getattr__(cls, name):
@@ -72,8 +72,8 @@ class MetaEnum(enum.EnumMeta):
             raise ValueError("%r is not a valid %s" % (name, cls.__qualname__))
     def valid(self):
         return self._member_names_
- 
-    
+
+
 ## ---------- File loading ---------- ##
 
 def setup_pretrained_dirs():
@@ -99,13 +99,13 @@ def extract_test_accs(cfg, n_test_obs):
     # get all the possible tfEvent files
     file, filetime = get_tfevent(cfg)
     # open up the tfEvent file
-    ea = event_accumulator.EventAccumulator(file, size_guidance={ 
+    ea = event_accumulator.EventAccumulator(file, size_guidance={
         event_accumulator.SCALARS: 0,})
     ea.Reload()
     tags = ea.Tags()['scalars']
     # extract accuracies (easy)
     tags = {met.split('test/')[-1] : [k.value for k in ea.Scalars(met)] for met in tags if 'loss' not in met}
-    
+
     # extract losses (less easy)
     losses = [t for t in ea.Tags()['scalars'] if ('loss' in t) and ('test/' in t)]
     for lname in losses:
@@ -119,19 +119,19 @@ def extract_test_accs(cfg, n_test_obs):
         assert batchsize == cfg.batchsize, 'config and tfEvent dont match up!'
         nbatches = math.ceil(n_test_obs/batchsize)
         nepochs = len(loss)// nbatches
-        suloss = [] 
+        suloss = []
         # collate the loss (summed per-epoch)
         for i in range(0, len(loss), nbatches):
             cur_loss = [loss[j].value for j in range(i, i+nbatches)]
             suloss.append(sum(cur_loss))
         tags[lname.split('test/')[-1]] = suloss
     return tags
-    
+
 def extract_train_time(cfg, n_obs, epoch):
     # get all the possible tfEvent files
     file, filetime = get_tfevent(cfg)
     # open up the tfEvent file
-    ea = event_accumulator.EventAccumulator(file, size_guidance={ 
+    ea = event_accumulator.EventAccumulator(file, size_guidance={
         event_accumulator.SCALARS: 0,})
     ea.Reload()
     # get the overall loss scalar (guaranteed all models have)
@@ -142,13 +142,13 @@ def extract_train_time(cfg, n_obs, epoch):
     # get the difference in seconds of last batch of training
     # for current epoch from start of training
     return loss[(nbatches*(epoch+1))-1].wall_time - loss[0].wall_time
-    
+
 def get_mean_epoch(tags):
     epochs = []
     # set up dict for each possible epoch to store what metrics are maxed when
     mets = tags.keys()
     # remove micro + weighted binary acc entries (uncessary)
-    # also remove mAP (same as PRC_AUC!) 
+    # also remove mAP (same as PRC_AUC!)
     # and extra losses (only keeping total loss)
     mets = [met for met in mets if  ('weighted' not in met) and ('micro' not in met) and ('loss' not in met) and ('mAP' != met) and ('top' not in met)]
     # add back just in total loss and one topK accuracy
@@ -162,7 +162,7 @@ def get_mean_epoch(tags):
         # sort pairs by max accuracy
         spaired = sorted(paired, key=lambda x: x[1])
         # if it's a loss, want the minimizer
-        # else want the maximizer for accuracies        
+        # else want the maximizer for accuracies
         epoch, val = spaired[0] if 'loss' in met else spaired[-1]
         epochs.append(epoch)
     # return average best epoch
@@ -269,14 +269,14 @@ def f1_per_obs(ob_t, y_t, threshold=.5):
     # if denom=0, F1 is 0
     ans[ans != ans] = 0.0
     return ans
-    
+
 def zero_one_accuracy(y_true, y_preds, threshold=0.5):
     assert y_preds.min() >= 0.0 and(y_preds.max() <= 1.0), 'predictions must be converted to probabilities!'
     y_obs = y_preds >= threshold
     n_correct = sum([y_obs[i,label] for (i,label) in enumerate(y_true)])
     return n_correct / len(y_true)
 
-    
+
 def obs_topK(ytrue, yobs, K):
     # ytrue should be spec_id, not all_specs_id
     yobs = torch.as_tensor(yobs)
@@ -368,5 +368,5 @@ def calibrated_roc_auc_prc_auc(y_true, y_obs, npoints=50):
             pre.append(0)
     # precision-recall x=recall, y=precision
     # roc: x= fpr, y= tpr
-    return (mets.auc(tpr, pre),  mets.auc(fpr, tpr))    
+    return (mets.auc(tpr, pre),  mets.auc(fpr, tpr))
 
