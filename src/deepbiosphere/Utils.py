@@ -25,7 +25,6 @@ IMAGENET_CHANS = 3
 
 ## ---------- Paths to important directories ---------- ##
 
-
 paths = SimpleNamespace(
     OCCS = '/your/path/here/',
     SHPFILES = '/your/path/here/',
