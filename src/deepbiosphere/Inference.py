@@ -23,7 +23,6 @@ import warnings
 from tqdm import tqdm
 from datetime import date
 from os.path import exists
-from tqdm import tqdm
 
 
 def load_baseline_preds(nobs, nspecs, sp2id, model, band='unif_train_test', dset_name='big_cali_2012'):
@@ -69,6 +68,17 @@ def write_obs_metrics(dict_, metric, vals, ids, writer):
         dict_['value'] = v.item()
         dict_['ID'] = id_
         writer.writerow(dict_)
+        
+def add_mean_stdev(vals, df, row, col):
+    means = vals.mean(axis=0)
+    stds = vals.std(axis=0)
+    df.at[row,col] = f"{round(means, 4)}±{round(stds,4)}"
+    
+def add_med_iqr(vals, df, row, col):
+    med = np.median(vals, axis=0)
+    q75, q25 = np.percentile(vals, [75 ,25], axis=0)
+    df.at[row,col] = f"{round(med, 4)} [{round(q25,4)}-{round(q75, 4)}]" 
+        
 def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, write_obs=False, thres=0.5, filename=None):
     tick = time.time()
     id2sp = {v:k for k, v in sp2id.items()}
@@ -85,9 +95,13 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         preds = np.ma.MaskedArray(preds, np.isnan(preds))        
     if np.ma.isMaskedArray(preds):
         preds = preds.filled(fill_value=0.0)
-    fname = f"{paths.RESULTS}accuracy_metrics/overall_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}accuracy_metrics/{filename}overall_metrics_results_band{band}.csv"
+    # save unique identifier for file if necessary
+    filename = "" if filename is None else filename
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}overall_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
-    overallcsv = open (fname, 'a')
+    overallcsv = open(fname, 'a')
+    nmets = 46 if write_obs else 42
+    prog = tqdm(total=nmets, unit="metric", desc='Accuracy metrics')
     basics = {
         'value' : np.nan,
         'dset_name' : dset_name,
@@ -103,30 +117,36 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         'thres' : thres,
         'date' : date.today(),
     }
-    print("starting overall metrics")
+    # print("starting overall metrics")
     overallwriter = csv.DictWriter(overallcsv, delimiter=',', lineterminator='\n',fieldnames=basics.keys())
     if not fexists:
         overallwriter.writeheader()  # file doesn't exist yet, write a header
-
     # run + write overall binary accuracy metrics
     scores = [mets.precision_score, mets.recall_score, mets.f1_score, 
-              mets.jaccard_score, mets.label_ranking_average_precision_score]
+              mets.jaccard_score]
     for score in scores:
-        if score == mets.label_ranking_average_precision_score:
-            sc = score(ytrue, preds)
-            overallwriter.writerow(write_overall_metric(basics, sc, score.__name__, np.nan, np.nan))
-        else:
-            averages = ['macro', 'micro', 'weighted', 'samples']
-            for avg in averages:
-                sc = score(ytrue[:,sharedspecs], yobs[:,sharedspecs], average=avg, zero_division=0.0)
-                overallwriter.writerow(write_overall_metric(basics, sc, score.__name__, thres, avg))
+        averages = ['macro', 'micro', 'weighted', 'samples']
+        for avg in averages:
+            sc = score(ytrue[:,sharedspecs], yobs[:,sharedspecs], average=avg, zero_division=0.0)
+            overallwriter.writerow(write_overall_metric(basics, sc, score.__name__, thres, avg))
+            prog.update(1)
+    # label ranking average precision
+    macc = mets.label_ranking_average_precision_score(ytrue, preds)
+    overallwriter.writerow(write_overall_metric(basics, macc, 'label_ranking_average_precision_score', np.nan, np.nan))
+    prog.update(1)
+    # also get overall species 0/1 accuracy
+    acc = utils.zero_one_accuracy(single_ytrue, preds, thres)
+    overallwriter.writerow(write_overall_metric(basics, acc, 'zero_one_accuracy', thres, np.nan))
+    prog.update(1)
     # run + write topK metrics 
-    for i in [5,30,100]:
+    for i in [1,5,30,100]:
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.obs_topK, 'obs'))
+        prog.update(1)
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.species_topK, 'species'))
+        prog.update(1)
         # now, write out per-species metrics
-    print("starting per-species metrics")
-    fname = f"{paths.RESULTS}accuracy_metrics/per_species_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}accuracy_metrics/{filename}per_species_metrics_results_band{band}.csv"
+    # print("starting per-species metrics")
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}per_species_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     csvfile = open (fname, 'a')
     dict_ = { k: np.nan for k,v in sp2id.items()}
@@ -157,32 +177,36 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     overallwriter.writerow(write_overall_metric(basics, aucmean, 'ROC_AUC', np.nan, np.nan))
     prcmean = np.ma.MaskedArray(prcs, np.isnan(prcs)).mean()
     overallwriter.writerow(write_overall_metric(basics, prcmean, 'PRC_AUC', np.nan, np.nan))
+    prog.update(2)
     # and calibrated AUCs
     cal_rocs, cal_prcs = utils.mean_calibrated_roc_auc_prc_auc(ytrue, yobs)
     cal_rocmean = np.ma.MaskedArray(cal_rocs, np.isnan(cal_rocs)).mean()
     overallwriter.writerow(write_overall_metric(basics, cal_rocmean, 'calibrated_ROC_AUC', np.nan, np.nan))
     cal_prcmean = np.ma.MaskedArray(cal_prcs, np.isnan(cal_prcs)).mean()
     overallwriter.writerow(write_overall_metric(basics, cal_prcmean, 'calibrated_PRC_AUC', np.nan, np.nan))
+    prog.update(2)
     overallcsv.close()
     
     # get individual species for topK spec
-    for i in [5,30,100]:
+    for i in [1,5,30,100]:
         _, specs = utils.species_topK(single_ytrue, preds, i)
         writer.writerow(write_spec_metric(dict_, f'species_top{i}', i, specs, id2sp))
+        prog.update(1)
     
-    a = mets.precision_recall_fscore_support(ytrue, yobs, zero_division=0)
+    precsp, recsp, f1sp, supsp = mets.precision_recall_fscore_support(ytrue, yobs, zero_division=0)
     writer.writerow(write_spec_metric(dict_, 'ROC_AUC', np.nan, aucs, id2sp))
     writer.writerow(write_spec_metric(dict_, 'PRC_AUC', np.nan, prcs, id2sp))
     writer.writerow(write_spec_metric(dict_, 'calibrated_ROC_AUC', np.nan, cal_rocs, id2sp))
     writer.writerow(write_spec_metric(dict_, 'calibrated_PRC_AUC', np.nan, cal_prcs, id2sp))
-    writer.writerow(write_spec_metric(dict_, 'precision_score', thres, a[0], id2sp))
-    writer.writerow(write_spec_metric(dict_, 'recall_score', thres, a[1], id2sp))
-    writer.writerow(write_spec_metric(dict_, 'f1_score', thres, a[2], id2sp))
-    writer.writerow(write_spec_metric(dict_, 'support', thres, a[3], id2sp))
+    writer.writerow(write_spec_metric(dict_, 'precision_score', thres, precsp, id2sp))
+    writer.writerow(write_spec_metric(dict_, 'recall_score', thres, recsp, id2sp))
+    writer.writerow(write_spec_metric(dict_, 'f1_score', thres, f1sp, id2sp))
+    writer.writerow(write_spec_metric(dict_, 'support', thres, supsp, id2sp))
+    prog.update(8)
     csvfile.close()
     if write_obs:
-        print('starting per-observation metrics')
-        fname = f"{paths.RESULTS}accuracy_metrics/per_observations_metrics_results_band{band}.csv" if filename is None else f"{paths.RESULTS}accuracy_metrics/{filename}per_observations_metrics_results_band{band}.csv"
+        # print('starting per-observation metrics')
+        fname = f"{paths.RESULTS}accuracy_metrics/{filename}per_observations_metrics_results_band{band}.csv"
         fexists = os.path.isfile(fname)
         csvfile = open (fname, 'a')
         del basics['weight']
@@ -196,28 +220,26 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         basics['metric'] = f"precision_score"
         val = utils.precision_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
         write_obs_metrics(basics, 'precision_score', val, ids, writer)
+        prog.update(1)
         val =  utils.recall_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
         write_obs_metrics(basics, 'recall_score', val, ids, writer)
+        prog.update(1)
         val =  utils.accuracy_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
         write_obs_metrics(basics, 'accuracy_perobs', val, ids, writer)
+        prog.update(1)
         val =  utils.f1_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
         write_obs_metrics(basics, 'f1_score', val, ids, writer)
-        
-        # get individual species for topK obs
-        # ignoring for now
-        # for i in [5,30,100]:
-        #     _, obs = utils.obs_topK(single_ytrue, preds, i)
-        # itn's not zipping obs properly, maybe a shape problem TODO:
-        #     write_obs_metrics(basics, f'obs_top{i}', obs, ids, writer)
+        prog.update(1)
 
         csvfile.close()  
+    prog.close()
     tock = time.time()
     return (tock - tick)/60
 
 def run_inference(model, cfg, dloader, device, softmax_=False):
 
     y_pred = []
-    for batch in tqdm(dloader, unit='batch'):
+    for batch in tqdm(dloader, unit='batch', desc='inference prediction'):
         # can ignore label
         _, _, _, inputs = batch
         # to handle joint model
@@ -256,3 +278,5 @@ def run_inference(model, cfg, dloader, device, softmax_=False):
     else:
         y_pred = torch.sigmoid(y_pred)
     return y_pred.numpy()
+
+# TODO: add __main__ file to incorporate run_bands_inference + notebook code
