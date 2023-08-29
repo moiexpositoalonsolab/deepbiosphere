@@ -14,9 +14,17 @@ from tensorboard.backend.event_processing import event_accumulator
 ## ---------- MAGIC NUMBERS ---------- ##
 
 # TODO: move all magic numbers to this
+
+# Standard image size
+# to use during training
 IMG_SIZE = 256
+# number of channels in
+# NAIP imagery: RGB-Infrared
+NAIP_CHANS = 4
+IMAGENET_CHANS = 3
 
 ## ---------- Paths to important directories ---------- ##
+
 
 paths = SimpleNamespace(
     OCCS = '/your/path/here/',
@@ -39,6 +47,7 @@ paths = SimpleNamespace(
 # only dot operator and bracket
 # operator work. Parens operator will fail
 class FuncEnum(enum.Enum):
+    # can't pass kwargs
     def __call__(self, *args):
         return self.value(*args)
     
@@ -47,9 +56,10 @@ class FuncEnum(enum.Enum):
 # bracket operators
 class MetaEnum(enum.EnumMeta):
     def __getitem__(cls, name):
-        
+        # keying in with partial function type ie Enum.Type1
         if name in cls._member_map_.values():
             return name
+        # keying in with function name
         elif name in cls._member_map_.keys(): 
             return cls._member_map_[name] 
         else:
@@ -162,6 +172,10 @@ def get_mean_epoch(tags):
 
 ## ---------- Data manipulation ---------- ##
 
+# empty function call
+def pass_(input):
+    return input
+
 # https://stackoverflow.com/questions/2659900/slicing-a-list-into-n-nearly-equal-length-partitions
 def partition(lst, n):
     division = len(lst) / n
@@ -268,6 +282,7 @@ def obs_topK(ytrue, yobs, K):
     # ytrue should be spec_id, not all_specs_id
     yobs = torch.as_tensor(yobs)
     ytrue = torch.as_tensor(ytrue)
+    # TODO: check ytrue sum is 1 across obs
     # convert to probabilities if not done already
     assert yobs.min() >= 0.0 and(yobs.max() <= 1.0), 'predictions must be converted to probabilities!'
     # convert
