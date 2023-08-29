@@ -70,7 +70,7 @@ class CrossEntropyPresenceOnly(nn.Module):
         return self.op(nll_avg)
 
 ## ---------- sigmoid-based losses ---------- ##
-    
+
 class BCE(nn.Module):
     ''' Identical to torch.nn.BCEWithLogitsLoss with reduction=sum'''
     def __init__(self, eps=1e-8, reduce='sum'):
@@ -104,7 +104,7 @@ class BCE(nn.Module):
         # return -self.loss.sum()
         return self.op(-self.loss)
 
-    
+
 # hacky way of getting pretty run code by
 # dumping weighting in here
 def BCEWeighted(counts, id_dict, len_dset, device):
@@ -169,7 +169,7 @@ class BCEScaled(nn.Module):
         # return -self.loss.sum()
         return self.op(-self.loss)
 
-    
+
 class BCEProbScaled(nn.Module):
     ''' Notice - optimized version, minimizes memory allocation and gpu uploading,
     favors inplace operations'''
@@ -222,8 +222,8 @@ class BCEProbScaled(nn.Module):
 
         # return -self.loss.sum()
         return self.op(-self.loss)
-    
-    
+
+
 class FocalLossScaled(nn.Module):
     def __init__(self, gamma_neg=4, gamma_pos=1, eps=1e-8, reduce='sum'):
         super().__init__()
@@ -448,19 +448,18 @@ class AsymmetricLossScaled(nn.Module):
 
         # return -self.loss.sum()
         return self.op(-self.loss[~self.loss.isnan()])
-    
-    
-    
+
+
 # ---------- Types ---------- #
 
 # valid losses
 class Loss(utils.FuncEnum, metaclass=utils.MetaEnum):
-    
+
     CE                 = partial(nn.CrossEntropyLoss)
     WEIGHTED_CE        = partial(CEWeighted)
     CPO                = partial(CrossEntropyPresenceOnly)    # NOT tried
     BCE                = partial(BCE) # NOT tried
-    WEIGHTED_BCE       = partial(BCEWeighted) 
+    WEIGHTED_BCE       = partial(BCEWeighted)
     SCALED_BCE         = partial(BCEScaled)  # NOT tried
     PROBSCALED_BCE     = partial(BCEProbScaled)  # NOT tried
     SCALED_FOCAL       = partial(FocalLossScaled)  # NOT tried
