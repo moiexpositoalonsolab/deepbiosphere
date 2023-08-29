@@ -56,12 +56,12 @@ class Bioclim_MLP(nn.Module):
         if not self.training:
             return spec
         # use all 3 taxonomic levels for training
-        if (self.num_gen != -1) & (self.num_fam != -1):
+        if (self.genera != -1) & (self.families != -1):
             fam = self.mlp_fam(x)
             gen = self.mlp_gen(x)
             return (spec, gen, fam)
         # use only species genus taxonomic levels
-        elif (self.num_fam != -1):
+        elif (self.families != -1):
             gen = self.mlp_gen(x)
             return (spec, gen)
         # use only species taxonomic level
