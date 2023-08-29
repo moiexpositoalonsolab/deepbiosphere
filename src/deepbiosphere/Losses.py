@@ -38,7 +38,7 @@ def CEWeighted(counts, id_dict, len_dset, device):
 # https://gombru.github.io/2018/05/23/cross_entropy_loss/
 class CrossEntropyPresenceOnly(nn.Module):
     # for now, gotta have weight so just pass 1s for laziness
-    def __init__(self, sum=False,class_weights=None,  weighting=False, device='cpu', reduce='mean'):
+    def __init__(self, sum=False,class_weights=None,  weighting=False, device='cpu', reduce='sum'):
         super().__init__()
         self.type = type
         self.weighting = weighting
@@ -73,7 +73,7 @@ class CrossEntropyPresenceOnly(nn.Module):
     
 class BCE(nn.Module):
     ''' Identical to torch.nn.BCEWithLogitsLoss with reduction=sum'''
-    def __init__(self, eps=1e-8, reduce='mean'):
+    def __init__(self, eps=1e-8, reduce='sum'):
         super().__init__()
         self.eps = eps
         if reduce == 'mean':
@@ -127,7 +127,7 @@ def BCEWeighted(counts, id_dict, len_dset, device):
 class BCEScaled(nn.Module):
     ''' Notice - optimized version, minimizes memory allocation and gpu uploading,
     favors inplace operations'''
-    def __init__(self, eps=1e-8, reduce='mean'):
+    def __init__(self, eps=1e-8, reduce='sum'):
 
         super().__init__()
         self.eps = eps
@@ -173,7 +173,7 @@ class BCEScaled(nn.Module):
 class BCEProbScaled(nn.Module):
     ''' Notice - optimized version, minimizes memory allocation and gpu uploading,
     favors inplace operations'''
-    def __init__(self, gamma_neg=1, gamma_pos=1, eps=1e-8, reduce='mean'):
+    def __init__(self, gamma_neg=1, gamma_pos=1, eps=1e-8, reduce='sum'):
         super().__init__()
         self.gamma_neg = gamma_neg
         self.gamma_pos = gamma_pos
@@ -225,7 +225,7 @@ class BCEProbScaled(nn.Module):
     
     
 class FocalLossScaled(nn.Module):
-    def __init__(self, gamma_neg=4, gamma_pos=1, eps=1e-8, reduce='mean'):
+    def __init__(self, gamma_neg=4, gamma_pos=1, eps=1e-8, reduce='sum'):
         super().__init__()
         self.gamma_neg = gamma_neg
         self.gamma_pos = gamma_pos
@@ -274,11 +274,11 @@ class FocalLossScaled(nn.Module):
         self.loss = self.pos_loss + self.neg_loss
 
         # return -self.loss.sum()
-        return self.op(-self.loss)
+        return self.op(-self.loss[~self.loss.isnan()])
 
 
 class BCEProbClipScaled(nn.Module):
-    def __init__(self, gamma_neg=1, gamma_pos=1, clip=0.05, eps=1e-8, reduce='mean'):
+    def __init__(self, gamma_neg=1, gamma_pos=1, clip=0.05, eps=1e-8, reduce='sum'):
         super().__init__()
         self.gamma_neg = gamma_neg
         self.gamma_pos = gamma_pos
@@ -311,8 +311,7 @@ class BCEProbClipScaled(nn.Module):
         self.xs_neg = 1.0 - self.xs_pos
 
         # Asymmetric Clipping
-        if self.clip is not None and self.clip > 0:
-            self.xs_neg.add_(self.clip).clamp_(max=1)
+        self.xs_neg.add_(self.clip).clamp_(max=1)
 
         # Basic CE calculation
         self.loss = self.targets * torch.log(self.xs_pos.clamp(min=self.eps))
@@ -340,7 +339,7 @@ class AsymmetricLoss(nn.Module):
     ''' Notice - optimized version, minimizes memory allocation and gpu uploading,
     favors inplace operations'''
     # standard gamma is 4-, 1+
-    def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, reduce='mean'):
+    def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, reduce='sum'):
         super().__init__()
 
         self.gamma_neg = gamma_neg
@@ -374,8 +373,7 @@ class AsymmetricLoss(nn.Module):
         self.xs_neg = 1.0 - self.xs_pos
 
         # Asymmetric Clipping
-        if self.clip is not None and self.clip > 0:
-            self.xs_neg.add_(self.clip).clamp_(max=1)
+        self.xs_neg.add_(self.clip).clamp_(max=1)
 
         # Basic CE calculation
         self.loss = self.targets * torch.log(self.xs_pos.clamp(min=self.eps))
@@ -389,7 +387,7 @@ class AsymmetricLoss(nn.Module):
             self.loss *= self.asymmetric_w
 
         # return -self.loss.sum()
-        return self.op(-self.loss)
+        return self.op(-self.loss[~self.loss.isnan()])
 
 
 # from https://github.com/Alibaba-MIIL/ASL/blob/main/src/loss_functions/losses.py
@@ -397,7 +395,7 @@ class AsymmetricLossScaled(nn.Module):
     ''' Notice - optimized version, minimizes memory allocation and gpu uploading,
     favors inplace operations'''
 # standard is gamma-=4, gamma+=1, clip=0.05. gamma > 0 turns on scaling by predicted prob
-    def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, reduce='mean'):
+    def __init__(self, gamma_neg=4, gamma_pos=1, clip=0.05, eps=1e-8, reduce='sum'):
         super().__init__()
         self.gamma_neg = gamma_neg
         self.gamma_pos = gamma_pos
@@ -430,8 +428,7 @@ class AsymmetricLossScaled(nn.Module):
         self.xs_neg = 1.0 - self.xs_pos
 
         # Asymmetric Clipping
-        if self.clip is not None and self.clip > 0:
-            self.xs_neg.add_(self.clip).clamp_(max=1)
+        self.xs_neg.add_(self.clip).clamp_(max=1)
 
         # Basic CE calculation
         self.loss = self.targets * torch.log(self.xs_pos.clamp(min=self.eps))
@@ -450,7 +447,7 @@ class AsymmetricLossScaled(nn.Module):
         self.loss = self.pos_loss + self.neg_loss
 
         # return -self.loss.sum()
-        return self.op(-self.loss)
+        return self.op(-self.loss[~self.loss.isnan()])
     
     
     
