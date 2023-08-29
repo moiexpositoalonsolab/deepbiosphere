@@ -44,20 +44,20 @@ KM_2_DEG = 0.008 # kilometers to degrees, 1 km aprox for latitude only
 
 
 
-def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.GBIF_CRS, out_range=(-1,1), state='ca'):
+def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.CRS.BIOCLIM_CRS, out_range=(-1,1), state='ca'):
     # TODO: only works for us, gadm at the moment..
     shpfile = naip.get_state_outline(state)
     # first, get raster files
     # always grabs standard WSG84 version which starts with b for bioclim
     if ras_paths is None:
-        rasters = f"{paths.RASTERS}wc_30s_current/wc*bio_*.tif"
+        rasters = f"{base_dir}wc_30s_current/wc*bio_*.tif"
         ras_paths = glob.glob(rasters)
     if len(ras_paths) < 1:
         raise FileNotFoundError(f"no files found for {ras_paths}!")
     ras_agg = []
     transfs = []
     # then load in rasters
-    for raster in tqdm(ras_paths, total=len(ras_paths), desc=" loading in rasters"):
+    for raster in tqdm(ras_paths, total=len(ras_paths), desc=" loading in bioclim rasters"):
         # load in raster
         src = rasterio.open(raster)
         # got to make sure it's all in the same crs
@@ -84,9 +84,12 @@ def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths
     # finally, make sure that all the rasters are the same transform!
     for i, t1 in enumerate(transfs):
         for j, t2 in enumerate(transfs):
-            assert t1 == t2, f"rasters don't match for {i}, {j} bioclim!"
+            assert t1 == t2, f"rasters don't match for {i}, {j} bioclim variables!"
     # returns a list of numpy arrays with each raster
     # plus the transform per-raster in order to use them together
+    for i, r1 in enumerate(ras_agg):
+        for j, r2 in enumerate(ras_agg):
+            assert r1[0].shape == r2[0].shape, f"raster sizes ({r1[0].shape}, {r2[0].shape}) don't match for {i}, {j} bioclim variables!"
     return ras_agg
 
 
@@ -351,7 +354,7 @@ def calculate_means_parallel(rasters, procid, lock, year: str, write_file):
     return means, stds
 
 def calculate_means(tiff_dset_name, parallel, year, rasters=None, write_file=False):
-   # Decision: going to do it acros all satellite image, not all images in the dataset
+   # Decision: going to do it across all satellite image, not all images in the dataset
     # load in previously generated means
     f = f"{paths.OCCS}dataset_means.json"
     with open(f, 'r') as fp:
@@ -509,14 +512,14 @@ def make_images_parallel(daset:gpd.GeoDataFrame, year, tiff_dset_name, procid, l
                 curr = dict(np.load(savepath).items())
                 for k in missing:
                     curr[k] = images[k]
-                np.savez(savepath, **curr)
+                np.savez_compressed(savepath, **curr)
         else:
             # if this is the first time building the archive
             # make the directories and save out to disk
             currdir = os.path.dirname(savepath)
             if not os.path.exists(currdir):
                 os.makedirs(currdir)
-            np.savez(savepath, **images)
+            np.savez_compressed(savepath, **images)
     with lock:
         prog.close()
     # drop any obs where the image wasn't saved for any reason
@@ -548,6 +551,7 @@ def make_images(daset:gpd.GeoDataFrame, year, tiff_dset_name, idCol='gbifID'):
                 daset = daset.to_crs(src.crs)
                 # x, y = daset.loc[i].geometry.xy
             # else:
+            # TODO: should be obs, not daset.loc?? 
             x, y = daset.loc[i].geometry.xy
             # get the row/col starting location of the point in the raster
             xx,yy = rasterio.transform.rowcol(src.transform, x,  y)
@@ -576,14 +580,14 @@ def make_images(daset:gpd.GeoDataFrame, year, tiff_dset_name, idCol='gbifID'):
                 curr = dict(np.load(savepath).items())
                 for k in missing:
                     curr[k] = images[k]
-                np.savez(savepath, **curr)
+                np.savez_compressed(savepath, **curr)
         else:
             # if this is the first time building the archive
             # make the directories and save out to disk
             currdir = os.path.dirname(savepath)
             if not os.path.exists(currdir):
                 os.makedirs(currdir)
-            np.savez(savepath, **images)
+            np.savez_compressed(savepath, **images)
     prog.close()
     # drop any obs where the image wasn't saved for any reason
     daset = daset[~daset[f'imageproblem_{year}']]
