@@ -1,7 +1,5 @@
 # deepbiosphere functions
-import deepbiosphere.VGG as vgg
 import deepbiosphere.Utils as utils
-import deepbiosphere.ResNet as resnet
 import deepbiosphere.TResNet as tresnet
 import deepbiosphere.Bioclim_MLP as bioclim_mlp
 from deepbiosphere.Utils import paths
