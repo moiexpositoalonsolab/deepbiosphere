@@ -2,7 +2,6 @@
 ## M. Ruffley 11/10/2020
 ## Edits made by L Gillespie 6/6/2022
 ## to include RF with background sampling, and biomod ensembling
-# I'm editing
 
 ##----------------------------------------------------------------------------##
 ##      Helper functions for later in script                                  ##
@@ -23,8 +22,8 @@ convert_raster <- function(input){
   xmx = py_to_r(br[0])
   ymx <- py_to_r(tl[1])
   ymn = py_to_r(br[1])
-  #  make raster object
-  r <- raster(mat, crs=py_to_r(naip$NAIP_CRS), xmx=xmx, ymx=ymx,ymn=ymn,xmn=xmn)
+  #  make raster object, assumes that bioclim raster is EPSG:4326
+  r <- raster(mat, crs=py_to_r(naip$GBIF_CRS), xmx=xmx, ymx=ymx,ymn=ymn,xmn=xmn)
   # finally, replace NAN values 
   # https://gis.stackexchange.com/questions/269314/filling-replacing-nodata-values-of-a-raster-layer-in-r
   return(reclassify(r, cbind(maxValue(r), NA)))
@@ -53,7 +52,7 @@ generate_background <- function(data, clim, nback){
   return(background)
 }
 
-get_background <- function(bdir, data, clim, nback, species, dset_name, bname, poly, naip_crs){
+get_background <- function(bdir, data, clim, nback, species, dset_name, bname, poly, GBIF_CRS){
   # check if background already generated 
   dirr <- paste0(bdir, 'background/','/',dset_name,'/', bname, '/')
   fname <- paste0(dirr, species, '_background.csv') 
@@ -62,7 +61,7 @@ get_background <- function(bdir, data, clim, nback, species, dset_name, bname, p
     background <- generate_background(data, clim, nback)
     if (!(opt$band == 'unif_train_test')) {
       sp::coordinates(background) <- c('longitude', 'latitude')
-      raster::projection(background) <- naip_crs
+      raster::projection(background) <- GBIF_CRS
       background <- background[!is.na(over(background, poly)),]
     }
     if (!dir.exists(dirr)){
@@ -73,7 +72,7 @@ get_background <- function(bdir, data, clim, nback, species, dset_name, bname, p
     background <- read.csv(fname)  
     background <- as.data.frame(background)
     sp::coordinates(background) <- c('longitude', 'latitude')
-    raster::projection(background) <- naip_crs
+    raster::projection(background) <- GBIF_CRS
   }
   return(background)  
 }
@@ -302,7 +301,7 @@ Sys.unsetenv('DISPLAY')
 # set up reticulate modules
 utils <- import("deepbiosphere.Utils", convert = FALSE)
 naip <- import("deepbiosphere.NAIP_Utils", convert = FALSE)
-build <- import("deepbiosphere.BuildData", convert = FALSE)
+build <- import("deepbiosphere.Build_Data", convert = FALSE)
 np <- import("numpy", convert = FALSE)
 rasterio <- import("rasterio", convert = FALSE)
 paths <- utils$paths
@@ -381,7 +380,7 @@ dset <- read.csv(paste0(py_to_r(paths$OCCS), opt$dset_name, '.csv'))
 
 #  convert the dataset into a spatial dataset for spatial queries
 sp::coordinates(dset) <- c(opt$lonCol,opt$latCol)
-raster::projection(dset) <- py_to_r(naip$NAIP_CRS)
+raster::projection(dset) <- py_to_r(naip$GBIF_CRS)
 
 # split the dataset into test and train bands
 # depending on if it's the interpolation or extrapolation experiments
@@ -425,7 +424,7 @@ if (opt$band != 'unif_train_test'){
   }
   # don't need to filter train dset by polygons since that was done already
   trains <- SpatialPolygons(trains)
-  raster::projection(trains) <- py_to_r(naip$NAIP_CRS)
+  raster::projection(trains) <- py_to_r(naip$GBIF_CRS)
 }
 
 # make cluster w/ same # CPUs job has 
@@ -461,7 +460,7 @@ pb <- progress_bar$new(
 # sometimes maxent will throw this warning, it's okay to ignore
 # https://www.ibm.com/support/pages/starting-websphere-application-server-gives-warning-message-could-not-lock-user-prefs
 # actually may not be able to ignore https://community.oracle.com/tech/developers/discussion/1543444/could-not-lock-user-prefs
-naip_crs <- py_to_r(naip$NAIP_CRS)
+GBIF_CRS <- py_to_r(naip$GBIF_CRS)
 bdir <- py_to_r(paths$BASELINES)
 lckname <- paste0(opt$sdm,'_' , opt$band, '_', opt$dset_name, '_lockfile')
 # capture and ignore the output from foreach 
@@ -480,7 +479,7 @@ toignore <- foreach (i = 1:length(train_specs), .packages = c('plyr','filelock')
   set.seed(length(data) + 42)
   # get or generate background points
   background <- tryCatch(get_background(bdir, data, clim, opt$nback, sname, 
-                                        opt$dset_name, opt$band, trains, naip_crs),
+                                        opt$dset_name, opt$band, trains, GBIF_CRS),
                          error = function(e) NA)
   if (all(is.na(background))){
     print(paste("background for species ", spec, " failed!"))

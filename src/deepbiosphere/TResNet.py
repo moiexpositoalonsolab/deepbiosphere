@@ -7,18 +7,41 @@ from torch.nn import Module as Module
 
 # misc functions
 import numpy as np
+from enum import Enum
 from collections import OrderedDict
 from inplace_abn import InPlaceABN
 import deepbiosphere.Utils as utils
+from types import SimpleNamespace
+
 
 '''
 pulled down from github https://github.com/Alibaba-MIIL/TResNet on 1/9/2021
 '''
 
-model_files = {
-    'MSCOCO_TResnetL': 'MS_COCO_TRresNet_L_448_86.6.pth',
-}
+# ---------- Types ---------- #
 
+
+PRETRAINED_MODELS = SimpleNamespace(
+    MSCOCO_TResnetL = 'MS_COCO_TRresNet_L_448_86.6.pth')
+
+class Pretrained(Enum, metaclass=utils.MetaEnum):
+    NONE = None
+    FEAT_EXT = 'feat_ext'
+    FINETUNE = 'finetune'
+    
+class Architecture(Enum, metaclass=utils.MetaEnum):
+    TRESNETM = 'TResnetM'
+    TRESNETL = 'TResnetL'
+    TRESNETXL = 'TResnetXL'
+    
+# ---------- helper methods ---------- #
+    
+def set_parameter_requires_grad(model):
+    for param in model.parameters():
+        param.requires_grad = False
+
+# ---------- ResNet components ---------- #
+        
 class bottleneck_head(nn.Module):
     def __init__(self, num_features, num_classes, bottleneck_features=200):
         super(bottleneck_head, self).__init__()
@@ -132,34 +155,36 @@ class Bottleneck(Module):
 
         return out
 
+# ---------- Remote Sensing-only CNN ---------- #
 
-class TResNet(Module):
+class RS_TResNet(Module):
 
 
-    def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, width_factor=1.0,
-                 do_bottleneck_head=False,bottleneck_features=512):
-        super(TResNet, self).__init__()
+    def __init__(self, layers, in_chans, num_spec, num_gen, num_fam, pretrained, width_factor=1.0,
+                 do_bottleneck_head=False,bottleneck_features=512, encode=False):
+        super(RS_TResNet, self).__init__()
 
         # JIT layers
         space_to_depth = SpaceToDepthModule() 
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
-        self.pretrained = pretrained
+        self.pretrained = Pretrained[pretrained]
+        self.encode = encode
         self.num_spec = num_spec
         self.num_gen = num_gen
         self.num_fam = num_fam
 
         # TResnet stages
-        if pretrained == 'finetune':
+        if self.pretrained is Pretrained.FINETUNE:
             # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
-            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3)
-            in_chans = 3
+            self.conv4band = nn.Conv2d(utils.NAIP_CHANS, utils.IMAGENET_CHANS, kernel_size=7, stride=1, padding=3)
+            in_chans = utils.IMAGENET_CHANS
             # initialize He-style
             nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
             nn.init.constant_(self.conv4band.bias, 0)
-        elif pretrained == 'feat_ext':
-            in_chans = 3
+        elif self.pretrained is Pretrained.FEAT_EXT:
+            in_chans = utils.IMAGENET_CHANS
 
         self.inplanes = int(64 * width_factor)
         self.planes = int(64 * width_factor)
@@ -233,17 +258,21 @@ class TResNet(Module):
 
     def forward(self, x):
 
-        if self.pretrained == 'finetune':
+        if self.pretrained is Pretrained.FINETUNE:
             x = self.conv4band(x)
-        elif self.pretrained == 'feat_ext':
-            x = x[:,:3]
-        # removing since doing dataset normalization
-#         if self.pretrained != 'none':
-#             x = x / 255.0 # from TResNet inference code likely for data scaling but idk¯\_(ツ)_/¯
+        elif self.pretrained is Pretrained.FEAT_EXT:
+            x = x[:,:utils.IMAGENET_CHANS]
 
         x = self.body(x)
         self.embeddings = self.global_pool(x)
+        # if we're encoding, we want
+        # everything in forward() except output layers
+        if self.encode:
+            return self.embeddings
+        # TODO: in eval mode, only return species
         spec = self.spec(self.embeddings)
+        if not self.training: # TODO: make sure inference et al handles this!
+            return spec
         # use all 3 taxonomic levels for training
         if (self.num_gen != -1) & (self.num_fam != -1):
             gen = self.gen(self.embeddings)
@@ -257,14 +286,52 @@ class TResNet(Module):
         else:
             return spec
 
+def _tresnet(arch, layers, num_spec : int, num_gen : int, num_fam : int, pretrained: str, base_dir : str, width_factor : int
+) -> RS_TResNet:
+    model = RS_TResNet(layers, utils.NAIP_CHANS, num_spec, num_gen, num_fam, pretrained, width_factor=width_factor)
+    
+    # type check
+    pretrained = Pretrained[pretrained]
+    arch = Architecture[arch]
+    if pretrained is not Pretrained.NONE:
+        if arch is Architecture.TRESNETL:
+            # going to be lazy and use load_state_dict_from_url, might change in the future
+            dirr = utils.setup_pretrained_dirs(base_dir) + 'TResNet/'
+            file = dirr + model_files['MSCOCO_TResnetL']
+            state = torch.load(file, map_location='cpu')
+            model.load_state_dict(state['model'], strict=False)
+        else:
+            raise NotImplementedError('no pretrained model on disk for this architecture yet!')
+
+    if pretrained is Pretrained.FEAT_EXT:
+        set_parameter_requires_grad(model.body)
+
+    return model
+
+def TResnetM(num_spec, num_gen, num_fam, pretrained,  base_dir):
+    """Constructs a medium TResnet model.
+    """
+
+    return _tresnet('TRESNETM', [3, 4, 11, 3], num_spec, num_gen, num_fam, pretrained, base_dir, width_factor=1.0)
 
 
+def TResnetL(num_spec, num_gen, num_fam, pretrained,  base_dir):
+    """Constructs a large TResnet model.
+    """
+    return _tresnet('TRESNETL', [4, 5, 18, 3], num_spec, num_gen, num_fam, pretrained, base_dir, width_factor=1.2)
+
+def TResnetXL(num_spec, num_gen, num_fam, pretrained,  base_dir):
+    """Constructs a xlarge TResnet model.
+    """
+    return _tresnet('TRESNETXL', [4, 5, 24, 3], num_spec, num_gen, num_fam, pretrained, base_dir, width_factor=1.3)
+        
+# ---------- Remote Sensing + climate CNN ---------- #
 
 class Joint_TResNet(Module):
 
 
-    def __init__(self, layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, nlayers=4, drop=.25, width_factor=1.0,
-                 do_bottleneck_head=False,bottleneck_features=512):
+    def __init__(self, layers, in_chans, num_spec, num_gen, num_fam, env_rasters, pretrained, nlayers=4, drop=.25, width_factor=1.0,
+                 do_bottleneck_head=False,bottleneck_features=512, encode=False):
         super(Joint_TResNet, self).__init__()
 
         # JIT layers
@@ -272,7 +339,8 @@ class Joint_TResNet(Module):
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
-        self.pretrained = pretrained
+        self.pretrained = Pretrained[pretrained]
+        self.encode = encode
         self.num_spec = num_spec
         self.num_gen = num_gen
         self.num_fam = num_fam
@@ -282,16 +350,16 @@ class Joint_TResNet(Module):
         self.unification = 2048
         self.elu = nn.ELU()
         
-        # TResnet stages
-        if pretrained == 'finetune':
+        # setting up pretrained models
+        if self.pretrained is Pretrained.FINETUNE:
             # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
-            self.conv4band = nn.Conv2d(4, 3, kernel_size=7, stride=1, padding=3)
-            in_chans = 3
+            self.conv4band = nn.Conv2d(utils.NAIP_CHANS, utils.IMAGENET_CHANS, kernel_size=7, stride=1, padding=3)
+            in_chans = utils.IMAGENET_CHANS
             # initialize He-style
             nn.init.kaiming_normal_(self.conv4band.weight, mode='fan_out', nonlinearity='relu')
             nn.init.constant_(self.conv4band.bias, 0)
-        elif pretrained == 'feat_ext':
-            in_chans = 3
+        elif self.pretrained is Pretrained.FEAT_EXT:
+            in_chans = utils.IMAGENET_CHANS
 
         self.inplanes = int(64 * width_factor)
         self.planes = int(64 * width_factor)
@@ -305,7 +373,7 @@ class Joint_TResNet(Module):
         layer4 = self._make_layer(Bottleneck, self.planes * 8, layers[3], stride=2, use_se=False,
                                   anti_alias_layer=anti_alias_layer)  # 7x7
 
-        #
+        # set up ResNet
         self.body = nn.Sequential(OrderedDict([
             ('SpaceToDepth', space_to_depth),
             ('conv1', conv1),
@@ -314,7 +382,7 @@ class Joint_TResNet(Module):
             ('layer3', layer3),
             ('layer4', layer4)]))
 
-        # head
+        # ResNet head
         self.embeddings = []
         self.global_pool = nn.Sequential(OrderedDict([('global_pool_layer', global_pool_layer)]))
         self.num_features = (self.planes * 8) * Bottleneck.expansion # expansion is just 4, magic number
@@ -397,20 +465,29 @@ class Joint_TResNet(Module):
         # other CNNs. Input is a tuple with the first
         # input being the images and the second the raster values
         x, rasters = X
-        if self.pretrained == 'finetune':
+        if self.pretrained is Pretrained.FINETUNE:
             x = self.conv4band(x)
-        elif self.pretrained == 'feat_ext':
-            x = x[:,:3]
+        elif self.pretrained is Pretrained.FEAT_EXT:
+            x = x[:,:utils.IMAGENET_CHANS]
         x = self.body(x)
         x = self.global_pool(x)
         x = torch.flatten(x, 1)
 
         x = self.intermediate1(x)
         rasters = self.mlp(rasters)
+        # concatenate RS, clim embeddings
         x = torch.cat((x, rasters), dim=1)
         x = self.intermediate2(x)
+        
+        # if we're encoding, we want
+        # everything in forward() except output layers
+        if self.encode:
+            return x
+        
         # use all 3 taxonomic levels for training
         spec = self.spec(x)
+        if not self.training: # TODO: make sure inference et al handles this!
+            return spec
         if (self.num_gen != -1) & (self.num_fam != -1):
             gen = self.gen(x)
             fam = self.fam(x)
@@ -420,81 +497,43 @@ class Joint_TResNet(Module):
             gen = self.gen(x)
             return (spec, gen)
         # use only species taxonomic level
+        # still pass same way as others during training
         else:
-            return spec
-        
-        
+            return (spec)
 
 
-def set_parameter_requires_grad(model):
-    for param in model.parameters():
-        param.requires_grad = False
 
-def _tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_fam : int, base_dir : str, width_factor : int
-) -> TResNet:
-    in_chans = 4
-    model = TResNet(layers, in_chans, pretrained, num_spec, num_gen, num_fam, width_factor=width_factor)
-    if pretrained != 'none':
-        if arch == 'TResNetL':
-            # going to be lazy and use load_state_dict_from_url, might change in the future
-            dirr = utils.setup_pretrained_dirs(base_dir) + 'TResNet/'
-            file = dirr + model_files['MSCOCO_TResnetL']
-            state = torch.load(file, map_location='cpu')
-            model.load_state_dict(state['model'], strict=False)
-        else:
-            raise NotImplementedError('no pretrained model on disk for this architecture yet!')
-
-    if pretrained == 'feat_ext':
-        set_parameter_requires_grad(model.body)
-
-    return model
-
-def _joint_tresnet(arch, layers, pretrained: str, num_spec : int, num_gen : int, num_fam : int, env_rasters : int, base_dir : str, width_factor : int
+def _joint_tresnet(arch, layers, num_spec : int, num_gen : int, num_fam : int, env_rasters : int, pretrained: str, base_dir : str, width_factor : int
 ) -> Joint_TResNet:
-    in_chans = 4
-    model = Joint_TResNet(layers, in_chans, pretrained, num_spec, num_gen, num_fam, env_rasters, width_factor=width_factor)
-    if pretrained != 'none':
-        if arch == 'TResNetL':
+
+    model = Joint_TResNet(layers, utils.NAIP_CHANS, num_spec, num_gen, num_fam, env_rasters, pretrained, width_factor=width_factor)
+
+    pretrained = Pretrained[pretrained]
+    arch = Architecture[arch]
+    if pretrained is not Pretrained.NONE: 
+        if arch is Architecture.TRESNETL:
             # going to be lazy and use load_state_dict_from_url, might change in the future
             dirr = utils.setup_pretrained_dirs(base_dir) + 'TResNet/'
             file = dirr + model_files['MSCOCO_TResnetL']
             state = torch.load(file, map_location='cpu')
             model.load_state_dict(state['model'], strict=False)
         else:
+            # TODO: get TResNetM pretrained weights off github
             raise NotImplementedError('no pretrained model on disk for this architecture yet!')
 
-    if pretrained == 'feat_ext':
+    if pretrained is Pretrained.FEAT_EXT:
         set_parameter_requires_grad(model.body)
 
     return model
 
-def Joint_TResNetM(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
-    return _joint_tresnet('TResNetM', [3, 4, 11, 3], pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir, width_factor=1.0)
+def Joint_TResNetM(num_spec, num_gen, num_fam, env_rasters, pretrained,  base_dir):
+    return _joint_tresnet('TRESNETM', [3, 4, 11, 3], num_spec, num_gen, num_fam, env_rasters, pretrained, base_dir, width_factor=1.0)
 
-def Joint_TResNetL(pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir):
-    return _joint_tresnet('TResNetL', [4, 5, 18, 3], pretrained, num_spec, num_gen, num_fam, env_rasters, base_dir, width_factor=1.2)
-
-
-
-def TResnetM(pretrained, num_spec, num_gen, num_fam, base_dir):
-    """Constructs a medium TResnet model.
-    """
-
-    return _tresnet('TResNetM', [3, 4, 11, 3], pretrained, num_spec, num_gen, num_fam, base_dir, width_factor=1.0)
+def Joint_TResNetL(num_spec, num_gen, num_fam, env_rasters, pretrained,  base_dir):
+    return _joint_tresnet('TRESNETL', [4, 5, 18, 3], num_spec, num_gen, num_fam, pretrained, env_rasters, base_dir, width_factor=1.2)
 
 
-def TResnetL(pretrained, num_spec, num_gen, num_fam, base_dir):
-    """Constructs a large TResnet model.
-    """
-    return _tresnet('TResNetL', [4, 5, 18, 3], pretrained, num_spec, num_gen, num_fam, base_dir, width_factor=1.2)
-
-
-
-
-def TResnetXL(pretrained, num_spec, num_gen, num_fam, base_dir):
-    """Constructs a xlarge TResnet model.
-    """
-    return _tresnet('TResNetXL', [4, 5, 24, 3], pretrained, num_spec, num_gen, num_fam, base_dir, width_factor=1.3)
+# -------- TResNet modules ------------- #
 
 
 class AntiAliasDownsampleLayer(nn.Module):

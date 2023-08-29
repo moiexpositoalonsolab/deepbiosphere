@@ -1,17 +1,15 @@
-# TODO: clean up these imports
-
 # GIS packages
+import rasterio
 import geopandas as gpd
 from pyproj import Proj
-from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
 from scipy.spatial import cKDTree
-import rasterio
-from torch.utils.data import Dataset as TorchDataset
+from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
+
 # deepbiosphere packages
 import deepbiosphere.NAIP_Utils  as naip
-import deepbiosphere.Utils as utils
-import deepbiosphere.BuildData as build
+import deepbiosphere.Build_Data as build
 from deepbiosphere.Utils import paths
+import deepbiosphere.Utils as utils
 
 # torch / stats packages
 import torch
@@ -19,6 +17,8 @@ import numpy as np
 import pandas as pd
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
+from torch.utils.data import Dataset as TorchDataset
+
 # miscellaneous packages
 import os
 import time
@@ -27,7 +27,10 @@ import glob
 import json
 import copy
 import random
+from enum import Enum
 from tqdm import tqdm
+from functools import partial
+from types import SimpleNamespace
 
 ## ---------- MAGIC NUMBERS ---------- ##
 # image size when fivecropping
@@ -36,6 +39,24 @@ FC_SIZE = 128
 DEGS = [15,30,45, 60,-75, 90]
 # the kernel to use for gaussian blurring and sharpening
 GKS = 5
+
+
+# ---------- Static Types ---------- #
+    
+# choices=['bioclim', 'naip', 'joint_naip_bioclim']
+class DataType(Enum, metaclass=utils.MetaEnum):
+    BIOCLIM = 'bioclim'
+    NAIP = 'naip'
+    JOINT_NAIP_BIOCLIM = 'joint_naip_bioclim'
+
+# choices=['multi_species', 'single_species', 'single_label']
+class DatasetType(Enum, metaclass=utils.MetaEnum):
+    MULTI_SPECIES = 'multi_species'
+    SINGLE_SPECIES = 'single_species'
+    SINGLE_LABEL = 'single_label'
+    
+    
+# ---------- Data augmentations ---------- #
 
 def random_augment(self,img):
     aug_choice = random.sample(range(4),1)
@@ -69,10 +90,40 @@ def random_augment(self,img):
     return img
 
 
+def fivecrop_augment(img):
+    # crop 5x
+    imgs  = TF.five_crop(torch.tensor(img), size=(FC_SIZE,FC_SIZE))
+    # pick a random crop to return
+    which = random.sample(range(len(imgs)), 1)
+    return imgs[which[0]]
+
+
+# ---------- Function Types ---------- #
+
+# choices=['none', 'random', 'fivecrop'])
+# TODO: convert to function type and apply transform that way
+# then, TODO convert type checks here and in run / inference / map making
+# To use these types...
+# valid augments
+class Augment(utils.FuncEnum, metaclass=utils.MetaEnum):
+    
+    NONE = partial(utils.pass_)
+    RANDOM = partial(random_augment)
+    FIVECROP = partial(fivecrop_augment)    
+
 # gross but pandas stores lists in csvs
 # as strings, so need to unread that string
 def parse_string_to_tuple(string):
     return eval(string)
+
+
+# ---------- Data helper methods ---------- #
+
+def map_index(index):
+     return {
+            k:v for k, v in
+            zip(np.arange(len(index)), index)
+        }
 
 def parse_string_to_string(string):
     string = string.replace("{", '').replace("}", "").replace("'", '').replace("[", '').replace("]", '').replace(")", '').replace("(", '')
@@ -89,17 +140,76 @@ def parse_string_to_float(string):
     split = string.split(", ")
     return [float(s) for s in split]
 
+def load_metadata(dataset_name, parent_dir=None):
+    if parent_dir is None:
+        path = f"{paths.OCCS}{dataset_name}_metadata.json"
+    else:
+        path = f"{parent_dir}{dataset_name}_metadata.json"
+    return SimpleNamespace(**json.load(open(path, 'r')))
+ 
+def get_onehot(species_id, genus_id, family_id, nspec, ngen, nfam):
+    all_specs, all_gens, all_fams = [], [], []
+    for spids, gids, fids in zip(species_id, genus_id, family_id):
+        specs_tens = np.full((nspec), 0)
+        specs_tens[spids] += 1
+        all_specs.append(specs_tens)
+        gens_tens = np.full((ngen), 0)
+        gens_tens[gids] += 1
+        all_gens.append(gens_tens)
+        fams_tens = np.full((nfam), 0)
+        fams_tens[fids] += 1
+        all_fams.append(fams_tens)
+    all_specs = torch.tensor(np.stack(all_specs))
+    all_gens = torch.tensor(np.stack(all_gens))
+    all_fams = torch.tensor(np.stack(all_fams))
+    return all_specs, all_gens, all_fams
+
+    
+def get_specnames(metadata):
+    # sort 0-N
+    sortd = sorted(metadata.spec_2_id.items(), key = lambda x: x[1])
+    # and grab species names
+    return list(zip(*sortd))[0]
+
+def check_bioclim(daset, metadata, state):
+    # for when using bioclim data, read in the bioclim rasters
+    # usually the dataset will have the values pre-computed
+    bio_cols = [c for c in daset.columns if '_bio' in c]
+    # TODO: ensure variables are in the same order each time?
+    if len(bio_cols) > 1:
+        return torch.tensor(daset[bio_cols].values) # self.bioclim
+    else:
+        return load_bioclim(daset, metadata, state)
+        
+        
+def load_bioclim(daset, metadata, state): 
+    
+    rasters = build.get_bioclim_rasters(state=state)
+    pts = [Point(lon, lat) for lon, lat in zip(daset[metadata.loName], daset[metadata.latName])]
+    # GBIF returns coordinates in WGS84 according to the API
+    # https://www.gbif.org/article/5i3CQEZ6DuWiycgMaaakCo/gbif-infrastructure-data-processing
+    daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.CRS.GBIF_CRS)
+    #  precompute  the bioclim variables at each test locatoin
+    bioclim = []
+    for point in tqdm(daset.geometry,total=len(daset), unit='point'):
+        curr_bio = []
+        # since we've confirmed all the rasters have identical
+        # transforms, can just calculate the x,y coord once
+        x,y = rasterio.transform.rowcol(rasters[0][1], *point.xy)
+        for j, (ras, transf,_,_) in enumerate(rasters):
+            curr_bio.append(ras[0,x,y])
+        bioclim.append(curr_bio)
+    return torch.tensor(np.squeeze(np.stack(bioclim)))
+
+# ---------- Actual dataset class ---------- #
+
 class DeepbioDataset(TorchDataset):
+    
+    def __init__(self, dataset_name, datatype, dataset_type, state, year, band, split, augment):
 
-    def __init__(self, dataset_name, datatype, dataset_type, state, year, band, split, latName, loName, idCol, augment, outline=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp"):
-
-        print("reading in data")
         # load in observations & metadata
         daset = pd.read_csv(f"{paths.OCCS}{dataset_name}.csv")
-        # TODO: read in the id and lat / lon columns from the metadata file!!!
-        metadata = json.load(open(f"{paths.OCCS}{dataset_name}_metadata.json", 'r'))
-        # TODO: read in the id and lat / lon columns from the metadata file!!!
-        
+        metadata = load_metadata(dataset_name)
         # pandas saves lists as strings in csv, gotta parse back to strings
         parsed = [parse_string_to_int(s) for s in daset.specs_overlap_id]
         daset['specs_overlap_id'] = parsed
@@ -110,164 +220,94 @@ class DeepbioDataset(TorchDataset):
         # every species in dataset
         # is guaranteed to be in the species
         # column so this is chill for now
-        self.nspec = len(metadata['spec_2_id'])
-        self.ngen = len(metadata['gen_2_id'])
-        self.nfam =  len(metadata['fam_2_id'])
+        self.nspec = len(metadata.spec_2_id)
+        self.ngen = len(metadata.gen_2_id)
+        self.nfam =  len(metadata.fam_2_id)
         self.metadata = metadata
-        self.datatype = datatype
-        self.dataset_type = dataset_type
+        self.datatype = DataType[datatype]
+        self.dataset_type = DatasetType[dataset_type]
         self.total_len = len(daset)
         # for when using remote sensing data, read in NAIP statistics
-        self.mean = metadata['dataset_means'][f"naip_{year}"]['means']
-        self.std = metadata['dataset_means'][f"naip_{year}"]['stds']
-        self.ids = daset[idCol]
+        # TODO: change depending on your pretraining
+        self.mean = metadata.dataset_means[f"naip_{year}"]['means']
+        self.std = metadata.dataset_means[f"naip_{year}"]['stds']
+        self.ids = daset[metadata.idCol]
         # only relevant for cases where remote sensing data used
-        self.augment = augment
-        # split data if using a test split
+        self.augment = Augment[augment]
+        # split data 
+        # if band is >=0, means to use the banding split
+        # if band = -1, then use the uniform spatial split
         if split != 'all_points':
-            # if band is >=0, means to use the banding split
-            if band >=0 :
-                # save either the test or train split of the data
-                daset =  daset[daset[f"{split}_{band}"]]
-            # if band = -1, then use the uniform spatial split
-            else:
-                # save either the test or train split of the data
-                daset = daset[daset.unif_train_test == split]
+            daset =  daset[daset[f"{split}_{band}"]] if band >=0 else daset[daset.unif_train_test == split]
         self.len_dset = len(daset)
-        self.ids = daset[idCol]
-        self.pres_specs = [spec for sublist in daset.specs_overlap_id for spec in sublist]
-        print(f"{split} dataset has {len(daset)} points")
+        self.ids = daset[metadata.idCol]
+        self.pres_specs = set([spec for sublist in daset.specs_overlap_id for spec in sublist])
+        print(f"{split} dataset has {self.len_dset} points")
         # next, map the indices and save them as numpy
-        self.idx_map = {
-            k:v for k, v in
-            zip(np.arange(len(daset.index)), daset.index)
-        }
-
-        self.pres_specs = [spec for sublist in daset.specs_overlap_id for spec in sublist]
-        self.len_dset = len(daset)
-        # handle various cases of dataset_type
-        # if training only on the specific species in the image
-        if self.dataset_type == 'single_species':
-            all_specs, all_gens, all_fams = [], [], []
-            for spids, gids, fids in zip(daset.species_id, daset.genus_id, daset.family_id):
-                specs_tens = np.full((self.nspec), 0)
-                specs_tens[spids] += 1
-                all_specs.append(specs_tens)
-                gens_tens = np.full((self.ngen), 0)
-                gens_tens[gids] += 1
-                all_gens.append(gens_tens)
-                fams_tens = np.full((self.nfam), 0)
-                fams_tens[fids] += 1
-                all_fams.append(fams_tens)
-            self.all_specs = torch.tensor(np.stack(all_specs))
-            self.all_gens = torch.tensor(np.stack(all_gens))
-            self.all_fams = torch.tensor(np.stack(all_fams))
-        else:
-            # otherwise, load in the overlapping obs as well
-            all_specs, all_gens, all_fams = [], [], []
-            for spids, gids, fids in zip(daset.specs_overlap_id, daset.gens_overlap_id, daset.fams_overlap_id):
-                specs_tens = np.full((self.nspec), 0)
-                specs_tens[spids] += 1
-                all_specs.append(specs_tens)
-                gens_tens = np.full((self.ngen), 0)
-                gens_tens[gids] += 1
-                all_gens.append(gens_tens)
-                fams_tens = np.full((self.nfam), 0)
-                fams_tens[fids] += 1
-                all_fams.append(fams_tens)
-            self.all_specs = torch.tensor(np.stack(all_specs))
-            self.all_gens = torch.tensor(np.stack(all_gens))
-            self.all_fams = torch.tensor(np.stack(all_fams))
-        # finally, we'll precompute the onehots for testing to save on loading costs
+        self.idx_map = map_index(daset.index)
+        self.index = daset.index
+        # get onehot image labels
+        # WARNING! Super memory inefficient, will need to fix
+        all_specs, all_gens, all_fams = get_onehot(daset.species_id, daset.genus_id, daset.family_id, self.nspec, self.ngen, self.nfam)
+        self.all_specs_single = all_specs
+        self.all_gens_single = all_gens
+        self.all_fams_single = all_fams
+        # get multihot image labels
+        all_specs, all_gens, all_fams = get_onehot(daset.specs_overlap_id, daset.gens_overlap_id, daset.fams_overlap_id, self.nspec, self.ngen, self.nfam)
+        self.all_specs_multi = all_specs
+        self.all_gens_multi = all_gens
+        self.all_fams_multi = all_fams
+        # finally, we'll precompute the species labels for topk testing
         self.specs = torch.tensor(daset.species_id.tolist())
         self.gens = torch.tensor(daset.genus_id.tolist())
         self.fams = torch.tensor(daset.family_id.tolist())
-        self.index = daset.index
-        # for when using bioclim data, read in the bioclim rasters
-        # usually the dataset will have the values pre-computed
-        bio_cols = [c for c in daset.columns if '_bio' in c]
-        if len(bio_cols) > 1:
-            print("bioclim pre-loaded!")
-            self.bioclim = torch.tensor(daset[bio_cols].values)
-            self.nrasters = self.bioclim.shape[1]
-        else:
-            self.rasters = build.get_bioclim_rasters()
-            self.nrasters = len(self.rasters)
-            pts = [Point(lon, lat) for lon, lat in zip(daset[loName], daset[latName])]
-            # GBIF returns coordinates in WGS84 according to the API
-            # https://www.gbif.org/article/5i3CQEZ6DuWiycgMaaakCo/gbif-infrastructure-data-processing
-            daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.NAIP_CRS)
-            #  precompute  the bioclim variables at each test locatoin
-            bioclim = []
-            for point in tqdm(daset.geometry,total=len(daset), unit='point'):
-                curr_bio = []
-                # since we've confirmed all the rasters have identical
-                # transforms, can just calculate the x,y coord once
-                x,y = rasterio.transform.rowcol(self.rasters[0][1], *point.xy)
-                for j, (ras, transf) in enumerate(self.rasters):
-                    curr_bio.append(ras[0,x,y])
-                bioclim.append(curr_bio)
-            self.bioclim = torch.tensor(np.squeeze(np.stack(bioclim)))
+        self.bioclim = check_bioclim(daset, metadata, state)
+        self.nrasters = self.bioclim.shape[1]
         # finally, grab the files for reading the images
-        self.imagekeys = daset[idCol].values
+        self.imagekeys = daset[metadata.idCol].values
         self.filenames = daset[f'filepath_{year}'].values
 
     def __len__(self):
         return self.len_dset
 
-    def check_idx(df_idx):
+    def check_idx(self, df_idx):
         return df_idx in self.index
     # idx should be a value from 0-N
     # where N is the length of the dataset
     # idx should not* be from the original
     # dataframe index
+    
+    def batch_datatype(self, idx, input_):
+        if self.dataset_type is DatasetType.SINGLE_LABEL:
+            return self.specs[idx], self.gens[idx], self.fams[idx], input_
+        elif self.dataset_type is DatasetType.SINGLE_SPECIES:
+            return self.all_specs_single[idx], self.all_gens_single[idx], self.all_fams_single[idx], input_
+        elif self.dataset_type is DatasetType.MULTI_SPECIES:
+            return self.all_specs_multi[idx], self.all_gens_multi[idx], self.all_fams_multi[idx], input_
+    
     def __getitem__(self, idx):
 
-        if self.datatype == 'bioclim':
-            if self.dataset_type == 'single_label':
-                return self.specs[idx], self.gens[idx], self.fams[idx], self.bioclim[idx]
-            else:
-                return self.all_specs[idx], self.all_gens[idx], self.all_fams[idx], self.bioclim[idx]
-        elif self.datatype == 'joint_naip_bioclim':
+        # bioclim only
+        if self.datatype is DataType.BIOCLIM:
+            # return labels + input data type
+            return self.batch_datatype(idx, self.bioclim[idx])
+        # naip only
+        elif self.datatype is DataType.NAIP:
             fileHandle = np.load(f"{paths.IMAGES}{self.filenames[idx]}")
             img = fileHandle[f"{self.imagekeys[idx]}"]
             # scale+normalize image
             # NAIP imagery is 0-255 ints
             img = utils.scale(img, out_range=(0,1), min_=0, max_=255)
             img = TF.normalize(torch.tensor(img), self.mean, self.std)
-
-            # add random augmentations
-            if self.augment == 'random':
-            # get fivecrop of image and randomly sample one of the images as the crop
-            # don't use scaling! Just do the 128 pixels
-                img = random_augment(img)
-            elif self.augment == 'fivecrop':
-                imgs  = TF.five_crop(torch.tensor(img), size=(FC_SIZE,FC_SIZE))
-                which = random.sample(range(len(imgs)), 1)
-                img = imgs[which[0]]
-            # handle whether training with neighor labels or just individual
-            if self.dataset_type == 'single_label':
-                return self.specs[idx], self.gens[idx], self.fams[idx], (img, self.bioclim[idx])
-            else:
-                return self.all_specs[idx], self.all_gens[idx], self.all_fams[idx], (img, self.bioclim[idx])
-        else:
+            img = self.augment(img)
+            return self.batch_datatype(idx, img)
+        # both naip and bioclim
+        elif self.datatype is DataType.JOINT_NAIP_BIOCLIM:
             fileHandle = np.load(f"{paths.IMAGES}{self.filenames[idx]}")
             img = fileHandle[f"{self.imagekeys[idx]}"]
             # scale+normalize image
             # NAIP imagery is 0-255 ints
             img = utils.scale(img, out_range=(0,1), min_=0, max_=255)
             img = TF.normalize(torch.tensor(img), self.mean, self.std)
-
-            # add random augmentations
-            if self.augment == 'random':
-            # get fivecrop of image and randomly sample one of the images as the crop
-            # don't use scaling! Just do the 128 pixels
-                img = random_augment(img)
-            elif self.augment == 'fivecrop':
-                imgs  = TF.five_crop(torch.tensor(img), size=(FC_SIZE,FC_SIZE))
-                which = random.sample(range(len(imgs)), 1)
-                img = imgs[which[0]]
-            if self.dataset_type == 'single_label':
-                return self.specs[idx], self.gens[idx], self.fams[idx], img
-            else:
-                return self.all_specs[idx], self.all_gens[idx], self.all_fams[idx], img
+            img = self.augment(img)
+            return self.batch_datatype(idx, (img, self.bioclim[idx]))

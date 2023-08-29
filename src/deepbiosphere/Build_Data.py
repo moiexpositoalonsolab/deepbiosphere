@@ -40,33 +40,24 @@ reproducibility.
 
 # conversion factor for latitude (longitude can change)
 # https://stackoverflow.com/questions/5217348/how-do-i-convert-kilometres-to-degrees-in-geodjango-geos
-DEG_2_KM = 0.008 # degrees to kilometers, 1 km aprox for latitude only
+KM_2_DEG = 0.008 # kilometers to degrees, 1 km aprox for latitude only
 
 
-def get_state_outline(state,file=f"{paths.SHPFILES}gadm36_USA/gadm36_USA_1.shp"):
-    # get outline of us
-    us1 = gpd.read_file(file) # the state's shapefiles
-    stcol = [h.split('.')[-1].lower() for h in us1.HASC_1]
-    us1['state_col'] = stcol
-    # only going to use California
-    shps = us1[us1.state_col == state]
-    return shps
 
-
-def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.NAIP_CRS, out_range=(-1,1), state='ca'):
+def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.CRS.BIOCLIM_CRS, out_range=(-1,1), state='ca'):
     # TODO: only works for us, gadm at the moment..
-    shpfile = get_state_outline(state)
+    shpfile = naip.get_state_outline(state)
     # first, get raster files
     # always grabs standard WSG84 version which starts with b for bioclim
     if ras_paths is None:
-        rasters = f"{paths.RASTERS}wc_30s_current/wc*bio_*.tif"
+        rasters = f"{base_dir}wc_30s_current/wc*bio_*.tif"
         ras_paths = glob.glob(rasters)
     if len(ras_paths) < 1:
         raise FileNotFoundError(f"no files found for {ras_paths}!")
     ras_agg = []
     transfs = []
     # then load in rasters
-    for raster in tqdm(ras_paths, total=len(ras_paths), desc=" loading in rasters"):
+    for raster in tqdm(ras_paths, total=len(ras_paths), desc=" loading in bioclim rasters"):
         # load in raster
         src = rasterio.open(raster)
         # got to make sure it's all in the same crs
@@ -89,13 +80,16 @@ def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths
             raise NotImplementedError(f"No normalization for {normalize} implemented!")
         # finally, save raster name
         ras_name = raster.split('/')[-1].split('.tif')[0]
-        ras_agg.append((masked, transf, ras_name))
+        ras_agg.append((masked, transf, ras_name, src.crs))
     # finally, make sure that all the rasters are the same transform!
     for i, t1 in enumerate(transfs):
         for j, t2 in enumerate(transfs):
-            assert t1 == t2, f"rasters don't match for {i}, {j} bioclim!"
+            assert t1 == t2, f"rasters don't match for {i}, {j} bioclim variables!"
     # returns a list of numpy arrays with each raster
     # plus the transform per-raster in order to use them together
+    for i, r1 in enumerate(ras_agg):
+        for j, r2 in enumerate(ras_agg):
+            assert r1[0].shape == r2[0].shape, f"raster sizes ({r1[0].shape}, {r2[0].shape}) don't match for {i}, {j} bioclim variables!"
     return ras_agg
 
 
@@ -143,7 +137,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
     assert (res>=0.09) and (res <=30), "resolution should be in meters!"
     overlap_dist = math.ceil(256*res)
 
-    daset = daset.to_crs(naip.M_CRS_1)
+    daset = daset.to_crs(naip.NAIP_CRS_1)
     tock = time.time()
     # will again use the ckdtree trick to
     # streamline nearest neighbor search
@@ -222,7 +216,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
                 # for exmple, some clusters have 17K obs in
                 # the cluster. That should definitely be training set
                 # and if any obs is  >256 but <1300 that wasn't adde
-                # it'll get aded to the train set later, so good to ignore
+                # it'll get added to the train set later, so good to ignore
                 elif j == 1999:
                     dists.append(subd[k,j])
         # find the shortest distance to the nearest neighbor
@@ -243,9 +237,11 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
             train_clusters[nc_train] = [next_dist, len(all_id), daset.iloc[i][latname], daset.iloc[i][loname]]
             train += list(all_id)
         seen[list(all_id)] = True
-    daset['unif_train_test'] = None
-    daset['unif_train_test'].iloc[test] = 'test'
-    daset['unif_train_test'].iloc[train] = 'train'
+    unif_train_test = np.full(len(daset), fill_value='Nones')
+    unif_train_test[test] = 'test'
+    unif_train_test[train] = 'train'
+    assert not (None in unif_train_test), "test and train not set properly!"
+    daset['unif_train_test'] = unif_train_test
     daset['cluster_dist'] = next_dists
     # finally, get distance to neighboring observation
     daset['neighbor_dist'] = np.take_along_axis(dist,np.expand_dims((dist<=overlap_dist).sum(axis=1), axis=1), axis=1)
@@ -267,7 +263,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
 
     return daset, train_clusters, test_clusters
 
-def save_data(daset, year, state, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm, parallel, threshold):
+def save_data(daset, year, state, means, tr_clus, te_clus, sp, gen, fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, bioclim_norm, parallel, threshold, excl_dist):
     print("saving data!")
     filepath = f"{paths.OCCS}{daset_id}"
     # theoretically we should remove useless columns
@@ -280,9 +276,10 @@ def save_data(daset, year, state, means, tr_clus, te_clus, sp, gen, fam, daset_i
     names = [c for c in daset.columns if 'overlapping' in c]
     epa_regions = ['US_L3NAME', 'NA_L3NAME', 'NA_L2NAME', 'NA_L1NAME']
     files = [c for c in daset.columns if 'file' in c]
+    clims = [c for c in daset.columns if 'bio' in c]
     # banded test train split
     splits = [f"train_{i}" for i in range(10)] +[f"test_{i}" for i in range(10)]
-    tokeep = [idCol, latname, loname, 'unif_train_test',  'cluster_dist', 'len_overlap', 'cluster_assgn', 'species', 'family', 'genus', 'order', 'neighbor_dist', 'APFONAME', 'UTM'] + ids + names + epa_regions  + files + splits
+    tokeep = [idCol, latname, loname, 'unif_train_test',  'cluster_dist', 'len_overlap', 'cluster_assgn', 'species', 'family', 'genus', 'order', 'neighbor_dist', 'APFONAME', 'UTM'] + ids + names + epa_regions  + files + splits + clims
     daset[tokeep].to_csv(f"{filepath}.csv")
     # json can't serialize numpy dtypes, annoying...
     sp = {k:v.item() for k,v in sp.items()}
@@ -357,7 +354,7 @@ def calculate_means_parallel(rasters, procid, lock, year: str, write_file):
     return means, stds
 
 def calculate_means(tiff_dset_name, parallel, year, rasters=None, write_file=False):
-   # Decision: going to do it acros all satellite image, not all images in the dataset
+   # Decision: going to do it across all satellite image, not all images in the dataset
     # load in previously generated means
     f = f"{paths.OCCS}dataset_means.json"
     with open(f, 'r') as fp:
@@ -455,7 +452,6 @@ def add_filenames(daset, state, year, tiff_dset_name, idCol='gbifID'):
     # also we don't care about the index from the tifs dataframe, so dump that too
     del combined['index_right']
     # and finally add the numpy image filepath
-    print('||| columns: ',[c for c in combined.columns if 'file' in c])
     combined[f"filepath_{year}"] = [f"{tiff_dset_name}/{apfo[:5]}/{(corr_filename).split('.')[0]}.npz" for corr_filename, apfo in zip(combined[f'corr_filename_{year}'], combined.APFONAME)]
     return combined
 
@@ -516,14 +512,14 @@ def make_images_parallel(daset:gpd.GeoDataFrame, year, tiff_dset_name, procid, l
                 curr = dict(np.load(savepath).items())
                 for k in missing:
                     curr[k] = images[k]
-                np.savez(savepath, **curr)
+                np.savez_compressed(savepath, **curr)
         else:
             # if this is the first time building the archive
             # make the directories and save out to disk
             currdir = os.path.dirname(savepath)
             if not os.path.exists(currdir):
                 os.makedirs(currdir)
-            np.savez(savepath, **images)
+            np.savez_compressed(savepath, **images)
     with lock:
         prog.close()
     # drop any obs where the image wasn't saved for any reason
@@ -553,9 +549,10 @@ def make_images(daset:gpd.GeoDataFrame, year, tiff_dset_name, idCol='gbifID'):
             # per-tif
             if int(str(src.crs).split(':')[-1]) != df.crs.to_epsg():
                 daset = daset.to_crs(src.crs)
-                x, y = daset.loc[i].geometry.xy
-            else:
-                x, y = daset.loc[i].geometry.xy
+                # x, y = daset.loc[i].geometry.xy
+            # else:
+            # TODO: should be obs, not daset.loc?? 
+            x, y = daset.loc[i].geometry.xy
             # get the row/col starting location of the point in the raster
             xx,yy = rasterio.transform.rowcol(src.transform, x,  y)
             # rasterio returns arrays, collapse down to ints
@@ -583,14 +580,14 @@ def make_images(daset:gpd.GeoDataFrame, year, tiff_dset_name, idCol='gbifID'):
                 curr = dict(np.load(savepath).items())
                 for k in missing:
                     curr[k] = images[k]
-                np.savez(savepath, **curr)
+                np.savez_compressed(savepath, **curr)
         else:
             # if this is the first time building the archive
             # make the directories and save out to disk
             currdir = os.path.dirname(savepath)
             if not os.path.exists(currdir):
                 os.makedirs(currdir)
-            np.savez(savepath, **images)
+            np.savez_compressed(savepath, **images)
     prog.close()
     # drop any obs where the image wasn't saved for any reason
     daset = daset[~daset[f'imageproblem_{year}']]
@@ -612,7 +609,7 @@ def add_overlapping_filter(daset, res, threshold=200, idCol='gbifID'):
     # convert to a 1m resolution crs
     # covers half the state but can live
     # with the slight distortion
-    daset = daset.to_crs(naip.M_CRS_1)
+    daset = daset.to_crs(naip.NAIP_CRS_1)
     tock = time.time()
     # will again use the ckdtree trick to
     # streamline nearest neighbor search
@@ -715,7 +712,7 @@ def add_ecoregions(dframe, idCol, state):
     missing = set(dframe[idCol])- set(daset[idCol])
     missing = dframe[dframe[idCol].isin(missing)]
     daset = pd.concat([daset,missing])
-    daset = gpd.GeoDataFrame(daset, geometry=daset.geometry, crs=naip.NAIP_CRS)
+    daset = gpd.GeoDataFrame(daset, geometry=daset.geometry, crs=naip.GBIF_CRS)
     # also we don't care what the indx
     # of the ecoregion was now that
     # we have it, so can get rid of it
@@ -730,7 +727,7 @@ def filter_raster_oob(daset):
     # TODO: this code assumes it's a bioclim only set of rasters
     daset['out_of_bounds'] = False
     #convert to WSG85 since bioclim rasters are guaranteed to be WSG84 crs
-    daset = daset.to_crs(naip.NAIP_CRS)
+    daset = daset.to_crs(naip.GBIF_CRS)
     # grab only bioclim columns
     # TODO: come up with a bit neater way than only pulling '_bio' named columns
     bio_names = [c for c in daset.columns if '_bio' in c]
@@ -760,7 +757,7 @@ def generate_split_polygons():
     # points in the state
     # TODO: make this a parameter so it generalizes
     strtlat, endlat = 32, 42
-    exclude_size = DEG_2_KM+DEG_2_KM*0.5 # max largest size of bioclim pixel is sqrt(2) ~1.5 km
+    exclude_size = KM_2_DEG+KM_2_DEG*0.5 # max largest size of bioclim pixel is sqrt(2) ~1.5 km
     polys = {}
     for i, lat in enumerate(range(strtlat, endlat, 1)):
 
@@ -789,7 +786,7 @@ def generate_split_polygons():
 # make bands and exclusion zones
 def make_spatial_split(daset, latCol):
     # first, make sure we're in the right crs
-    daset = daset.to_crs(naip.NAIP_CRS)
+    daset = daset.to_crs(naip.GBIF_CRS)
     # these are a box around california
     # leaves a bit of a buffer around
     # the whole state
@@ -806,7 +803,7 @@ def make_spatial_split(daset, latCol):
     endlat = min(math.floor(highlat), math.ceil(daset[latCol].max()))
     for i, lat in enumerate(range(strtlat, endlat, 1)):
 
-        exclude_size = DEG_2_KM+DEG_2_KM*0.5 # max largest size of bioclim pixel is sqrt(2) ~1.5 km
+        exclude_size = KM_2_DEG+KM_2_DEG*0.5 # max largest size of bioclim pixel is sqrt(2) ~1.5 km
         # polygon for below exclusion band
         train_top  = [Point(lonmax, lat+1), Point(lonmax, highlat), Point(lonmin, highlat),  Point(lonmin, lat+1)]
         train_top = Polygon(train_top)
@@ -824,20 +821,22 @@ def make_spatial_split(daset, latCol):
         train_pts = gpd.GeoDataFrame(train_pts, geometry=train_pts.geometry, crs=train_1.crs)
         # save which points are in train split for this band
         daset[f"train_{i}"] = False
-        daset[f"train_{i}"][train_1.index] = True
-        daset[f"train_{i}"][train_2.index] = True
+        daset.loc[train_1.index, f"train_{i}"] = True
+        daset.loc[train_2.index, f"train_{i}"] = True
         # get all points in test bands
         test_pts = daset[daset.intersects(test)]
         # save which points are in test split for this band
+        # pandas will sometimes complain with a setting on slice error
+        # when adding a new column this way. Annoying.
         daset[f"test_{i}"] = False
-        daset[f"test_{i}"][test_pts.index] = True
+        daset.loc[test_pts.index, f"test_{i}"] = True
         # just sanity check there's no overlap
         # https://gis.stackexchange.com/questions/222315/finding-nearest-point-in-other-geodataframe-using-geopandas
         nA = np.array(list(test_pts.geometry.apply(lambda x: (x.x, x.y))))
         nB = np.array(list(train_pts.geometry.apply(lambda x: (x.x, x.y))))
         btree = cKDTree(nB)
         dist, idx = btree.query(nA, k=1)
-        print(f"{len(train_pts)} training points, {len(test_pts)} testing points,  {round(len(train_pts)/len(daset)*100, 3)}% train, {round(len(test_pts)/len(daset)*100,3)}% test, {round(min(dist)/DEG_2_KM, 3)} kilometers between test and train")
+        print(f"{len(train_pts)} training points, {len(test_pts)} testing points,  {round(len(train_pts)/len(daset)*100, 3)}% train, {round(len(test_pts)/len(daset)*100,3)}% test, {round(min(dist)/KM_2_DEG, 3)} kilometers between test and train")
     return daset
 
     # here, if a species is singleton (all observation of that
@@ -849,7 +848,7 @@ def make_spatial_split(daset, latCol):
 def remove_singletons_duplicates(daset, res):
     # first, convert geometry to
     # UTM11 so distances are in m
-    daset = daset.to_crs(naip.M_CRS_1)
+    daset = daset.to_crs(naip.NAIP_CRS_1)
     # next, get the distance for the resolution we'll be working with
     assert (res>=0.09) and (res <=30), "resolution should be in meters!"
     overlapped = math.ceil(256*res)
@@ -919,7 +918,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     pts = [Point(lon, lat) for lon, lat in zip(daset[loname], daset[latname])]
     # GBIF returns coordinates in WGS84 according to the API
     # https://www.gbif.org/article/5i3CQEZ6DuWiycgMaaakCo/gbif-infrastructure-data-processing
-    daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.NAIP_CRS)
+    daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.GBIF_CRS)
     # also make the name of the directory where the images are stored
     # it's a weird structure and so we'll do it a hacky way for now
     tiff_dset_name = f"{state}_100cm_{year}" if str(year) in ['2012', '2014'] else f"{state}_060cm_{year}"
@@ -948,9 +947,9 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     if to_keep is not None:
           daset = daset[daset.species.isin(to_keep)]
     # and read in state outline
-    shps = get_state_outline(state)
+    shps = naip.get_state_outline(state)
     # ensure dataframes are in the same crs
-    shps = shps.to_crs(naip.NAIP_CRS)
+    shps = shps.to_crs(naip.GBIF_CRS)
     # keep only points inside of GADM california
     if 'index_right' in daset.columns:
         del daset['index_right']
@@ -1015,7 +1014,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     else:
         means = None
     # and finally save everything out to disk
-    save_data(daset, year, state, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, normalize, parallel, threshold)
+    save_data(daset, year, state, means, train_clusters, test_clusters, sp, gen,fam, daset_id, count_spec, count_gen, count_fam, idCol, latname, loname, normalize, parallel, threshold, excl_dist)
 
 if __name__ == "__main__":
     # set up argparser

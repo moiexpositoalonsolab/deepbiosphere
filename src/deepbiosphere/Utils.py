@@ -1,19 +1,27 @@
+import os
+import glob
 import json
 import torch
+import math
 import numpy as np
+import enum
+from tqdm import tqdm
+import sklearn.metrics as mets
 from types import SimpleNamespace
+import matplotlib.pyplot as plt
+from tensorboard.backend.event_processing import event_accumulator
 
 ## ---------- MAGIC NUMBERS ---------- ##
 
-# TODO: change all magic numbers to this
-# TODO: figure out what to do with this
-# because I can't have it in Dtaset.py
-# or nAIP_Utils.py because then they both
-# recursively use the other. Might need
-# to chnage all magic values to be in this file
-# idk
-IMG_SIZE = 256
+# TODO: move all magic numbers to this
 
+# Standard image size
+# to use during training
+IMG_SIZE = 256
+# number of channels in
+# NAIP imagery: RGB-Infrared
+NAIP_CHANS = 4
+IMAGENET_CHANS = 3
 
 ## ---------- Paths to important directories ---------- ##
 
@@ -30,6 +38,42 @@ paths = SimpleNamespace(
     SCRATCH = '/your/path/here/',
     RUNS = '/your/path/here/',
     BLOB_ROOT = 'https://naipblobs.blob.core.windows.net/')
+
+## ---------- Base class for function type checking enum ---------- ##
+
+# hacky enum class to enable
+# enums to call functions.
+# only dot operator and bracket
+# operator work. Parens operator will fail
+class FuncEnum(enum.Enum):
+    # can't pass kwargs
+    def __call__(self, *args):
+        return self.value(*args)
+
+# overrides uniterpretable error
+# messages for missing dot or
+# bracket operators
+class MetaEnum(enum.EnumMeta):
+    def __getitem__(cls, name):
+        # keying in with partial function type ie Enum.Type1
+        if name in cls._member_map_.values():
+            return name
+        # keying in with function name
+        elif name in cls._member_map_.keys():
+            return cls._member_map_[name]
+        else:
+            raise ValueError("%r is not a valid %s" % (name, cls.__qualname__))
+    def __getattr__(cls, name):
+        if enum._is_dunder(name):
+            raise AttributeError(name)
+        if name in cls._member_map_.keys():
+            return cls._member_map_[name]
+        else:
+            raise ValueError("%r is not a valid %s" % (name, cls.__qualname__))
+    def valid(self):
+        return self._member_names_
+
+
 ## ---------- File loading ---------- ##
 
 def setup_pretrained_dirs():
@@ -37,7 +81,99 @@ def setup_pretrained_dirs():
         os.makedirs(f"{paths.MODELS}/pretrained/")
     return f"{paths.MODELS}/pretrained/"
 
+## ---------- Tensorboard helper methods ---------- ##
+
+def get_tfevent(cfg):
+    # get all the possible tfEvent files
+    files = glob.glob(f'{paths.RUNS}/*{cfg.exp_id}*')
+    # figure out which tfEvent corresponds to the model
+    # grab a random checkpoint for model
+    model = f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e10.tar"
+    model_time = os.path.getmtime(model)
+    # get tfEvent file with closest timestamp to model checkpoint
+    filetimes = {file : abs(os.path.getmtime(file)-model_time) for file in files}
+    filetimes =sorted(filetimes.items(), key=lambda x: x[1])
+    return filetimes[0]
+
+def extract_test_accs(cfg, n_test_obs):
+    # get all the possible tfEvent files
+    file, filetime = get_tfevent(cfg)
+    # open up the tfEvent file
+    ea = event_accumulator.EventAccumulator(file, size_guidance={
+        event_accumulator.SCALARS: 0,})
+    ea.Reload()
+    tags = ea.Tags()['scalars']
+    # extract accuracies (easy)
+    tags = {met.split('test/')[-1] : [k.value for k in ea.Scalars(met)] for met in tags if 'loss' not in met}
+
+    # extract losses (less easy)
+    losses = [t for t in ea.Tags()['scalars'] if ('loss' in t) and ('test/' in t)]
+    for lname in losses:
+        loss = ea.Scalars(lname)
+        # some models don't use all the losses
+        # so throw out the ones that don't
+        # only really relevant for the inception baseline
+        if loss[0] == 0.0:
+            continue
+        batchsize = loss[1].step
+        assert batchsize == cfg.batchsize, 'config and tfEvent dont match up!'
+        nbatches = math.ceil(n_test_obs/batchsize)
+        nepochs = len(loss)// nbatches
+        suloss = []
+        # collate the loss (summed per-epoch)
+        for i in range(0, len(loss), nbatches):
+            cur_loss = [loss[j].value for j in range(i, i+nbatches)]
+            suloss.append(sum(cur_loss))
+        tags[lname.split('test/')[-1]] = suloss
+    return tags
+
+def extract_train_time(cfg, n_obs, epoch):
+    # get all the possible tfEvent files
+    file, filetime = get_tfevent(cfg)
+    # open up the tfEvent file
+    ea = event_accumulator.EventAccumulator(file, size_guidance={
+        event_accumulator.SCALARS: 0,})
+    ea.Reload()
+    # get the overall loss scalar (guaranteed all models have)
+    loss = ea.Scalars('train/tot_loss')
+    batchsize = loss[1].step
+    nbatches = math.ceil(n_obs/batchsize)
+    nepochs = len(loss)// nbatches
+    # get the difference in seconds of last batch of training
+    # for current epoch from start of training
+    return loss[(nbatches*(epoch+1))-1].wall_time - loss[0].wall_time
+
+def get_mean_epoch(tags):
+    epochs = []
+    # set up dict for each possible epoch to store what metrics are maxed when
+    mets = tags.keys()
+    # remove micro + weighted binary acc entries (uncessary)
+    # also remove mAP (same as PRC_AUC!)
+    # and extra losses (only keeping total loss)
+    mets = [met for met in mets if  ('weighted' not in met) and ('micro' not in met) and ('loss' not in met) and ('mAP' != met) and ('top' not in met)]
+    # add back just in total loss and one topK accuracy
+    mets.append('tot_loss')
+    mets.append('top30_accuracy')
+    print(f" using these metrics: {mets}")
+    for met in mets:
+        curr = tags[met]
+        # pair epochs and accuracy
+        paired = zip(range(len(curr)), curr)
+        # sort pairs by max accuracy
+        spaired = sorted(paired, key=lambda x: x[1])
+        # if it's a loss, want the minimizer
+        # else want the maximizer for accuracies
+        epoch, val = spaired[0] if 'loss' in met else spaired[-1]
+        epochs.append(epoch)
+    # return average best epoch
+    return int(np.mean(epochs))
+
+
 ## ---------- Data manipulation ---------- ##
+
+# empty function call
+def pass_(input):
+    return input
 
 # https://stackoverflow.com/questions/2659900/slicing-a-list-into-n-nearly-equal-length-partitions
 def partition(lst, n):
@@ -63,6 +199,7 @@ def scale(x, min_=None, max_=None, out_range=(-1,1)):
     if min_ == None and max_ == None:
         min_, max_ = np.min(x), np.max(x)
     return ((out_range[1]-out_range[0])*(x-min_))/(max_-min_)+out_range[0]
+
 
 ## ---------- Accuracy metrics ---------- ##
 
@@ -95,8 +232,6 @@ def precision_per_obs(ob_t: torch.tensor, y_t: torch.tensor, threshold=.5):
     ans[ans != ans] = 0
     return ans
 
-
-
 def recall_per_obs(ob_t, y_t, threshold=.5):
     ob_t = torch.as_tensor(ob_t)
     y_t = torch.as_tensor(y_t)
@@ -111,8 +246,6 @@ def recall_per_obs(ob_t, y_t, threshold=.5):
     # this relies on the assumption that all nans are 0-division
     ans[ans != ans] = 0
     return ans
-
-
 
 def accuracy_per_obs(ob_t, y_t, threshold=.5):
     ob_t = torch.as_tensor(ob_t)
@@ -129,15 +262,28 @@ def accuracy_per_obs(ob_t, y_t, threshold=.5):
     ans[ans != ans] = 0
     return ans
 
+def f1_per_obs(ob_t, y_t, threshold=.5):
+    pre = precision_per_obs(ob_t, y_t, threshold)
+    rec = recall_per_obs(ob_t, y_t, threshold)
+    ans =  2*(pre*rec)/(pre+rec)
+    # if denom=0, F1 is 0
+    ans[ans != ans] = 0.0
+    return ans
 
-# unfair for observations with >30 species, but whatever
+def zero_one_accuracy(y_true, y_preds, threshold=0.5):
+    assert y_preds.min() >= 0.0 and(y_preds.max() <= 1.0), 'predictions must be converted to probabilities!'
+    y_obs = y_preds >= threshold
+    n_correct = sum([y_obs[i,label] for (i,label) in enumerate(y_true)])
+    return n_correct / len(y_true)
+
+
 def obs_topK(ytrue, yobs, K):
     # ytrue should be spec_id, not all_specs_id
     yobs = torch.as_tensor(yobs)
     ytrue = torch.as_tensor(ytrue)
+    # TODO: check ytrue sum is 1 across obs
     # convert to probabilities if not done already
-    if (yobs.min() <= 0.0) or (yobs.max() >= 1.0):
-        yobs = torch.sigmoid(yobs)
+    assert yobs.min() >= 0.0 and(yobs.max() <= 1.0), 'predictions must be converted to probabilities!'
     # convert
     tk = torch.topk(yobs, K)
     # compare indices and will be 1 for every row where
@@ -145,10 +291,11 @@ def obs_topK(ytrue, yobs, K):
     # gives you final sum (since only 1 obs per row)
     perob = (tk[1]== ytrue.unsqueeze(1).repeat(1,K)).sum().item()
     # don't forget to average
-    return perob / len(ytrue)
-
+    return (perob / len(ytrue)), (tk[1]== ytrue.unsqueeze(1).repeat(1,K))
 
 def species_topK(ytrue, yobs, K):
+    assert yobs.shape[1] > 1, "predictions are not multilabel!"
+    nspecs = yobs.shape[1]
     yobs = torch.as_tensor(yobs)
     ytrue = torch.as_tensor(ytrue)
     # convert to probabilities if not done already
@@ -157,7 +304,6 @@ def species_topK(ytrue, yobs, K):
     # convert
     tk = torch.topk(yobs, K)
     # get all unique species label and their indices
-    # the order is backward somehow TOOD
     unq = torch.unique(ytrue, sorted=False, return_inverse=True)
     # make a dict to store the results for each species
     specs = {v.item():[] for v in unq[0]}
@@ -166,43 +312,61 @@ def species_topK(ytrue, yobs, K):
     for val, row in zip(unq[1], tk[1]):
         specs[unq[0][val.item()].item()].append(row)
     sas = []
-    for spec, i in specs.items():
-        # if nan, ignore species
-        if spec == spec:
-            # spoof ytrue for this species
-            yt = torch.full((len(i),K), spec)
-            # and calculate 'per-obs' accuracy
-            sas.append((torch.stack(i)== yt).sum().item()/len(i))
-    # and take average
-    return sum(sas)/len(ytrue)
+    # add every species so csv writing works
+    for i in range(nspecs):
+        # ignore not present species
+        spec = specs.get(i)
+        if spec is None:
+            sas.append(np.nan)
+            continue
+        nspecs += 1
+        # spoof ytrue for this species
+        yt = torch.full((len(spec),K), i)
+        # and calculate 'per-obs' accuracy
+        sas.append((torch.stack(spec)== yt).sum().item()/len(spec))
+    sas = np.array(sas)
+    gsas = sas[~np.isnan(sas)]
+    sas = np.array(sas)
+    gsas = sas[~np.isnan(sas)]
+    return (sum(gsas) / len(gsas)), sas
 
-# taken from torchmetrics
-# code taken from https://github.com/pytorch/tnt/pull/21/files/d6f1f0065cade3e2f8104049ba08fcf6d85d15c8
-# explanation: https://blog.paperspace.com/mean-average-precision/
-def mean_average_precision(scores, targets):
-    scores = torch.as_tensor(scores)
-    targets = torch.as_tensor(targets)
-    if scores.numel() == 0:
-        return 0
-    ap = torch.zeros(scores.shape[1])
-    rg = torch.arange(1, scores.shape[0]+1).float()
-    # compute average precision for each class
-    for k in range(scores.shape[1]):
-        # sort scores
-        currsc = scores[:, k]
-        currtarg = targets[:, k]
-        # ignore classes with no presence in set
-        if currtarg.sum() == 0:
-            ap[k] = np.nan
+
+def mean_calibrated_roc_auc_prc_auc(y_true, y_obs, npoints=50):
+    assert y_true.shape == y_obs.shape
+    assert y_true.shape[1] > 1
+    assert y_obs.shape[1] > 1
+    roc_auc, prc_auc = [],[]
+    for i in range(y_obs.shape[1]):
+        ra,pa = calibrated_roc_auc_prc_auc(y_true[:,i], y_obs[:,i])
+        roc_auc.append(ra)
+        prc_auc.append(pa)
+    return roc_auc, prc_auc
+
+# precision: tp / (tp + fp)
+# recall, TPR: tp / (tp + fn)
+# FPR = FP/(FP+TN)
+def calibrated_roc_auc_prc_auc(y_true, y_obs, npoints=50):
+    cutoffs = np.linspace(0.0, 1.0, npoints)
+    tpr, fpr, pre = [],[],[]
+    # ignore when there is no actual present case of this species
+    if y_true.sum() == 0:
+        return (np.nan, np.nan)
+    for i in cutoffs:
+        pred = (y_obs >= i).astype(np.short)
+        tn, fp, fn, tp = mets.confusion_matrix(y_true, pred).ravel()
+        if (tp + fn) > 0:
+            tpr.append(tp / (tp + fn))
         else:
-            _, sortind = torch.sort(currsc, 0, True)
-            truth = currtarg[sortind]
-            # compute true positive sums
-            tp = truth.float().cumsum(0)
+            tpr.append(0)
+        if (fp+tn) > 0:
+            fpr.append(fp/(fp+tn))
+        else:
+            fpr.append(0)
+        if (tp + fp) > 0:
+            pre.append(tp / (tp + fp))
+        else:
+            pre.append(0)
+    # precision-recall x=recall, y=precision
+    # roc: x= fpr, y= tpr
+    return (mets.auc(tpr, pre),  mets.auc(fpr, tpr))
 
-            # compute precision curve
-            precision = tp.div(rg)
-            # compute average precision
-            ap[k] = precision[truth.bool()].sum() / max(truth.sum(), 1)
-    # ignore absent classes
-    return ap[~torch.isnan(ap)].mean().item()
