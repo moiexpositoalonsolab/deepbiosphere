@@ -40,16 +40,30 @@ class Bioclim_MLP(nn.Module):
             layers.append(self.elu)
 
         self.layers = nn.Sequential(*layers)
-        self.mlp_fam = nn.Linear(self.mlp_choke2, self.families)
-        self.mlp_gen = nn.Linear(self.mlp_choke2, self.genera)
-        self.mlp_spec = nn.Linear(self.mlp_choke2, self.species)
+        if self.species != -1:
+            self.mlp_spec = nn.Linear(self.mlp_choke2, self.species)
+        if self.genera != 1:
+            self.mlp_gen = nn.Linear(self.mlp_choke2, self.genera)
+        if self.families != 1:
+            self.mlp_fam = nn.Linear(self.mlp_choke2, self.families)
+        
+        
 
     def forward(self, rasters):
         x = self.layers(rasters)
-        fam = self.mlp_fam(x)
-        gen = self.mlp_gen(x)
         spec = self.mlp_spec(x)
-        if self.training: # TODO: make sure inference et al handles this!
-            return spec, gen, fam
-        else: 
+
+        if not self.training:
+            return spec
+        # use all 3 taxonomic levels for training
+        if (self.num_gen != -1) & (self.num_fam != -1):
+            fam = self.mlp_fam(x)
+            gen = self.mlp_gen(x)
+            return (spec, gen, fam)
+        # use only species genus taxonomic levels
+        elif (self.num_fam != -1):
+            gen = self.mlp_gen(x)
+            return (spec, gen)
+        # use only species taxonomic level
+        else:
             return spec
