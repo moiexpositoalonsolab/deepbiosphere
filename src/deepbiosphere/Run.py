@@ -201,7 +201,7 @@ def instantiate_loss(cfg, dset, device):
     loss_type = losses[cfg.loss]
     # add weighting for weighted versions
     if (loss_type is losses.WEIGHTED_CE) or (loss_type is losses.WEIGHTED_BCE):
-        return loss_type(dset.metadata['species_counts'],dset.metadata['spec_2_id'], dset.total_len, device)
+        return loss_type(dset.metadata.species_counts,dset.metadata.spec_2_id, dset.total_len, device)
     else:
         return loss_type()
     
@@ -253,7 +253,7 @@ def fivecrop_one_step(inputs, model):
 # type for loss calculation for BCE flavor losses
 def calculate_loss(out, targ, loss, losstype):
     # checking loss type b/c BCE wants floats
-    if losses[losstype] is losses.BCE or losses[losstype] is losses.WEIGHTED_BCE:
+    if losses[losstype] in [losses.BCE, losses.WEIGHTED_BCE, losses.CE, losses.WEIGHTED_CE]:
         return loss(out, targ.float())
     else:
         return loss(out, targ)
@@ -292,9 +292,9 @@ def train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, t
             if tbwriter is not None:
                 #if ALS loss, save the delta p for tuning focal hyperparameters
                 if (losses[args.loss] is losses.ASL) or (losses[args.loss] is losses.SCALED_ASL):
-                    record_deltaP(spec_true,specs, tbwriter, steps, 'train', 'species')
-                    record_deltaP(gen_true,gens, tbwriter, steps, 'train', 'genus')
-                    record_deltaP(fam_true,fams, tbwriter, steps, 'train', 'family')
+                    record_deltaP(spec_true,out[0], tbwriter, steps, 'train', 'species')
+                    record_deltaP(gen_true,out[1], tbwriter, steps, 'train', 'genus')
+                    record_deltaP(fam_true,out[2], tbwriter, steps, 'train', 'family')
                 tbwriter.add_scalar("train/spec_loss", loss_spec.item(), steps)
                 tbwriter.add_scalar("train/gen_loss", loss_gen.item(), steps)
                 tbwriter.add_scalar("train/fam_loss", loss_fam.item(), steps)
@@ -507,7 +507,7 @@ def train_and_test_model(args, rng):
     if not args.testing:
         tb_writer.close()
         write_traintime(total, args, 'traintest', device)
-
+    
 
 ## ---------- main module ---------- ##        
 
