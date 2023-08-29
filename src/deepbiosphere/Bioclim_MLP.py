@@ -42,9 +42,9 @@ class Bioclim_MLP(nn.Module):
         self.layers = nn.Sequential(*layers)
         if self.species != -1:
             self.mlp_spec = nn.Linear(self.mlp_choke2, self.species)
-        if self.genera != 1:
+        if self.genera != -1:
             self.mlp_gen = nn.Linear(self.mlp_choke2, self.genera)
-        if self.families != 1:
+        if self.families != -1:
             self.mlp_fam = nn.Linear(self.mlp_choke2, self.families)
         
         
@@ -66,4 +66,4 @@ class Bioclim_MLP(nn.Module):
             return (spec, gen)
         # use only species taxonomic level
         else:
-            return spec
+            return ([spec])

@@ -274,7 +274,7 @@ class FocalLossScaled(nn.Module):
         self.loss = self.pos_loss + self.neg_loss
 
         # return -self.loss.sum()
-        return self.op(-self.loss)
+        return self.op(-self.loss[~self.loss.isnan()])
 
 
 class BCEProbClipScaled(nn.Module):
@@ -311,8 +311,7 @@ class BCEProbClipScaled(nn.Module):
         self.xs_neg = 1.0 - self.xs_pos
 
         # Asymmetric Clipping
-        if self.clip is not None and self.clip > 0:
-            self.xs_neg.add_(self.clip).clamp_(max=1)
+        self.xs_neg.add_(self.clip).clamp_(max=1)
 
         # Basic CE calculation
         self.loss = self.targets * torch.log(self.xs_pos.clamp(min=self.eps))
@@ -374,8 +373,7 @@ class AsymmetricLoss(nn.Module):
         self.xs_neg = 1.0 - self.xs_pos
 
         # Asymmetric Clipping
-        if self.clip is not None and self.clip > 0:
-            self.xs_neg.add_(self.clip).clamp_(max=1)
+        self.xs_neg.add_(self.clip).clamp_(max=1)
 
         # Basic CE calculation
         self.loss = self.targets * torch.log(self.xs_pos.clamp(min=self.eps))
@@ -389,7 +387,6 @@ class AsymmetricLoss(nn.Module):
             self.loss *= self.asymmetric_w
 
         # return -self.loss.sum()
-        # return self.op(-self.loss)
         return self.op(-self.loss[~self.loss.isnan()])
 
 
@@ -431,8 +428,7 @@ class AsymmetricLossScaled(nn.Module):
         self.xs_neg = 1.0 - self.xs_pos
 
         # Asymmetric Clipping
-        if self.clip is not None and self.clip > 0:
-            self.xs_neg.add_(self.clip).clamp_(max=1)
+        self.xs_neg.add_(self.clip).clamp_(max=1)
 
         # Basic CE calculation
         self.loss = self.targets * torch.log(self.xs_pos.clamp(min=self.eps))
@@ -451,9 +447,7 @@ class AsymmetricLossScaled(nn.Module):
         self.loss = self.pos_loss + self.neg_loss
 
         # return -self.loss.sum()
-        # return self.op(-self.loss)
         return self.op(-self.loss[~self.loss.isnan()])
-
 
 
 # ---------- Types ---------- #

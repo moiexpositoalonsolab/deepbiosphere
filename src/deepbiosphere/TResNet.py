@@ -284,7 +284,7 @@ class RS_TResNet(Module):
             return (spec, gen)
         # use only species taxonomic level
         else:
-            return spec
+            return ([spec])
 
 def _tresnet(arch, layers, num_spec : int, num_gen : int, num_fam : int, pretrained: str, base_dir : str, width_factor : int
 ) -> RS_TResNet:
@@ -499,7 +499,7 @@ class Joint_TResNet(Module):
         # use only species taxonomic level
         # still pass same way as others during training
         else:
-            return (spec)
+            return ([spec])
 
 
 
