@@ -200,7 +200,7 @@ def instantiate_loss(cfg, dset, device):
     # type check loss
     loss_type = losses[cfg.loss]
     # add weighting for weighted versions
-    if (loss_type is losses.WEIGHTED_CE) or (loss_type is losses.WEIGHTED_BCE):
+    if loss_type in [losses.WEIGHTED_CE, losses.WEIGHTED_BCE]:
         return loss_type(dset.metadata.species_counts,dset.metadata.spec_2_id, dset.total_len, device)
     else:
         return loss_type()
@@ -253,7 +253,7 @@ def fivecrop_one_step(inputs, model):
 # type for loss calculation for BCE flavor losses
 def calculate_loss(out, targ, loss, losstype):
     # checking loss type b/c BCE wants floats
-    if losses[losstype] in [losses.BCE, losses.WEIGHTED_BCE, losses.CE, losses.WEIGHTED_CE]:
+    if losses[losstype] in [losses.BCE, losses.WEIGHTED_BCE]:
         return loss(out, targ.float())
     else:
         return loss(out, targ)
@@ -281,7 +281,7 @@ def train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, t
                 tb_writer.add_scalar("train/tot_loss", total_loss.item(), steps)
         else:
             # hacky, but calculates loss for each taxon
-            if 'spec' in args.taxon_type:
+            if 'spec' in args.taxon_type: # speconly needs to be out
                 loss_spec = calculate_loss(out[0], spec_true, loss, args.loss)
             if 'gen' in args.taxon_type:
                 loss_gen = calculate_loss(out[1], gen_true, loss, args.loss)
@@ -311,7 +311,7 @@ def train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, t
 
 def logit_to_proba(y_pred, losstype):
     # softmax vs. sigmoid transformation
-    if losses[losstype] is losses.CE or losses[losstype] is losses.WEIGHTED_CE:
+    if losses[losstype] in [losses.CE, losses.WEIGHTED_CE]:
         y_pred = torch.softmax(y_pred,axis=1)
     else:
         y_pred = torch.sigmoid(y_pred)
