@@ -251,7 +251,11 @@ def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_20
 def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True):
     # load model
     test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
+    all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
     test_dset.len_dset = 500 # TODO: remove!!
+    all_specs_multi = all_specs_multi[:500, :]
+    all_specs_single = all_specs_single[:500]
+
     train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
     shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
     
@@ -265,7 +269,7 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
     y_pred = torch.cat(y_pred, dim=0)
     y_pred = run.logit_to_proba(y_pred.cpu(), cfg.loss)
     # filter to only shared species
-    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species) 
+    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species) 
 
     return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, eval_dset.metadata.spec_2_id, 
                                     test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id, 
