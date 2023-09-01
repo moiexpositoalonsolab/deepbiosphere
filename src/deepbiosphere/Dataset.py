@@ -205,7 +205,7 @@ def load_bioclim(daset, metadata, state):
 
 class DeepbioDataset(TorchDataset):
     
-    def __init__(self, dataset_name, datatype, dataset_type, state, year, band, split, augment):
+    def __init__(self, dataset_name, datatype, dataset_type, state, year, band, split, augment, prep_onehots=True):
 
         # load in observations & metadata
         daset = pd.read_csv(f"{paths.OCCS}{dataset_name}.csv")
@@ -220,6 +220,8 @@ class DeepbioDataset(TorchDataset):
         # every species in dataset
         # is guaranteed to be in the species
         # column so this is chill for now
+        self.band = band
+        self.name = dataset_name
         self.nspec = len(metadata.spec_2_id)
         self.ngen = len(metadata.gen_2_id)
         self.nfam =  len(metadata.fam_2_id)
@@ -246,21 +248,22 @@ class DeepbioDataset(TorchDataset):
         # next, map the indices and save them as numpy
         self.idx_map = map_index(daset.index)
         self.index = daset.index
-        # get onehot image labels
-        # WARNING! Super memory inefficient, will need to fix
-        all_specs, all_gens, all_fams = get_onehot(daset.species_id, daset.genus_id, daset.family_id, self.nspec, self.ngen, self.nfam)
-        self.all_specs_single = all_specs
-        self.all_gens_single = all_gens
-        self.all_fams_single = all_fams
-        # get multihot image labels
-        all_specs, all_gens, all_fams = get_onehot(daset.specs_overlap_id, daset.gens_overlap_id, daset.fams_overlap_id, self.nspec, self.ngen, self.nfam)
-        self.all_specs_multi = all_specs
-        self.all_gens_multi = all_gens
-        self.all_fams_multi = all_fams
-        # finally, we'll precompute the species labels for topk testing
-        self.specs = torch.tensor(daset.species_id.tolist())
-        self.gens = torch.tensor(daset.genus_id.tolist())
-        self.fams = torch.tensor(daset.family_id.tolist())
+        if prep_onehots:
+            # get onehot image labels
+            # WARNING! Super memory inefficient, will need to fix
+            all_specs, all_gens, all_fams = get_onehot(daset.species_id, daset.genus_id, daset.family_id, self.nspec, self.ngen, self.nfam)
+            self.all_specs_single = all_specs
+            self.all_gens_single = all_gens
+            self.all_fams_single = all_fams
+            # get multihot image labels
+            all_specs, all_gens, all_fams = get_onehot(daset.specs_overlap_id, daset.gens_overlap_id, daset.fams_overlap_id, self.nspec, self.ngen, self.nfam)
+            self.all_specs_multi = all_specs
+            self.all_gens_multi = all_gens
+            self.all_fams_multi = all_fams
+            # finally, we'll precompute the species labels for topk testing
+            self.specs = torch.tensor(daset.species_id.tolist())
+            self.gens = torch.tensor(daset.genus_id.tolist())
+            self.fams = torch.tensor(daset.family_id.tolist())
         self.bioclim = check_bioclim(daset, metadata, state)
         self.nrasters = self.bioclim.shape[1]
         # finally, grab the files for reading the images
@@ -272,6 +275,8 @@ class DeepbioDataset(TorchDataset):
 
     def check_idx(self, df_idx):
         return df_idx in self.index
+
+    
     # idx should be a value from 0-N
     # where N is the length of the dataset
     # idx should not* be from the original
