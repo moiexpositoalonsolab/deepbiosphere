@@ -83,12 +83,12 @@ def setup_pretrained_dirs():
 
 ## ---------- Tensorboard helper methods ---------- ##
 
-def get_tfevent(cfg):
+def get_tfevent(cfg, epoch=10):
     # get all the possible tfEvent files
     files = glob.glob(f'{paths.RUNS}/*{cfg.exp_id}*')
     # figure out which tfEvent corresponds to the model
     # grab a random checkpoint for model
-    model = f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e10.tar"
+    model = f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e{epoch}.tar"
     model_time = os.path.getmtime(model)
     # get tfEvent file with closest timestamp to model checkpoint
     filetimes = {file : abs(os.path.getmtime(file)-model_time) for file in files}
@@ -155,6 +155,7 @@ def get_mean_epoch(tags):
     mets.append('tot_loss')
     mets.append('top30_accuracy')
     print(f" using these metrics: {mets}")
+    print(f"avail tags {tags,keys()}")
     for met in mets:
         curr = tags[met]
         # pair epochs and accuracy
