@@ -279,7 +279,7 @@ class RS_TResNet(Module):
             fam = self.fam(self.embeddings)
             return (spec, gen, fam)
         # use only species genus taxonomic levels
-        elif (self.num_fam != -1):
+        elif (self.num_gen != -1):
             gen = self.gen(self.embeddings)
             return (spec, gen)
         # use only species taxonomic level
