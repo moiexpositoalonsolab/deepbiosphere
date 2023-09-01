@@ -458,8 +458,8 @@ if __name__ == "__main__":
     args.add_argument('--exp_id', type=str, help='Experiment ID for model to use for mapmaking', required=True)
     args.add_argument('--band', type=str, help='Band which model to use for mapmaking was trained on', required=True)
     # TODO: change loss and models to enums
-    args.add_argument('--loss', type=str, help='Loss function used to train mapmaking model', required=True, choices=run.LOSSES.keys())
-    args.add_argument('--architecture', type=str, help='Architecture of mapmaking model', required=True, choices=run.MODELS.keys())
+    args.add_argument('--loss', type=str, help='Loss function used to train mapmaking model', required=True, choices=run.LOSSES.valid())
+    args.add_argument('--architecture', type=str, help='Architecture of mapmaking model', required=True, choices=run.MODELS.valid())
     args.add_argument('--state', type=str, help='What state predictions are being made int', default='ca')
     args.add_argument('--epoch', type=int, help='what model epoch to use for making maps', required=True)
     args.add_argument('--batch_size', type=int, help='what size batch to use for making map inference', default=10)

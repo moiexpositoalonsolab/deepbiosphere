@@ -43,7 +43,7 @@ from types import SimpleNamespace
 # turns out np.stack, torch from_numpy is faster than torch.stack
 def collate(batch):
     # gotta handle the case where both bioclim and NAIP images are used
-    
+
     if len(batch[0][3]) == 2:
         all_specs, all_gens, all_fams, imgras = zip(*batch)
         (images, rasters) = zip(*imgras)
@@ -55,7 +55,7 @@ def collate(batch):
 
 # clunky but deals with separate return types
 def batch_to_gpu(batch, device, args):
-    
+
     # get contents
     spec_true, gen_true, fam_true, inputs = batch
     spec_true = spec_true.to(device)
@@ -68,7 +68,7 @@ def batch_to_gpu(batch, device, args):
     else:
         inputs = inputs.float().to(device)
     return spec_true, gen_true, fam_true, inputs
-    
+
 ## ---------- tensorboard logging helper fns ---------- ##
 
 def get_deltaP(x,y):
@@ -87,8 +87,8 @@ def get_deltaP(x,y):
 def record_deltaP(x,y, tb_writer, step, split, taxon):
     dp = get_deltaP(x,y)
     tb_writer.add_scalar(f"{split}/{taxon}_deltaP", dp, step)
-    
-    
+
+
 ## ---------- Config / data storage helper fns ---------- ##
 
 def make_config(args, train_dset, shared_species):
@@ -101,7 +101,7 @@ def make_config(args, train_dset, shared_species):
     args.shared_species = shared_species
     # TODO: change to match pretraining (if applicable)
     args.image_stats = f'naip_{args.year}'
-        
+
     # save arguments
     path = f"{paths.MODELS}configs/{args.model}_{args.loss}_band{args.band}_{args.exp_id}.json"
     # if this is the first time building the config directory
@@ -112,7 +112,7 @@ def make_config(args, train_dset, shared_species):
     with open(path, 'w') as f:
         json.dump(vars(args), f, indent=4)
     return args
-        
+
 
 def save_model(model, optimizer, epoch, args, steps):
         model_path= f"{paths.MODELS}{args.model}_{args.loss}/{args.exp_id}_lr{str(args.lr).split('.')[-1]}_e{epoch}.tar"
@@ -149,10 +149,10 @@ def write_traintime(total, args, name, device):
             # Pass the data in the dictionary as an argument into the writerow() function
             if not fexists:
                 dctw.writeheader() # write header if not yet written
-            dctw.writerow(towrite)        
+            dctw.writerow(towrite)
 
 ## ---------- Instantiating pipeline components ---------- ##
-    
+
 def instantiate_datasets(cfg):
     if cfg.all_points:
         dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'all_points', cfg.augment)
@@ -172,24 +172,24 @@ def instantiate_model(device, cfg):
     # typecheck model
     model_type = mods[cfg.model]
     if model_type is mods.RS_TRESNET:
-        model = mods.RS_TRESNET(cfg.nspecs, 
-                                 cfg.ngens, 
-                                 cfg.nfams, 
-                                 cfg.pretrain, 
+        model = mods.RS_TRESNET(cfg.nspecs,
+                                 cfg.ngens,
+                                 cfg.nfams,
+                                 cfg.pretrain,
                                  paths.MODELS)
     elif model_type is mods.BIOCLIM_MLP:
-        model = mods.BIOCLIM_MLP(cfg.nspecs, 
-                                       cfg.ngens, 
-                                       cfg.nfams, 
+        model = mods.BIOCLIM_MLP(cfg.nspecs,
+                                       cfg.ngens,
+                                       cfg.nfams,
                                        cfg.nrasters)
     elif model_type is mods.INCEPTION:
         model = mods.INCEPTION(cfg.nspecs)
     elif model_type is mods.DEEPBIOSPHERE:
-        model = mods.DEEPBIOSPHERE(cfg.nspecs, 
-                                         cfg.ngens, 
-                                         cfg.nfams, 
-                                         cfg.nrasters, 
-                                         cfg.pretrain, 
+        model = mods.DEEPBIOSPHERE(cfg.nspecs,
+                                         cfg.ngens,
+                                         cfg.nfams,
+                                         cfg.nrasters,
+                                         cfg.pretrain,
                                          paths.MODELS)
     model = model.to(device)
     return model
@@ -204,9 +204,9 @@ def instantiate_loss(cfg, dset, device):
         return loss_type(dset.metadata.species_counts,dset.metadata.spec_2_id, dset.total_len, device)
     else:
         return loss_type()
-    
+
 ## ---------- re-loading previous experiments ---------- ##
-    
+
 def load_config(exp_id, band, loss, model):
     path = f"{paths.MODELS}configs/{model}_{loss}_band{band}_{exp_id}.json"
     with open(path, 'r') as f:
@@ -233,10 +233,10 @@ def inception_one_step(out, spec_true, loss, losstype):
     l1, aux = out
     loss_1 = calculate_loss(l1, spec_true, loss, losstype)
     loss_2 = calculate_loss(aux, spec_true, loss, losstype)
-    total_loss = loss_1 + loss_2            
+    total_loss = loss_1 + loss_2
     return total_loss, loss_1, loss_2
-    
-def fivecrop_one_step(inputs, model):
+
+def fivecrop_inference(inputs, model):
     # if using the fivecrop augmentation, special case, average score across crops for image
     # taken from https://pytorch.org/vision/main/generated/torchvision.transforms.TenCrop.html
     imgs = TF.five_crop(inputs, size=(dataset.FC_SIZE,dataset.FC_SIZE))
@@ -248,20 +248,20 @@ def fivecrop_one_step(inputs, model):
     # now avg over crops
     specs = specs.view(bs, ncrops, -1).mean(dim=1)
     return specs.cpu()
-    
+
 # handles annoying need to convert targ to float
 # type for loss calculation for BCE flavor losses
 def calculate_loss(out, targ, loss, losstype):
     # checking loss type b/c BCE wants floats
-    if losses[losstype] in [losses.BCE, losses.WEIGHTED_BCE]:
+    if losses[losstype] in [losses.BCE, losses.WEIGHTED_BCE, losses.WEIGHTED_CE]:
         return loss(out, targ.float())
     else:
         return loss(out, targ)
 
-    
+
 def train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, tbwriter=None):
 
-    
+
     for batch in tqdm(train_loader, total=len(train_loader), unit='batch'):
         # reset optimizer for next batch
         optimizer.zero_grad()
@@ -315,10 +315,8 @@ def logit_to_proba(y_pred, losstype):
         y_pred = torch.softmax(y_pred,axis=1)
     else:
         y_pred = torch.sigmoid(y_pred)
-    y_obs = y_pred >= 0.5
-    y_obs = y_obs.numpy()
     y_pred = y_pred.numpy()
-    return y_obs, y_pred
+    return y_pred
 
 def per_species_metrics(y_pred,y_true_multi):
     assert len(y_pred.shape) == 2, 'too many dimensions in probabilty vector!'
@@ -338,8 +336,8 @@ def per_species_metrics(y_pred,y_true_multi):
     aucmean = np.ma.MaskedArray(aucs, np.isnan(aucs)).mean()
     prcmean = np.ma.MaskedArray(prcs, np.isnan(prcs)).mean()
     return aucmean, prcmean
-    
-def test_model(model, test_loader, loss, args, device, test_steps, tbwriter=None):
+
+def test_model(model, test_loader, loss, args, device, tbwriter=None, test_steps=0):
     model.eval()
     # not calculating any gradients so can turn
     # off for any tensors generated inside
@@ -350,7 +348,7 @@ def test_model(model, test_loader, loss, args, device, test_steps, tbwriter=None
             # only care about species-level prediction acc
             spec_true, _, _, inputs = batch_to_gpu(batch, device, args)
             # if using the fivecrop augmentation, special case, average score across crops for image
-            specs = fivecrop_one_step(inputs, model) if args.augment == 'fivecrop' else model(inputs)
+            specs = fivecrop_inference(inputs, model) if dataset.Augment[args.augment] is dataset.Augment.FIVECROP else model(inputs)
             specs = model(inputs)
             y_pred.append(specs)
             test_loss = calculate_loss(specs, spec_true, loss, args.loss)
@@ -360,29 +358,31 @@ def test_model(model, test_loader, loss, args, device, test_steps, tbwriter=None
     return y_pred, test_steps
 
 
-def test_one_epoch(model, test_loader, test_dset, loss, shared_species, args, device, epoch, test_steps, tbwriter=None):
-    # test (only if not using entire dataset for training)
-    # be sure to turn off batchnorm et al for testing
-    y_pred, test_steps = test_model(model, test_loader, loss, args, device, test_steps, tbwriter)
-    # prepping for acc metrics
-    y_pred = torch.cat(y_pred, dim=0)
-    y_obs, y_pred = logit_to_proba(y_pred.cpu(), args.loss)
+def filter_shared_species(y_pred, y_true_multi, y_true_single, shared_species):
     y_pred_single = y_pred.copy()
     # filter to only present species
     # don't filter single species label so it matches w/ index
     y_pred_multi = y_pred[:,shared_species]
-    y_obs = y_obs[:,shared_species]
-    # get true multilabels
-    # breaks if shuffle=True on dataloader!!
-    y_true_multi = test_dset.all_specs_multi.numpy()
-    y_true_single = test_dset.specs.numpy()
-    # filter down to just the species
-    # present in both datasets
     y_true_multi = y_true_multi[:,shared_species]
-    # filter out rows from non-shared species
+    # for single species, filter out rows from non-shared species, preserving the index
     mask = [True if sp in shared_species else False for sp in y_true_single]
     y_true_single = y_true_single[mask]
     y_pred_single =y_pred_single[mask,:]
+
+
+def test_one_epoch(model, test_loader, test_dset, loss, shared_species, args, device, epoch, test_steps, tbwriter=None):
+    # test (only if not using entire dataset for training)
+    # be sure to turn off batchnorm et al for testing
+    y_pred, test_steps = test_model(model, test_loader, loss, args, device, tbwriter, test_steps=test_steps)
+    # convert to probabilities
+    y_pred = torch.cat(y_pred, dim=0)
+    y_pred = logit_to_proba(y_pred.cpu(), args.loss)
+    # filter to only shared species
+    y_pred_multi, y_pred_single, y_true_multi, y_true_single = filter_shared_species(y_pred, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species)
+
+
+    y_obs = y_pred_multi.copy() >= args.threshold
+
     # ranking metrics
     lrap = label_ranking_average_precision_score(y_true_multi, y_pred_multi)
     top10, _ = utils.obs_topK(y_true_single, y_pred_single, 10)
@@ -405,9 +405,9 @@ def test_one_epoch(model, test_loader, test_dset, loss, shared_species, args, de
             if tbwriter is not None:
                 tbwriter.add_scalar(f"test/{score.__name__}_{avg}", sc, epoch)
     return test_steps
-        
 
-## ---------- driver fns ---------- ##        
+
+## ---------- driver fns ---------- ##
 
 def train_model(args, rng):
 
@@ -415,14 +415,14 @@ def train_model(args, rng):
     # setup dataset
     print("using all points for training")
     train_dset, shared_species = instantiate_datasets(args)
-    
+
     #  only for debuggig
     if args.testing:
         # just take first 5K observations to speed up testing
         train_dset.len_dset = min([500, train_dset.len_dset])
 
     args = make_config(args, train_dset, shared_species)
-    
+
     # set up device, model, losses
     device = f"cuda:{args.device}" if int(args.device) >= 0 else 'cpu'
     print(f"using device {device}")
@@ -444,20 +444,20 @@ def train_model(args, rng):
 
     steps = 0
     for epoch in range(args.epochs):
-        
+
         print(f"Starting epoch {epoch}")
         # have to turn on batchnorm and dropout again
         model.train()
         steps, optimizer, model = train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, tbwriter=tb_writer)
         save_model(model, optimizer, epoch, args, steps)
-        
+
     end = time.time()
     total = (end-start)/3600
     print(f"took {total} hours to run")
     if not args.testing:
         tb_writer.close()
         write_traintime(total, args, 'trainonly', device)
-    
+
 
 def train_and_test_model(args, rng):
 
@@ -470,7 +470,7 @@ def train_and_test_model(args, rng):
         train_dset.len_dset = min([500, train_dset.len_dset])
 
     args = make_config(args, train_dset, shared_species)
-    
+
     # set up device, model, losses
     device = f"cuda:{args.device}" if int(args.device) >= 0 else 'cpu'
     print(f"using device {device}")
@@ -490,26 +490,26 @@ def train_and_test_model(args, rng):
     # set up parallelized data loader here
     train_loader = DataLoader(train_dset, args.batchsize, shuffle=True, pin_memory=False, num_workers=args.processes, collate_fn=collate, drop_last=False)
     test_loader = DataLoader(test_dset, args.batchsize, shuffle=False, pin_memory=False, num_workers=args.processes, collate_fn=collate, drop_last=False)
-    
+
     test_steps, steps = 0, 0
     for epoch in range(args.epochs):
-        
+
         print(f"Starting epoch {epoch}")
         # have to turn on batchnorm and dropout again
         model.train()
         steps, optimizer, model = train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, tbwriter=tb_writer)
         save_model(model, optimizer, epoch, args, steps)
         test_steps = test_one_epoch(model, test_loader, test_dset, loss, shared_species, args, device, epoch, test_steps,  tbwriter=tb_writer)
-        
+
     end = time.time()
     total = (end-start)/3600
     print(f"took {total} hours to run")
     if not args.testing:
         tb_writer.close()
         write_traintime(total, args, 'traintest', device)
-    
 
-## ---------- main module ---------- ##        
+
+## ---------- main module ---------- ##
 
 if __name__ == "__main__":
 
@@ -519,7 +519,7 @@ if __name__ == "__main__":
     args.add_argument('--dataset_type', type=str, required=True, help='Type of dataset to use (multispecies or single species)',choices=dataset.DatasetType.valid())
     args.add_argument('--taxon_type', type=str, required=True, help='Type of dataset to use (multispecies or single species)',choices=['spec_gen_fam', 'spec_gen', 'speconly'])
     args.add_argument('--datatype', type=str, required=True, help='What kind of data to train on', choices=dataset.DataType.valid())
-    args.add_argument('--lr', type=float, required=True, help='what learning rate to use')        
+    args.add_argument('--lr', type=float, required=True, help='what learning rate to use')
     args.add_argument('--epochs', type=int, help='how many epochs to train the model for', required=True)
     args.add_argument('--model', type=str, required=True, help="what model to train", choices = mods.valid())
     args.add_argument('--exp_id', type=str, required=True, help="expermient id")
@@ -529,6 +529,7 @@ if __name__ == "__main__":
     args.add_argument('--year', type=str, help='What year of imagery to use as training data', default='2012')
     args.add_argument('--state', type=str, help='What state / region to train on', default='ca')
     args.add_argument('--band', type=int, default=-1, help='which band to use. -1 indicates that the spatial exclusion split of the data will be used')
+    args.add_argument('--threshold', type=float, default=0.5, help='what threshold to use for presence/absence calculation')
     args.add_argument('--pretrain', type=str, help='What kind of pretraining to use', choices=tresnet.Pretrained.valid(), default='NONE')
     args.add_argument('--augment', type=str, help='What kind of data augmentation to use', choices=dataset.Augment.valid(), default='NONE')
     args.add_argument('--seed', type=int, help="Random seed for reproducibility", default=0)
@@ -563,5 +564,3 @@ if __name__ == "__main__":
         train_model(args, rng)
     else:
         train_and_test_model(args, rng)
-
-

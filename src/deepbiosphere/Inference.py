@@ -5,6 +5,8 @@ import deepbiosphere.Models as mods
 from deepbiosphere.Utils import paths
 import deepbiosphere.Dataset as dataset
 import deepbiosphere.NAIP_Utils as naip
+from deepbiosphere.Models import Model as mods
+from deepbiosphere.Losses import Loss as losses
 
 # ML + statistics packages
 import torch
@@ -25,21 +27,30 @@ from datetime import date
 from os.path import exists
 
 
-def load_baseline_preds(nobs, nspecs, sp2id, model, band='unif_train_test', dset_name='big_cali_2012'):
+def load_baseline_preds(model, nobs, nspecs, sp2id, band='unif_train_test', dset_name='big_cali_2012'):
     files = glob.glob(f"{paths.BASELINES}{model}/predictions/{dset_name}/{band}/*csv")
     results = np.zeros((nobs, nspecs))
     for file in tqdm(files):
         pred = pd.read_csv(file)
-        if model == 'maxent':
-            spec = file.split('/')[-1].split('_maxent_preds.csv')[0].replace('_', ' ')
+        spec = file.split('/')[-1].split(f'_{model}_preds.csv')[0].replace('_', ' ')
+        if model == 'maxent':            
             # fill in predictions to be in same order as CNN model
             results[:,sp2id[spec]] = pred.pres_pred
         elif model == 'rf':
-            spec = file.split('/')[-1].split('_rf_preds.csv')[0].replace('_', ' ')
             results[:,sp2id[spec]] = pred.presence
         else:
             # TODO: figure out biomod probs
             raise NotImplemented
+    
+    # for locations with NaNs, impute
+    # a probability of 0 at those locations
+    # (only really relevant for baseline models)
+    # because some sklearn functions will
+    # handle the Nan
+    if np.isnan(results).sum() > 0:
+        results = np.ma.MaskedArray(results, np.isnan(results))
+        results = results.filled(fill_value=0.0)
+
     return results
 
 def write_overall_metric(dict_, sc, scorename, thres, weight):
@@ -78,23 +89,15 @@ def add_med_iqr(vals, df, row, col):
     med = np.median(vals, axis=0)
     q75, q25 = np.percentile(vals, [75 ,25], axis=0)
     df.at[row,col] = f"{round(med, 4)} [{round(q25,4)}-{round(q75, 4)}]" 
-        
-def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, write_obs=False, thres=0.5, filename=None):
+            
+
+def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, write_obs=False, thres=0.5, filename=None):
     tick = time.time()
-    id2sp = {v:k for k, v in sp2id.items()}
-    yobs = preds >= thres
+    
     # make directory if it doesn't exist
     if not os.path.exists(f"{paths.RESULTS}accuracy_metrics/"):
         os.makedirs(f"{paths.RESULTS}accuracy_metrics/")
-    # for locations with NaNs, impute
-    # a probability of 0 at those locations
-    # (only really relevant for baseline models)
-    # because some sklearn functions will
-    # handle the Nan
-    if np.isnan(preds).sum() > 0:
-        preds = np.ma.MaskedArray(preds, np.isnan(preds))        
-    if np.ma.isMaskedArray(preds):
-        preds = preds.filled(fill_value=0.0)
+
     # save unique identifier for file if necessary
     filename = "" if filename is None else filename
     fname = f"{paths.RESULTS}accuracy_metrics/{filename}overall_metrics_results_band{band}.csv"
@@ -117,35 +120,39 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         'thres' : thres,
         'date' : date.today(),
     }
-    # print("starting overall metrics")
     overallwriter = csv.DictWriter(overallcsv, delimiter=',', lineterminator='\n',fieldnames=basics.keys())
     if not fexists:
         overallwriter.writeheader()  # file doesn't exist yet, write a header
+
+    ## working zone below
+    id2sp = {v:k for k, v in sp2id.items()}
+    yobs = preds_multi >= thres
+    
+    
     # run + write overall binary accuracy metrics
     scores = [mets.precision_score, mets.recall_score, mets.f1_score, 
               mets.jaccard_score]
     for score in scores:
         averages = ['macro', 'micro', 'weighted', 'samples']
         for avg in averages:
-            sc = score(ytrue[:,sharedspecs], yobs[:,sharedspecs], average=avg, zero_division=0.0)
+            sc = score(ytrue, yobs, average=avg, zero_division=0.0)
             overallwriter.writerow(write_overall_metric(basics, sc, score.__name__, thres, avg))
             prog.update(1)
     # label ranking average precision
-    macc = mets.label_ranking_average_precision_score(ytrue, preds)
+    macc = mets.label_ranking_average_precision_score(ytrue, preds_multi)
     overallwriter.writerow(write_overall_metric(basics, macc, 'label_ranking_average_precision_score', np.nan, np.nan))
     prog.update(1)
     # also get overall species 0/1 accuracy
-    acc = utils.zero_one_accuracy(single_ytrue, preds, thres)
+    acc = utils.zero_one_accuracy(single_ytrue, preds_multi, thres)
     overallwriter.writerow(write_overall_metric(basics, acc, 'zero_one_accuracy', thres, np.nan))
     prog.update(1)
     # run + write topK metrics 
     for i in [1,5,30,100]:
-        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.obs_topK, 'obs'))
+        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds_single, i, utils.obs_topK, 'obs'))
         prog.update(1)
-        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds, i, utils.species_topK, 'species'))
+        overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds_single, i, utils.species_topK, 'species'))
         prog.update(1)
         # now, write out per-species metrics
-    # print("starting per-species metrics")
     fname = f"{paths.RESULTS}accuracy_metrics/{filename}per_species_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     csvfile = open (fname, 'a')
@@ -158,20 +165,11 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
         writer.writeheader()  # file doesn't exist yet, write a header
 
     # run + write out roc-auc, prc-auc
-    aucs = []
-    prcs = []
     assert len(preds.shape) == 2, 'too many dimensions in probabilty vector!'
-    j = 0
+    aucs, prcs = [], []
     for i in range(preds.shape[1]):
-        # this handles species not present in the test set (all absences)
-        # https://github.com/scikit-learn/scikit-learn/pull/19085
-        try:
-            j += 1
-            aucs.append(mets.roc_auc_score(ytrue[:,i], preds[:,i]))
-            prcs.append(mets.average_precision_score(ytrue[:,i], preds[:,i]))
-        except:
-            aucs.append(np.nan)
-            prcs.append(np.nan)
+        aucs.append(mets.roc_auc_score(ytrue[:,i], preds_multi[:,i]))
+        prcs.append(mets.average_precision_score(ytrue[:,i], preds_multi[:,i]))
     # also write out average AUCs
     aucmean = np.ma.MaskedArray(aucs, np.isnan(aucs)).mean()
     overallwriter.writerow(write_overall_metric(basics, aucmean, 'ROC_AUC', np.nan, np.nan))
@@ -179,7 +177,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     overallwriter.writerow(write_overall_metric(basics, prcmean, 'PRC_AUC', np.nan, np.nan))
     prog.update(2)
     # and calibrated AUCs
-    cal_rocs, cal_prcs = utils.mean_calibrated_roc_auc_prc_auc(ytrue, yobs)
+    cal_rocs, cal_prcs = utils.mean_calibrated_roc_auc_prc_auc(ytrue, preds_multi)
     cal_rocmean = np.ma.MaskedArray(cal_rocs, np.isnan(cal_rocs)).mean()
     overallwriter.writerow(write_overall_metric(basics, cal_rocmean, 'calibrated_ROC_AUC', np.nan, np.nan))
     cal_prcmean = np.ma.MaskedArray(cal_prcs, np.isnan(cal_prcs)).mean()
@@ -189,7 +187,7 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     
     # get individual species for topK spec
     for i in [1,5,30,100]:
-        _, specs = utils.species_topK(single_ytrue, preds, i)
+        _, specs = utils.species_topK(single_ytrue, preds_single, i)
         writer.writerow(write_spec_metric(dict_, f'species_top{i}', i, specs, id2sp))
         prog.update(1)
     
@@ -218,16 +216,16 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
             writer.writeheader()  # file doesn't exist yet, write a header
         # finally, per-observation metrics
         basics['metric'] = f"precision_score"
-        val = utils.precision_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
+        val = utils.precision_per_obs(yobs, ytrue)
         write_obs_metrics(basics, 'precision_score', val, ids, writer)
         prog.update(1)
-        val =  utils.recall_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
-        write_obs_metrics(basics, 'recall_score', val, ids, writer)
+        val =  utils.recall_per_obs(yobs, ytrue)
+        write_obs_metrics(basics, 'recall_score', val, ids, writer) 
         prog.update(1)
-        val =  utils.accuracy_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
+        val =  utils.accuracy_per_obs(yobs, ytrue)
         write_obs_metrics(basics, 'accuracy_perobs', val, ids, writer)
         prog.update(1)
-        val =  utils.f1_per_obs(yobs[:,sharedspecs], ytrue[:,sharedspecs])
+        val =  utils.f1_per_obs(yobs, ytrue)
         write_obs_metrics(basics, 'f1_score', val, ids, writer)
         prog.update(1)
 
@@ -236,47 +234,80 @@ def evaluate_model(ytrue, single_ytrue, preds, sharedspecs, sp2id, ids, dset_nam
     tock = time.time()
     return (tock - tick)/60
 
-def run_inference(model, cfg, dloader, device, softmax_=False):
 
-    y_pred = []
-    for batch in tqdm(dloader, unit='batch', desc='inference prediction'):
-        # can ignore label
-        _, _, _, inputs = batch
-        # to handle joint model
-        if cfg.datatype == 'joint_naip_bioclim':
-            inputs = (inputs[0].float().to(device), inputs[1].float().to(device))
-        else:
-            inputs = inputs.float().to(device)
-        # handle augmenting (annoying)
-        if cfg.augment == 'fivecrop':
-            # taken from https://pytorch.org/vision/main/generated/torchvision.transforms.TenCrop.html
-            imgs = TF.five_crop(inputs, size=(dataset.FC_SIZE,dataset.FC_SIZE))
-            imgs = torch.stack(imgs)
-            ncrops, bs, c, h, w = imgs.size()
-            # fuse batch size and ncrops
-            imgs = imgs.view(-1, c, h, w)
-            (specs, gens, fams) = model(imgs)
-            # now avg over crops
-            specs = specs.view(bs, ncrops, -1).mean(dim=1)
-#             gens = gens.view(bs, ncrops, -1).mean(dim=1)
-#             fams = fams.view(bs, ncrops, -1).mean(dim=1)
-            y_pred.append(specs.cpu())
-        elif (cfg.model == 'inception') or ('speconly' in cfg.model):
-            out = model(inputs)
-            y_pred.append(out.detach().cpu())
-        # elif 'speconly' in cfg.model:
-        #     y_pred.append(out.cpu())
-        else:
-            spec, _, _ = model(inputs)
-            y_pred.append(spec.detach().cpu())
+def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_2012', state='ca', year=2012, threshold=.5, fname=None, writeobs=True):
+
+    test_dset = dataset.DeepbioDataset(dset_name, 'BIOCLIM', 'MULTI_SPECIES', state, year, band, 'test', 'NONE')
+    train_dset = dataset.DeepbioDataset(dset_name, 'BIOCLIM', 'MULTI_SPECIES', state, year, band, 'train', 'NONE', prep_onehots=False)
+    shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
+    
+    preds = load_baseline_preds(model, len(test_dset), test_dset.nspec, test_dset.metadata.spec_2_id, test_dset.band, test_dset.dataset_name)
+
+    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(preds, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species) 
+
+    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, eval_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
+
+
+def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True):
+    # load model
+    test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
+    all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
+    test_dset.len_dset = 500 # TODO: remove!!
+    all_specs_multi = all_specs_multi[:500, :]
+    all_specs_single = all_specs_single[:500]
+
+    train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
+    shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
+    
+    model = run.load_model(device, cfg, epoch)
+    model = model.eval()
+    loss = run.instantiate_loss(cfg, train_dset, device)
+    test_loader = DataLoader(test_dset, batchsize, shuffle=False, pin_memory=False, num_workers=nworkers, collate_fn=run.collate, drop_last=False)
+    # run inference
+    y_pred, _ = run.test_model(model, test_loader, loss, cfg, device)
+    # convert to probabilities
     y_pred = torch.cat(y_pred, dim=0)
-    if softmax_:
-        if cfg.loss in ['CPO', 'CE', 'CEWeighted']:
-            y_pred = torch.softmax(y_pred, dim=1)
-        else:
-            y_pred = torch.sigmoid(y_pred)
-    else:
-        y_pred = torch.sigmoid(y_pred)
-    return y_pred.numpy()
+    y_pred = run.logit_to_proba(y_pred.cpu(), cfg.loss)
+    # filter to only shared species
+    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species) 
 
-# TODO: add __main__ file to incorporate run_bands_inference + notebook code
+    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, eval_dset.metadata.spec_2_id, 
+                                    test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id, 
+                                    cfg.pretrained, filename=fname, write_obs=writeobs, thres=threshold)
+
+
+if __name__ == "__main__":
+    args = argparse.ArgumentParser()
+    # required ars
+    args.add_argument('--band', type=str, help='Band which model to use for mapmaking was trained on', required=True)    
+    args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.keys() + ['rf', 'maxent'])
+    # arguments for DL model
+    args.add_argument('--exp_id', type=str, help='Experiment ID for model. Not necessary for baseline models')
+    args.add_argument('--loss', type=str, help='Loss function used to train deep learnig model',  choices=losses.valid())
+    args.add_argument('--epoch', type=int, help='what model epoch to evaluate deep learning model')
+    args.add_argument('--batch_size', type=int, help='what size batch to use for making map inference', default=10)
+    args.add_argument('--device', type=int, help="Which CUDA device to use. Set -1 for CPU", default=-1)
+    args.add_argument('--processes', type=int, help="How many worker processes to use for mapmaking", default=1)
+    # arguments for baselines
+    args.add_argument('--state', type=str, help='What state predictions are being made int', default='ca')
+    args.add_argument('--year', type=int, help='what year of NAIP data should be used', default=2012)
+    args.add_argument('--dataset_name', type=str, help='what dataset was used to fit the model', default='big_cali_2012')
+    # generic options
+    args.add_argument('--filename', type=str, help='What to call results table')
+    args.add_argument('--writeobs', action='store_true', help="Whether to also write per-obs acc. metris", default=True)
+    args.add_argument('--threshold', type=float, help='what value to threshold for presence/absence predictions', default=0.5)
+
+    args, _ = args.parse_known_args()
+  
+    if args.model in ['rf', 'maxent']:
+        run_baseline_inference(args.model, args.band, args.dataset_name, args.state, args.year, args.threshold, args.filename, args.writeobs)
+    else:
+        cnn = {
+            'exp_id': args.exp_id,
+            'band' : args.band, 
+            'loss': args.loss,
+            'model': args.model
+        }
+        cfg = run.load_config(**cnn)
+        device = f"cuda:{args.device}" if int(args.device) >= 0 else 'cpu'
+        run_inference(device, cfg, args.epoch, args.batch_size, args.processes, args.threshold, args.filename, args.writeobs)
