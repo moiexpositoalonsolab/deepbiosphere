@@ -367,7 +367,8 @@ def filter_shared_species(y_pred, y_true_multi, y_true_single, shared_species):
     # for single species, filter out rows from non-shared species, preserving the index
     mask = [True if sp in shared_species else False for sp in y_true_single]
     y_true_single = y_true_single[mask]
-    y_pred_single =y_pred_single[mask,:]    
+    y_pred_single =y_pred_single[mask,:]
+    return y_pred_multi, y_pred_single, y_true_multi, y_true_single
 
 
 def test_one_epoch(model, test_loader, test_dset, loss, shared_species, args, device, epoch, test_steps, tbwriter=None):

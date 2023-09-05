@@ -10,6 +10,7 @@ from deepbiosphere.Losses import Loss as losses
 
 # ML + statistics packages
 import torch
+import argparse
 import numpy as np
 import pandas as pd
 import sklearn.metrics as mets
@@ -91,7 +92,7 @@ def add_med_iqr(vals, df, row, col):
     df.at[row,col] = f"{round(med, 4)} [{round(q25,4)}-{round(q75, 4)}]" 
             
 
-def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, write_obs=False, thres=0.5, filename=None):
+def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, batch_size, write_obs=False, thres=0.5, filename=None):
     tick = time.time()
     
     # make directory if it doesn't exist
@@ -100,7 +101,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
 
     # save unique identifier for file if necessary
     filename = "" if filename is None else filename
-    fname = f"{paths.RESULTS}accuracy_metrics/{filename}overall_metrics_results_band{band}.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_overall_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     overallcsv = open(fname, 'a')
     nmets = 46 if write_obs else 42
@@ -115,6 +116,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         'epoch' : epoch,
         'exp_id' : exp_id,
         'pretrained' : pretrained, 
+        'batch_size' : batch_size,
         'metric' : np.nan,
         'weight' : np.nan,
         'thres' : thres,
@@ -143,7 +145,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     overallwriter.writerow(write_overall_metric(basics, macc, 'label_ranking_average_precision_score', np.nan, np.nan))
     prog.update(1)
     # also get overall species 0/1 accuracy
-    acc = utils.zero_one_accuracy(single_ytrue, preds_multi, thres)
+    acc = utils.zero_one_accuracy(single_ytrue, preds_single, thres)
     overallwriter.writerow(write_overall_metric(basics, acc, 'zero_one_accuracy', thres, np.nan))
     prog.update(1)
     # run + write topK metrics 
@@ -153,7 +155,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds_single, i, utils.species_topK, 'species'))
         prog.update(1)
         # now, write out per-species metrics
-    fname = f"{paths.RESULTS}accuracy_metrics/{filename}per_species_metrics_results_band{band}.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_species_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     csvfile = open (fname, 'a')
     dict_ = { k: np.nan for k,v in sp2id.items()}
@@ -165,11 +167,15 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         writer.writeheader()  # file doesn't exist yet, write a header
 
     # run + write out roc-auc, prc-auc
-    assert len(preds.shape) == 2, 'too many dimensions in probabilty vector!'
+    assert len(preds_multi.shape) == 2, 'too many dimensions in probabilty vector!'
     aucs, prcs = [], []
-    for i in range(preds.shape[1]):
-        aucs.append(mets.roc_auc_score(ytrue[:,i], preds_multi[:,i]))
-        prcs.append(mets.average_precision_score(ytrue[:,i], preds_multi[:,i]))
+    for i in range(preds_multi.shape[1]):
+        try:
+            aucs.append(mets.roc_auc_score(ytrue[:,i], preds_multi[:,i]))
+            prcs.append(mets.average_precision_score(ytrue[:,i], preds_multi[:,i]))
+        except:
+            aucs.append(np.nan)
+            prcs.append(np.nan)
     # also write out average AUCs
     aucmean = np.ma.MaskedArray(aucs, np.isnan(aucs)).mean()
     overallwriter.writerow(write_overall_metric(basics, aucmean, 'ROC_AUC', np.nan, np.nan))
@@ -204,7 +210,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     csvfile.close()
     if write_obs:
         # print('starting per-observation metrics')
-        fname = f"{paths.RESULTS}accuracy_metrics/{filename}per_observations_metrics_results_band{band}.csv"
+        fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_observations_metrics_results_band{band}.csv"
         fexists = os.path.isfile(fname)
         csvfile = open (fname, 'a')
         del basics['weight']
@@ -245,16 +251,13 @@ def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_20
 
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(preds, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species) 
 
-    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, eval_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
+    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
 
 
 def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True):
     # load model
     test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
     all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
-    test_dset.len_dset = 500 # TODO: remove!!
-    all_specs_multi = all_specs_multi[:500, :]
-    all_specs_single = all_specs_single[:500]
 
     train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
     shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
@@ -271,16 +274,16 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
     # filter to only shared species
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species) 
 
-    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, eval_dset.metadata.spec_2_id, 
+    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, 
                                     test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id, 
-                                    cfg.pretrained, filename=fname, write_obs=writeobs, thres=threshold)
+                                    cfg.pretrain, cfg.batchsize, filename=fname, write_obs=writeobs, thres=threshold)
 
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     # required ars
     args.add_argument('--band', type=str, help='Band which model to use for mapmaking was trained on', required=True)    
-    args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.keys() + ['rf', 'maxent'])
+    args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.valid() + ['rf', 'maxent'])
     # arguments for DL model
     args.add_argument('--exp_id', type=str, help='Experiment ID for model. Not necessary for baseline models')
     args.add_argument('--loss', type=str, help='Loss function used to train deep learnig model',  choices=losses.valid())
