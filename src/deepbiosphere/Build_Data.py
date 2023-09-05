@@ -137,7 +137,7 @@ def make_test_split(daset, res, latname, loname, excl_dist, rng, idCol='gbifID',
     assert (res>=0.09) and (res <=30), "resolution should be in meters!"
     overlap_dist = math.ceil(256*res)
 
-    daset = daset.to_crs(naip.NAIP_CRS_1)
+    daset = daset.to_crs(naip.CRS.NAIP_CRS_1)
     tock = time.time()
     # will again use the ckdtree trick to
     # streamline nearest neighbor search
@@ -609,7 +609,7 @@ def add_overlapping_filter(daset, res, threshold=200, idCol='gbifID'):
     # convert to a 1m resolution crs
     # covers half the state but can live
     # with the slight distortion
-    daset = daset.to_crs(naip.NAIP_CRS_1)
+    daset = daset.to_crs(naip.CRS.NAIP_CRS_1)
     tock = time.time()
     # will again use the ckdtree trick to
     # streamline nearest neighbor search
@@ -712,7 +712,7 @@ def add_ecoregions(dframe, idCol, state):
     missing = set(dframe[idCol])- set(daset[idCol])
     missing = dframe[dframe[idCol].isin(missing)]
     daset = pd.concat([daset,missing])
-    daset = gpd.GeoDataFrame(daset, geometry=daset.geometry, crs=naip.GBIF_CRS)
+    daset = gpd.GeoDataFrame(daset, geometry=daset.geometry, crs=naip.CRS.GBIF_CRS)
     # also we don't care what the indx
     # of the ecoregion was now that
     # we have it, so can get rid of it
@@ -727,7 +727,7 @@ def filter_raster_oob(daset):
     # TODO: this code assumes it's a bioclim only set of rasters
     daset['out_of_bounds'] = False
     #convert to WSG85 since bioclim rasters are guaranteed to be WSG84 crs
-    daset = daset.to_crs(naip.GBIF_CRS)
+    daset = daset.to_crs(naip.CRS.GBIF_CRS)
     # grab only bioclim columns
     # TODO: come up with a bit neater way than only pulling '_bio' named columns
     bio_names = [c for c in daset.columns if '_bio' in c]
@@ -786,7 +786,7 @@ def generate_split_polygons():
 # make bands and exclusion zones
 def make_spatial_split(daset, latCol):
     # first, make sure we're in the right crs
-    daset = daset.to_crs(naip.GBIF_CRS)
+    daset = daset.to_crs(naip.CRS.GBIF_CRS)
     # these are a box around california
     # leaves a bit of a buffer around
     # the whole state
@@ -848,7 +848,7 @@ def make_spatial_split(daset, latCol):
 def remove_singletons_duplicates(daset, res):
     # first, convert geometry to
     # UTM11 so distances are in m
-    daset = daset.to_crs(naip.NAIP_CRS_1)
+    daset = daset.to_crs(naip.CRS.NAIP_CRS_1)
     # next, get the distance for the resolution we'll be working with
     assert (res>=0.09) and (res <=30), "resolution should be in meters!"
     overlapped = math.ceil(256*res)
@@ -918,7 +918,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     pts = [Point(lon, lat) for lon, lat in zip(daset[loname], daset[latname])]
     # GBIF returns coordinates in WGS84 according to the API
     # https://www.gbif.org/article/5i3CQEZ6DuWiycgMaaakCo/gbif-infrastructure-data-processing
-    daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.GBIF_CRS)
+    daset = gpd.GeoDataFrame(daset, geometry=pts, crs=naip.CRS.GBIF_CRS)
     # also make the name of the directory where the images are stored
     # it's a weird structure and so we'll do it a hacky way for now
     tiff_dset_name = f"{state}_100cm_{year}" if str(year) in ['2012', '2014'] else f"{state}_060cm_{year}"
@@ -949,7 +949,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     # and read in state outline
     shps = naip.get_state_outline(state)
     # ensure dataframes are in the same crs
-    shps = shps.to_crs(naip.GBIF_CRS)
+    shps = shps.to_crs(naip.CRS.GBIF_CRS)
     # keep only points inside of GADM california
     if 'index_right' in daset.columns:
         del daset['index_right']
