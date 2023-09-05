@@ -10,6 +10,7 @@ from deepbiosphere.Losses import Loss as losses
 
 # ML + statistics packages
 import torch
+import argparse
 import numpy as np
 import pandas as pd
 import sklearn.metrics as mets
@@ -33,7 +34,7 @@ def load_baseline_preds(model, nobs, nspecs, sp2id, band='unif_train_test', dset
     for file in tqdm(files):
         pred = pd.read_csv(file)
         spec = file.split('/')[-1].split(f'_{model}_preds.csv')[0].replace('_', ' ')
-        if model == 'maxent':            
+        if model == 'maxent':
             # fill in predictions to be in same order as CNN model
             results[:,sp2id[spec]] = pred.pres_pred
         elif model == 'rf':
@@ -41,7 +42,7 @@ def load_baseline_preds(model, nobs, nspecs, sp2id, band='unif_train_test', dset
         else:
             # TODO: figure out biomod probs
             raise NotImplemented
-    
+
     # for locations with NaNs, impute
     # a probability of 0 at those locations
     # (only really relevant for baseline models)
@@ -79,28 +80,28 @@ def write_obs_metrics(dict_, metric, vals, ids, writer):
         dict_['value'] = v.item()
         dict_['ID'] = id_
         writer.writerow(dict_)
-        
+
 def add_mean_stdev(vals, df, row, col):
     means = vals.mean(axis=0)
     stds = vals.std(axis=0)
     df.at[row,col] = f"{round(means, 4)}±{round(stds,4)}"
-    
+
 def add_med_iqr(vals, df, row, col):
     med = np.median(vals, axis=0)
     q75, q25 = np.percentile(vals, [75 ,25], axis=0)
-    df.at[row,col] = f"{round(med, 4)} [{round(q25,4)}-{round(q75, 4)}]" 
-            
+    df.at[row,col] = f"{round(med, 4)} [{round(q25,4)}-{round(q75, 4)}]"
 
-def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, write_obs=False, thres=0.5, filename=None):
+
+def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, batch_size, write_obs=False, thres=0.5, filename=None):
     tick = time.time()
-    
+
     # make directory if it doesn't exist
     if not os.path.exists(f"{paths.RESULTS}accuracy_metrics/"):
         os.makedirs(f"{paths.RESULTS}accuracy_metrics/")
 
     # save unique identifier for file if necessary
     filename = "" if filename is None else filename
-    fname = f"{paths.RESULTS}accuracy_metrics/{filename}overall_metrics_results_band{band}.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_overall_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     overallcsv = open(fname, 'a')
     nmets = 46 if write_obs else 42
@@ -114,7 +115,8 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         'lr' : lr,
         'epoch' : epoch,
         'exp_id' : exp_id,
-        'pretrained' : pretrained, 
+        'pretrained' : pretrained,
+        'batch_size' : batch_size,
         'metric' : np.nan,
         'weight' : np.nan,
         'thres' : thres,
@@ -127,10 +129,10 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     ## working zone below
     id2sp = {v:k for k, v in sp2id.items()}
     yobs = preds_multi >= thres
-    
-    
+
+
     # run + write overall binary accuracy metrics
-    scores = [mets.precision_score, mets.recall_score, mets.f1_score, 
+    scores = [mets.precision_score, mets.recall_score, mets.f1_score,
               mets.jaccard_score]
     for score in scores:
         averages = ['macro', 'micro', 'weighted', 'samples']
@@ -146,14 +148,14 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     acc = utils.zero_one_accuracy(single_ytrue, preds_single, thres)
     overallwriter.writerow(write_overall_metric(basics, acc, 'zero_one_accuracy', thres, np.nan))
     prog.update(1)
-    # run + write topK metrics 
+    # run + write topK metrics
     for i in [1,5,30,100]:
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds_single, i, utils.obs_topK, 'obs'))
         prog.update(1)
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds_single, i, utils.species_topK, 'species'))
         prog.update(1)
         # now, write out per-species metrics
-    fname = f"{paths.RESULTS}accuracy_metrics/{filename}per_species_metrics_results_band{band}.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_species_metrics_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     csvfile = open (fname, 'a')
     dict_ = { k: np.nan for k,v in sp2id.items()}
@@ -188,13 +190,13 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     overallwriter.writerow(write_overall_metric(basics, cal_prcmean, 'calibrated_PRC_AUC', np.nan, np.nan))
     prog.update(2)
     overallcsv.close()
-    
+
     # get individual species for topK spec
     for i in [1,5,30,100]:
         _, specs = utils.species_topK(single_ytrue, preds_single, i)
         writer.writerow(write_spec_metric(dict_, f'species_top{i}', i, specs, id2sp))
         prog.update(1)
-    
+
     precsp, recsp, f1sp, supsp = mets.precision_recall_fscore_support(ytrue, yobs, zero_division=0)
     writer.writerow(write_spec_metric(dict_, 'ROC_AUC', np.nan, aucs, id2sp))
     writer.writerow(write_spec_metric(dict_, 'PRC_AUC', np.nan, prcs, id2sp))
@@ -208,7 +210,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     csvfile.close()
     if write_obs:
         # print('starting per-observation metrics')
-        fname = f"{paths.RESULTS}accuracy_metrics/{filename}per_observations_metrics_results_band{band}.csv"
+        fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_observations_metrics_results_band{band}.csv"
         fexists = os.path.isfile(fname)
         csvfile = open (fname, 'a')
         del basics['weight']
@@ -224,7 +226,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         write_obs_metrics(basics, 'precision_score', val, ids, writer)
         prog.update(1)
         val =  utils.recall_per_obs(yobs, ytrue)
-        write_obs_metrics(basics, 'recall_score', val, ids, writer) 
+        write_obs_metrics(basics, 'recall_score', val, ids, writer)
         prog.update(1)
         val =  utils.accuracy_per_obs(yobs, ytrue)
         write_obs_metrics(basics, 'accuracy_perobs', val, ids, writer)
@@ -233,7 +235,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         write_obs_metrics(basics, 'f1_score', val, ids, writer)
         prog.update(1)
 
-        csvfile.close()  
+        csvfile.close()
     prog.close()
     tock = time.time()
     return (tock - tick)/60
@@ -243,12 +245,12 @@ def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_20
     test_dset = dataset.DeepbioDataset(dset_name, 'BIOCLIM', 'MULTI_SPECIES', state, year, band, 'test', 'NONE')
     train_dset = dataset.DeepbioDataset(dset_name, 'BIOCLIM', 'MULTI_SPECIES', state, year, band, 'train', 'NONE', prep_onehots=False)
     shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
-    
+
     preds = load_baseline_preds(model, len(test_dset), test_dset.nspec, test_dset.metadata.spec_2_id, test_dset.band, test_dset.dataset_name)
 
-    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(preds, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species) 
+    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(preds, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species)
 
-    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
+    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
 
 
 def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True):
@@ -261,7 +263,7 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
         all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
         train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
         model = run.load_model(device, cfg, epoch, logging=False, losstype=lname, modeltype=mname)
-        
+
     else:
         test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
         all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
@@ -278,18 +280,18 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
     y_pred = torch.cat(y_pred, dim=0)
     y_pred = run.logit_to_proba(y_pred.cpu(), cfg.loss)
     # filter to only shared species
-    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species) 
+    y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species)
 
-    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, 
-                                    test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id, 
-                                    cfg.pretrain, filename=fname, write_obs=writeobs, thres=threshold)
+    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id,
+                                    test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id,
+                                    cfg.pretrain, cfg.batchsize, filename=fname, write_obs=writeobs, thres=threshold)
 
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     # required ars
-    args.add_argument('--band', type=str, help='Band which model to use for mapmaking was trained on', required=True)    
-    args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.keys() + ['rf', 'maxent'])
+    args.add_argument('--band', type=str, help='Band which model to use for mapmaking was trained on', required=True)
+    args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.valid() + ['rf', 'maxent'])
     # arguments for DL model
     args.add_argument('--exp_id', type=str, help='Experiment ID for model. Not necessary for baseline models')
     args.add_argument('--loss', type=str, help='Loss function used to train deep learnig model',  choices=losses.valid())
@@ -307,13 +309,13 @@ if __name__ == "__main__":
     args.add_argument('--threshold', type=float, help='what value to threshold for presence/absence predictions', default=0.5)
 
     args, _ = args.parse_known_args()
-  
+
     if args.model in ['rf', 'maxent']:
         run_baseline_inference(args.model, args.band, args.dataset_name, args.state, args.year, args.threshold, args.filename, args.writeobs)
     else:
         cnn = {
             'exp_id': args.exp_id,
-            'band' : args.band, 
+            'band' : args.band,
             'loss': args.loss,
             'model': args.model
         }

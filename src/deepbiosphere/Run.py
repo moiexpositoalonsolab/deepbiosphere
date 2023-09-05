@@ -217,37 +217,37 @@ def convert_config(cfg):
         cfg.model = model_mapping[cfg.model]
     else:
         cfg.model = mods[cfg.model].name
-    
+
     loss_mapping = {'BCEScaled' : 'SCALED_BCE'}
     if cfg.loss in loss_mapping.keys():
         cfg.loss = loss_mapping[cfg.loss]
     else:
         cfg.loss = losses[cfg.loss].name
-        
+
     aug_mapping = {None : 'NONE',
                   'none' : 'NONE'}
     if cfg.augment in aug_mapping.keys():
         cfg.augment = aug_mapping[cfg.augment]
     else:
         cfg.augment = dataset.Augmentation[cfg.augment].name
-         
+
     datset_mapping = {'multi_species' : 'MULTI_SPECIES',
-                   'single_species' : 'SINGLE_SPECIES', 
+                   'single_species' : 'SINGLE_SPECIES',
                    'single_label' : 'SINGLE_LABEL'}
     if cfg.dataset_type in datset_mapping.keys():
         cfg.dataset_type = datset_mapping[cfg.dataset_type]
     else:
         cfg.dataset_type = datset_mapping.DatasetType[cfg.dataset_type].name
-    
-    dat_mapping = {'bioclim' : 'BIOCLIM', 
-                    'naip' : 'NAIP', 
+
+    dat_mapping = {'bioclim' : 'BIOCLIM',
+                    'naip' : 'NAIP',
                     'joint_naip_bioclim': 'JOINT_NAIP_BIOCLIM'
                      }
     if cfg.datatype in dat_mapping.keys():
         cfg.datatype = dat_mapping[cfg.datatype]
     else:
         cfg.datatype = dataset.DataType[cfg.datatype].name
-        
+
     if cfg.pretrain in aug_mapping.keys():
         cfg.pretrain = aug_mapping[cfg.pretrain]
     else:
@@ -418,7 +418,6 @@ def filter_shared_species(y_pred, y_true_multi, y_true_single, shared_species):
     mask = [True if sp in shared_species else False for sp in y_true_single]
     y_true_single = y_true_single[mask]
     y_pred_single =y_pred_single[mask,:]
-    
     return y_pred_multi, y_pred_single, y_true_multi, y_true_single
 
 
