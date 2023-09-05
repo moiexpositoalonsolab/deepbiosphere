@@ -143,7 +143,7 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     overallwriter.writerow(write_overall_metric(basics, macc, 'label_ranking_average_precision_score', np.nan, np.nan))
     prog.update(1)
     # also get overall species 0/1 accuracy
-    acc = utils.zero_one_accuracy(single_ytrue, preds_multi, thres)
+    acc = utils.zero_one_accuracy(single_ytrue, preds_single, thres)
     overallwriter.writerow(write_overall_metric(basics, acc, 'zero_one_accuracy', thres, np.nan))
     prog.update(1)
     # run + write topK metrics 
@@ -165,11 +165,15 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         writer.writeheader()  # file doesn't exist yet, write a header
 
     # run + write out roc-auc, prc-auc
-    assert len(preds.shape) == 2, 'too many dimensions in probabilty vector!'
+    assert len(preds_multi.shape) == 2, 'too many dimensions in probabilty vector!'
     aucs, prcs = [], []
-    for i in range(preds.shape[1]):
-        aucs.append(mets.roc_auc_score(ytrue[:,i], preds_multi[:,i]))
-        prcs.append(mets.average_precision_score(ytrue[:,i], preds_multi[:,i]))
+    for i in range(preds_multi.shape[1]):
+        try:
+            aucs.append(mets.roc_auc_score(ytrue[:,i], preds_multi[:,i]))
+            prcs.append(mets.average_precision_score(ytrue[:,i], preds_multi[:,i]))
+        except:
+            aucs.append(np.nan)
+            prcs.append(np.nan)
     # also write out average AUCs
     aucmean = np.ma.MaskedArray(aucs, np.isnan(aucs)).mean()
     overallwriter.writerow(write_overall_metric(basics, aucmean, 'ROC_AUC', np.nan, np.nan))
@@ -234,7 +238,6 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     tock = time.time()
     return (tock - tick)/60
 
-
 def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_2012', state='ca', year=2012, threshold=.5, fname=None, writeobs=True):
 
     test_dset = dataset.DeepbioDataset(dset_name, 'BIOCLIM', 'MULTI_SPECIES', state, year, band, 'test', 'NONE')
@@ -245,21 +248,27 @@ def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_20
 
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(preds, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species) 
 
-    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, eval_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
+    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
 
 
 def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True):
-    # load model
-    test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
-    all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
-    test_dset.len_dset = 500 # TODO: remove!!
-    all_specs_multi = all_specs_multi[:500, :]
-    all_specs_single = all_specs_single[:500]
+    # Necessary to convert old model jsons to new typing
+    if cfg.model not in mods.valid():
+        mname = cfg.model
+        lname = cfg.loss
+        cfg = run.convert_config(cfg)
+        test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
+        all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
+        train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
+        model = run.load_model(device, cfg, epoch, logging=False, losstype=lname, modeltype=mname)
+        
+    else:
+        test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
+        all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
+        train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
+        model = run.load_model(device, cfg, epoch, logging=False)
 
-    train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
     shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
-    
-    model = run.load_model(device, cfg, epoch)
     model = model.eval()
     loss = run.instantiate_loss(cfg, train_dset, device)
     test_loader = DataLoader(test_dset, batchsize, shuffle=False, pin_memory=False, num_workers=nworkers, collate_fn=run.collate, drop_last=False)
@@ -271,9 +280,9 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
     # filter to only shared species
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species) 
 
-    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, eval_dset.metadata.spec_2_id, 
+    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, 
                                     test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id, 
-                                    cfg.pretrained, filename=fname, write_obs=writeobs, thres=threshold)
+                                    cfg.pretrain, filename=fname, write_obs=writeobs, thres=threshold)
 
 
 if __name__ == "__main__":

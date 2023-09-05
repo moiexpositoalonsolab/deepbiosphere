@@ -207,17 +207,67 @@ def instantiate_loss(cfg, dset, device):
 
 ## ---------- re-loading previous experiments ---------- ##
 
+def convert_config(cfg):
+    model_mapping = {'tresnet_m' : 'RS_TRESNET',
+                    'tresnet_m_speconly' : 'RS_TRESNET',
+                    'joint_tresnet_m' : 'DEEPBIOSPHERE',
+                    'mlp' : 'BIOCLIM_MLP',
+                    'inception' : 'INCEPTION'}
+    if cfg.model in model_mapping.keys():
+        cfg.model = model_mapping[cfg.model]
+    else:
+        cfg.model = mods[cfg.model].name
+    
+    loss_mapping = {'BCEScaled' : 'SCALED_BCE'}
+    if cfg.loss in loss_mapping.keys():
+        cfg.loss = loss_mapping[cfg.loss]
+    else:
+        cfg.loss = losses[cfg.loss].name
+        
+    aug_mapping = {None : 'NONE',
+                  'none' : 'NONE'}
+    if cfg.augment in aug_mapping.keys():
+        cfg.augment = aug_mapping[cfg.augment]
+    else:
+        cfg.augment = dataset.Augmentation[cfg.augment].name
+         
+    datset_mapping = {'multi_species' : 'MULTI_SPECIES',
+                   'single_species' : 'SINGLE_SPECIES', 
+                   'single_label' : 'SINGLE_LABEL'}
+    if cfg.dataset_type in datset_mapping.keys():
+        cfg.dataset_type = datset_mapping[cfg.dataset_type]
+    else:
+        cfg.dataset_type = datset_mapping.DatasetType[cfg.dataset_type].name
+    
+    dat_mapping = {'bioclim' : 'BIOCLIM', 
+                    'naip' : 'NAIP', 
+                    'joint_naip_bioclim': 'JOINT_NAIP_BIOCLIM'
+                     }
+    if cfg.datatype in dat_mapping.keys():
+        cfg.datatype = dat_mapping[cfg.datatype]
+    else:
+        cfg.datatype = dataset.DataType[cfg.datatype].name
+        
+    if cfg.pretrain in aug_mapping.keys():
+        cfg.pretrain = aug_mapping[cfg.pretrain]
+    else:
+        cfg.pretrain = tresnet.Pretrained[cfg.pretrain].name
+    return cfg
+
 def load_config(exp_id, band, loss, model):
     path = f"{paths.MODELS}configs/{model}_{loss}_band{band}_{exp_id}.json"
     with open(path, 'r') as f:
         return SimpleNamespace(**json.load(f))
 
-def load_model(device, cfg, epoch, eval_=True, logging=True):
+    # use losstype and modeltype for old models!
+def load_model(device, cfg, epoch, eval_=True, logging=True, losstype=None, modeltype=None):
     if logging:
         print(f"Loading model {cfg.model} trained on band {cfg.band} with loss {cfg.loss}")
-    model_path= f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e{epoch}.tar"
+    if (losstype is not None) or (modeltype is not None):
+        model_path= f"{paths.MODELS}{modeltype}_{losstype}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e{epoch}.tar"
+    else:
+        model_path= f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e{epoch}.tar"
     mdict =  torch.load(model_path, map_location=device)
-    # TODO: will break with old models...
     model = instantiate_model(device, cfg)
     model.load_state_dict(mdict['model_state_dict'], strict=True)
     model = model.to(device)
@@ -368,6 +418,8 @@ def filter_shared_species(y_pred, y_true_multi, y_true_single, shared_species):
     mask = [True if sp in shared_species else False for sp in y_true_single]
     y_true_single = y_true_single[mask]
     y_pred_single =y_pred_single[mask,:]
+    
+    return y_pred_multi, y_pred_single, y_true_multi, y_true_single
 
 
 def test_one_epoch(model, test_loader, test_dset, loss, shared_species, args, device, epoch, test_steps, tbwriter=None):
