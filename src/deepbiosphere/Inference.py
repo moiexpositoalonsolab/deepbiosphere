@@ -126,10 +126,8 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     if not fexists:
         overallwriter.writeheader()  # file doesn't exist yet, write a header
 
-    ## working zone below
     id2sp = {v:k for k, v in sp2id.items()}
     yobs = preds_multi >= thres
-
 
     # run + write overall binary accuracy metrics
     scores = [mets.precision_score, mets.recall_score, mets.f1_score,
