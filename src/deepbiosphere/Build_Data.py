@@ -671,9 +671,9 @@ def add_overlapping_filter(daset, res, threshold=200, idCol='gbifID'):
     overlap_id = [list(filter(lambda id_: id_ in id_2_spec.keys(), curr)) for curr in overlap_id]
     # then map observation id to species
     # and also ids to genus; family
-    overlap_spec = [[id_2_spec[id_] for id_ in curr] for curr in overlap_id]
-    overlap_gen = [[id_2_gen[id_] for id_ in curr] for curr in overlap_id]
-    overlap_fam = [[id_2_fam[id_] for id_ in curr] for curr in overlap_id]
+    overlap_spec = [set(id_2_spec[id_] for id_ in curr) for curr in overlap_id]
+    overlap_gen = [set(id_2_gen[id_] for id_ in curr) for curr in overlap_id]
+    overlap_fam = [set(id_2_fam[id_] for id_ in curr) for curr in overlap_id]
     # now, save these results to dataframe
     daset['overlapping_specs'] = overlap_spec
     daset['overlapping_gens'] = overlap_gen
