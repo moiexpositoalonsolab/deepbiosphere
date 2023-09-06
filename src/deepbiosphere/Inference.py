@@ -91,8 +91,8 @@ def add_med_iqr(vals, df, row, col):
     q75, q25 = np.percentile(vals, [75 ,25], axis=0)
     df.at[row,col] = f"{round(med, 4)} [{round(q25,4)}-{round(q75, 4)}]"
 
-
-def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, batch_size, write_obs=False, thres=0.5, filename=None):
+# ytrue: nobs, total_num_specs, multi_ytrue: nobs, num_overlapping_specs,  single_ytrue: nobs_with_overlapping_spec
+def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_single, sharedspecs, sp2id, ids, dset_name, band, model, loss, lr, epoch, exp_id, pretrained, batch_size, write_obs=False, thres=0.5, filename=None):
     tick = time.time()
 
     # make directory if it doesn't exist
@@ -128,7 +128,8 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
 
     ## working zone below
     id2sp = {v:k for k, v in sp2id.items()}
-    yobs = preds_multi >= thres
+    yobs_multi = preds_multi >= thres
+    yobs = pred >= thres
 
 
     # run + write overall binary accuracy metrics
@@ -137,11 +138,11 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     for score in scores:
         averages = ['macro', 'micro', 'weighted', 'samples']
         for avg in averages:
-            sc = score(ytrue, yobs, average=avg, zero_division=0.0)
+            sc = score(multi_ytrue, yobs_multi, average=avg, zero_division=0.0)
             overallwriter.writerow(write_overall_metric(basics, sc, score.__name__, thres, avg))
             prog.update(1)
     # label ranking average precision
-    macc = mets.label_ranking_average_precision_score(ytrue, preds_multi)
+    macc = mets.label_ranking_average_precision_score(multi_ytrue, preds_multi)
     overallwriter.writerow(write_overall_metric(basics, macc, 'label_ranking_average_precision_score', np.nan, np.nan))
     prog.update(1)
     # also get overall species 0/1 accuracy
@@ -167,12 +168,12 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
         writer.writeheader()  # file doesn't exist yet, write a header
 
     # run + write out roc-auc, prc-auc
-    assert len(preds_multi.shape) == 2, 'too many dimensions in probabilty vector!'
+    assert len(pred.shape) == 2, 'too many dimensions in probabilty vector!'
     aucs, prcs = [], []
-    for i in range(preds_multi.shape[1]):
+    for i in range(pred.shape[1]):
         try:
-            aucs.append(mets.roc_auc_score(ytrue[:,i], preds_multi[:,i]))
-            prcs.append(mets.average_precision_score(ytrue[:,i], preds_multi[:,i]))
+            aucs.append(mets.roc_auc_score(ytrue[:,i], pred[:,i]))
+            prcs.append(mets.average_precision_score(ytrue[:,i], pred[:,i]))
         except:
             aucs.append(np.nan)
             prcs.append(np.nan)
@@ -183,20 +184,19 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
     overallwriter.writerow(write_overall_metric(basics, prcmean, 'PRC_AUC', np.nan, np.nan))
     prog.update(2)
     # and calibrated AUCs
-    cal_rocs, cal_prcs = utils.mean_calibrated_roc_auc_prc_auc(ytrue, preds_multi)
+    cal_rocs, cal_prcs = utils.mean_calibrated_roc_auc_prc_auc(ytrue, pred)
     cal_rocmean = np.ma.MaskedArray(cal_rocs, np.isnan(cal_rocs)).mean()
     overallwriter.writerow(write_overall_metric(basics, cal_rocmean, 'calibrated_ROC_AUC', np.nan, np.nan))
     cal_prcmean = np.ma.MaskedArray(cal_prcs, np.isnan(cal_prcs)).mean()
     overallwriter.writerow(write_overall_metric(basics, cal_prcmean, 'calibrated_PRC_AUC', np.nan, np.nan))
     prog.update(2)
-    overallcsv.close()
 
     # get individual species for topK spec
     for i in [1,5,30,100]:
         _, specs = utils.species_topK(single_ytrue, preds_single, i)
         writer.writerow(write_spec_metric(dict_, f'species_top{i}', i, specs, id2sp))
         prog.update(1)
-
+    overallcsv.close()
     precsp, recsp, f1sp, supsp = mets.precision_recall_fscore_support(ytrue, yobs, zero_division=0)
     writer.writerow(write_spec_metric(dict_, 'ROC_AUC', np.nan, aucs, id2sp))
     writer.writerow(write_spec_metric(dict_, 'PRC_AUC', np.nan, prcs, id2sp))
@@ -222,16 +222,16 @@ def evaluate_model(ytrue, single_ytrue, preds_multi, preds_single, sharedspecs, 
             writer.writeheader()  # file doesn't exist yet, write a header
         # finally, per-observation metrics
         basics['metric'] = f"precision_score"
-        val = utils.precision_per_obs(yobs, ytrue)
+        val = utils.precision_per_obs(yobs_multi, multi_ytrue)
         write_obs_metrics(basics, 'precision_score', val, ids, writer)
         prog.update(1)
-        val =  utils.recall_per_obs(yobs, ytrue)
+        val =  utils.recall_per_obs(yobs_multi, multi_ytrue)
         write_obs_metrics(basics, 'recall_score', val, ids, writer)
         prog.update(1)
-        val =  utils.accuracy_per_obs(yobs, ytrue)
+        val =  utils.accuracy_per_obs(yobs_multi, multi_ytrue)
         write_obs_metrics(basics, 'accuracy_perobs', val, ids, writer)
         prog.update(1)
-        val =  utils.f1_per_obs(yobs, ytrue)
+        val =  utils.f1_per_obs(yobs_multi, multi_ytrue)
         write_obs_metrics(basics, 'f1_score', val, ids, writer)
         prog.update(1)
 
@@ -250,7 +250,7 @@ def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_20
 
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(preds, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species)
 
-    evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
+    evaluate_model(test_dset.all_specs_multi.numpy(), preds, y_true_multi, y_pred_multi, y_true_single, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
 
 
 def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True):
@@ -281,8 +281,8 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
     y_pred = run.logit_to_proba(y_pred.cpu(), cfg.loss)
     # filter to only shared species
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species)
-
-    return evaluate_model(y_true_multi, y_true_single, y_pred_multi, y_pred_single, shared_species, test_dset.metadata.spec_2_id,
+    print(f"shapes: y_true: {test_dset.all_specs_multi.numpy().shape} y_pred {y_pred.shape} y_pred_multi {y_pred_multi.shape} y_true_multi {y_true_multi.shape} ")
+    return evaluate_model(test_dset.all_specs_multi.numpy(), y_pred, y_true_multi, y_pred_multi, y_true_single, y_pred_single, shared_species, test_dset.metadata.spec_2_id,
                                     test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id,
                                     cfg.pretrain, cfg.batchsize, filename=fname, write_obs=writeobs, thres=threshold)
 

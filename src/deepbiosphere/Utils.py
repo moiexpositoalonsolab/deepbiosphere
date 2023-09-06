@@ -218,11 +218,9 @@ def pres_union(ob_t, y_t):
     sum_ = sum_ > 0
     return torch.sum(sum_, dim=1)
 
-def precision_per_obs(ob_t: torch.tensor, y_t: torch.tensor, threshold=.5):
+def precision_per_obs(ob_t: torch.tensor, y_t: torch.tensor):
     ob_t = torch.as_tensor(ob_t)
     y_t = torch.as_tensor(y_t)
-    # threshold
-    ob_t = (ob_t >= threshold).float()
     # get intersection
     top = pres_intersect(ob_t, y_t).float()
     # get # predicted species
@@ -233,11 +231,9 @@ def precision_per_obs(ob_t: torch.tensor, y_t: torch.tensor, threshold=.5):
     ans[ans != ans] = 0
     return ans
 
-def recall_per_obs(ob_t, y_t, threshold=.5):
+def recall_per_obs(ob_t, y_t):
     ob_t = torch.as_tensor(ob_t)
     y_t = torch.as_tensor(y_t)
-    # threshold
-    ob_t = (ob_t >= threshold).float()
     # get intersection
     top = pres_intersect(ob_t, y_t).float()
     # get # observed species
@@ -248,11 +244,9 @@ def recall_per_obs(ob_t, y_t, threshold=.5):
     ans[ans != ans] = 0
     return ans
 
-def accuracy_per_obs(ob_t, y_t, threshold=.5):
+def accuracy_per_obs(ob_t, y_t):
     ob_t = torch.as_tensor(ob_t)
     y_t = torch.as_tensor(y_t)
-    # threshold
-    ob_t = (ob_t >= threshold).float()
     # intersection
     top = pres_intersect(ob_t, y_t).float()
     # union
@@ -263,9 +257,9 @@ def accuracy_per_obs(ob_t, y_t, threshold=.5):
     ans[ans != ans] = 0
     return ans
 
-def f1_per_obs(ob_t, y_t, threshold=.5):
-    pre = precision_per_obs(ob_t, y_t, threshold)
-    rec = recall_per_obs(ob_t, y_t, threshold)
+def f1_per_obs(ob_t, y_t):
+    pre = precision_per_obs(ob_t, y_t)
+    rec = recall_per_obs(ob_t, y_t)
     ans =  2*(pre*rec)/(pre+rec)
     # if denom=0, F1 is 0
     ans[ans != ans] = 0.0
@@ -300,8 +294,8 @@ def species_topK(ytrue, yobs, K):
     yobs = torch.as_tensor(yobs)
     ytrue = torch.as_tensor(ytrue)
     # convert to probabilities if not done already
-    if (yobs.min() <= 0.0) or (yobs.max() >= 1.0):
-        yobs = torch.sigmoid(yobs)
+    if (yobs.min() < 0.0) or (yobs.max() > 1.0):
+        raise ValueError(f"yobs should be probabilities! min: {yobs.min()} max {yobs.max()}")
     # convert
     tk = torch.topk(yobs, K)
     # get all unique species label and their indices
@@ -327,8 +321,6 @@ def species_topK(ytrue, yobs, K):
         sas.append((torch.stack(spec)== yt).sum().item()/len(spec))
     sas = np.array(sas)
     gsas = sas[~np.isnan(sas)]
-    sas = np.array(sas)
-    gsas = sas[~np.isnan(sas)]
     return (sum(gsas) / len(gsas)), sas
 
 
@@ -350,7 +342,8 @@ def calibrated_roc_auc_prc_auc(y_true, y_obs, npoints=50):
     cutoffs = np.linspace(0.0, 1.0, npoints)
     tpr, fpr, pre = [],[],[]
     # ignore when there is no actual present case of this species
-    if y_true.sum() == 0:
+    # or only one example of species (sklearn kicks out this case too)
+    if y_true.sum() < 2:
         return (np.nan, np.nan)
     for i in cutoffs:
         pred = (y_obs >= i).astype(np.short)
@@ -369,5 +362,5 @@ def calibrated_roc_auc_prc_auc(y_true, y_obs, npoints=50):
             pre.append(0)
     # precision-recall x=recall, y=precision
     # roc: x= fpr, y= tpr
-    return (mets.auc(tpr, pre),  mets.auc(fpr, tpr))
+    return (mets.auc(fpr, tpr), mets.auc(tpr, pre))
 
