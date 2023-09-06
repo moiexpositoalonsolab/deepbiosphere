@@ -30,6 +30,8 @@ from os.path import exists
 
 def load_baseline_preds(model, nobs, nspecs, sp2id, band='unif_train_test', dset_name='big_cali_2012'):
     files = glob.glob(f"{paths.BASELINES}{model}/predictions/{dset_name}/{band}/*csv")
+    if len(files) == 0:
+        raise ValueError(f'no files for {model} baseline found!')
     results = np.zeros((nobs, nspecs))
     for file in tqdm(files):
         pred = pd.read_csv(file)
@@ -238,13 +240,13 @@ def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_si
     tock = time.time()
     return (tock - tick)/60
 
-def run_baseline_inference(model, band='unif_train_test', dset_name='big_cali_2012', state='ca', year=2012, threshold=.5, fname=None, writeobs=True):
+def run_baseline_inference(model, band=-1, dset_name='big_cali_2012', state='ca', year=2012, threshold=.5, fname=None, writeobs=True):
 
     test_dset = dataset.DeepbioDataset(dset_name, 'BIOCLIM', 'MULTI_SPECIES', state, year, band, 'test', 'NONE')
     train_dset = dataset.DeepbioDataset(dset_name, 'BIOCLIM', 'MULTI_SPECIES', state, year, band, 'train', 'NONE', prep_onehots=False)
     shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
 
-    preds = load_baseline_preds(model, len(test_dset), test_dset.nspec, test_dset.metadata.spec_2_id, test_dset.band, test_dset.dataset_name)
+    preds = load_baseline_preds(model, len(test_dset), test_dset.nspec, test_dset.metadata.spec_2_id, test_dset.band, test_dset.name)
 
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(preds, test_dset.all_specs_multi.numpy(), test_dset.specs.numpy(), shared_species)
 
@@ -288,11 +290,11 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     # required ars
-    args.add_argument('--band', type=str, help='Band which model to use for mapmaking was trained on', required=True)
-    args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.valid() + ['rf', 'maxent'])
+    args.add_argument('--band', type=int, help='Band which model to use for mapmaking was trained on', required=True)
+    args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.valid() + ['rf', 'maxent', 'joint_tresnet_m', 'mlp', 'inception']) # TODO: remove old options!
     # arguments for DL model
     args.add_argument('--exp_id', type=str, help='Experiment ID for model. Not necessary for baseline models')
-    args.add_argument('--loss', type=str, help='Loss function used to train deep learnig model',  choices=losses.valid())
+    args.add_argument('--loss', type=str, help='Loss function used to train deep learnig model',  choices=losses.valid()+ ['BCEScaled']) # TODO: remove!!
     args.add_argument('--epoch', type=int, help='what model epoch to evaluate deep learning model')
     args.add_argument('--batch_size', type=int, help='what size batch to use for making map inference', default=10)
     args.add_argument('--device', type=int, help="Which CUDA device to use. Set -1 for CPU", default=-1)
