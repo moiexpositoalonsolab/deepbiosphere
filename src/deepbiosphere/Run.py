@@ -412,7 +412,10 @@ def filter_shared_species(y_pred, y_true_multi, y_true_single, shared_species):
     y_pred_single = y_pred.copy()
     # filter to only present species
     # don't filter single species label so it matches w/ index
-    y_pred_multi = y_pred[:,shared_species]
+    y_pred_multi = y_pred.copy()
+    y_pred_multi = y_pred_multi[:,shared_species]
+    # so we don't modify the underlying array pointer
+    y_true_multi = y_true_multi.copy()
     y_true_multi = y_true_multi[:,shared_species]
     # for single species, filter out rows from non-shared species, preserving the index
     mask = [True if sp in shared_species else False for sp in y_true_single]
