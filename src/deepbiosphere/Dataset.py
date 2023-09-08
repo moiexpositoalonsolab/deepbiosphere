@@ -220,7 +220,7 @@ class DeepbioDataset(TorchDataset):
         # every species in dataset
         # is guaranteed to be in the species
         # column so this is chill for now
-        self.band = band
+        self.band = f"band_{band}" if band >= 0 else 'unif_train_test'
         self.name = dataset_name
         self.nspec = len(metadata.spec_2_id)
         self.ngen = len(metadata.gen_2_id)
