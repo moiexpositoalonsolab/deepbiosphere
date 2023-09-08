@@ -25,7 +25,7 @@ IMAGENET_CHANS = 3
 
 ## ---------- Paths to important directories ---------- ##
 
-paths = SimpleNamespace(
+ paths = SimpleNamespace(
     OCCS = '/your/path/here/',
     SHPFILES = '/your/path/here/',
     MODELS = '/your/path/here/',
@@ -85,7 +85,7 @@ def setup_pretrained_dirs():
 
 def get_tfevent(cfg, epoch=10):
     # get all the possible tfEvent files
-    files = glob.glob(f'{paths.RUNS}/*{cfg.exp_id}*')
+    files = glob.glob(f'{paths.RUNS}/*{cfg.exp_id}')
     # figure out which tfEvent corresponds to the model
     # grab a random checkpoint for model
     model = f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e{epoch}.tar"
@@ -95,9 +95,13 @@ def get_tfevent(cfg, epoch=10):
     filetimes =sorted(filetimes.items(), key=lambda x: x[1])
     return filetimes[0]
 
-def extract_test_accs(cfg, n_test_obs):
+def extract_test_accs(cfg, n_test_obs, epoch=None):
     # get all the possible tfEvent files
-    file, filetime = get_tfevent(cfg)
+    if epoch is None:
+        file, filetime = get_tfevent(cfg)
+    else:
+        file, filetime = get_tfevent(cfg, epoch)
+    print('using file ', file)
     # open up the tfEvent file
     ea = event_accumulator.EventAccumulator(file, size_guidance={
         event_accumulator.SCALARS: 0,})
@@ -129,7 +133,7 @@ def extract_test_accs(cfg, n_test_obs):
 
 def extract_train_time(cfg, n_obs, epoch):
     # get all the possible tfEvent files
-    file, filetime = get_tfevent(cfg)
+    file, filetime = get_tfevent(cfg, epoch)
     # open up the tfEvent file
     ea = event_accumulator.EventAccumulator(file, size_guidance={
         event_accumulator.SCALARS: 0,})
@@ -143,7 +147,7 @@ def extract_train_time(cfg, n_obs, epoch):
     # for current epoch from start of training
     return loss[(nbatches*(epoch+1))-1].wall_time - loss[0].wall_time
 
-def get_mean_epoch(tags):
+def get_mean_epoch(tags, lossname='tot_loss'):
     epochs = []
     # set up dict for each possible epoch to store what metrics are maxed when
     mets = tags.keys()
@@ -152,10 +156,10 @@ def get_mean_epoch(tags):
     # and extra losses (only keeping total loss)
     mets = [met for met in mets if  ('weighted' not in met) and ('micro' not in met) and ('loss' not in met) and ('mAP' != met) and ('top' not in met)]
     # add back just in total loss and one topK accuracy
-    mets.append('tot_loss')
+    mets.append(lossname)
     mets.append('top30_accuracy')
     print(f" using these metrics: {mets}")
-    print(f"avail tags {tags,keys()}")
+    print(f"avail tags {tags.keys()}")
     for met in mets:
         curr = tags[met]
         # pair epochs and accuracy
