@@ -107,7 +107,7 @@ def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_si
     fexists = os.path.isfile(fname)
     overallcsv = open(fname, 'a')
     nmets = 46 if write_obs else 42
-    prog = tqdm(total=nmets, unit="metric", desc='Accuracy metrics')
+    prog = tqdm(total=nmets, unit="metric", desc=f'{model} accuracy metrics')
     basics = {
         'value' : np.nan,
         'dset_name' : dset_name,

@@ -85,7 +85,7 @@ def setup_pretrained_dirs():
 
 def get_tfevent(cfg, epoch=10):
     # get all the possible tfEvent files
-    files = glob.glob(f'{paths.RUNS}/*{cfg.exp_id}*')
+    files = glob.glob(f'{paths.RUNS}/*{cfg.exp_id}')
     # figure out which tfEvent corresponds to the model
     # grab a random checkpoint for model
     model = f"{paths.MODELS}{cfg.model}_{cfg.loss}/{cfg.exp_id}_lr{str(cfg.lr).split('.')[-1]}_e{epoch}.tar"
@@ -95,9 +95,12 @@ def get_tfevent(cfg, epoch=10):
     filetimes =sorted(filetimes.items(), key=lambda x: x[1])
     return filetimes[0]
 
-def extract_test_accs(cfg, n_test_obs):
+def extract_test_accs(cfg, n_test_obs, epoch=None):
     # get all the possible tfEvent files
-    file, filetime = get_tfevent(cfg)
+    if epoch is None:
+        file, filetime = get_tfevent(cfg)
+    else:
+        file, filetime = get_tfevent(cfg, epoch=epoch)
     # open up the tfEvent file
     ea = event_accumulator.EventAccumulator(file, size_guidance={
         event_accumulator.SCALARS: 0,})
