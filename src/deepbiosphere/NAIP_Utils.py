@@ -17,6 +17,7 @@ import deepbiosphere.Models as mods
 import deepbiosphere.Dataset as dataset
 import deepbiosphere.Build_Data as build
 import deepbiosphere.Run as run
+from deepbiosphere.Losses import Loss
 import deepbiosphere.Utils as utils
 from deepbiosphere.Utils import paths
 
@@ -518,17 +519,14 @@ def predict_raster(raster,
     spec_names = dataset.get_specnames(dset_metadata)
     n_specs = model_config.nspecs
     
-    # TODO: use enums! Gotta fix in run.py
-    use_climate = model_config.datatype == 'joint_naip_bioclim'
+    use_climate = dataset.DataType[model_config.datatype] == dataset.DataType.JOINT_NAIP_BIOCLIM
     if (use_climate and (clim_rasters is None)):
         clim_rasters = build.get_bioclim_rasters(state=model_config.state)
-    
-    if use_climate:
-        # prep rasters appropriately
-        bioclim_ras = np.vstack([r[0] for r in clim_rasters])
-        # build function ensures size, transform of rasters are identical
-        bioclim_transf = clim_rasters[0][1]
-        bioclim_crs = clim_rasters[0][3]
+
+    bioclim_ras = np.vstack([r[0] for r in clim_rasters]) if use_climate else None
+    bioclim_transf = clim_rasters[0][1] if use_climate else None
+    bioclim_crs = clim_rasters[0][3] if use_climate else None
+    print(bioclim_ras) # TODO remove
     # check if it's a file, read in if so
     if isinstance(raster, rasterio.io.DatasetReader):
         assert raster.res[0] < resolution, "resolution of prediction must be larger than image res!"
@@ -582,8 +580,9 @@ def predict_raster(raster,
     if not torch.is_tensor(pred):
         pred = torch.tensor(pred)
     # softmax or sigmoid depending on model loss
-    # TODO: make enum
-    if model_config.loss in ['CE', 'CEWeighted']:
+    loss_type = Loss[model_config.loss]
+    if loss_type in [losses.WEIGHTED_CE, losses.CE]:
+        print("softmaxing predictions")
         pred = torch.softmax(pred, axis=0).numpy()
     else:
         pred = torch.sigmoid(pred).numpy()

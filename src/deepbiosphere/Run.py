@@ -30,7 +30,9 @@ import os
 import time
 import json
 import random
+import socket
 import argparse
+import datetime
 from tqdm import tqdm
 from datetime import date
 from csv import DictWriter
@@ -115,18 +117,21 @@ def make_config(args, train_dset, shared_species):
 
 
 def save_model(model, optimizer, epoch, args, steps):
-        model_path= f"{paths.MODELS}{args.model}_{args.loss}/{args.exp_id}_lr{str(args.lr).split('.')[-1]}_e{epoch}.tar"
-        # if this is the first time building the model directory
-        # make the directories and save out to disk
-        currdir = os.path.dirname(model_path)
-        if not os.path.exists(currdir):
-            os.makedirs(currdir)
-        torch.save({
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'step' : steps,
-                    }, model_path)
+    
+    model_path= f"{paths.MODELS}{args.model}_{args.loss}/{args.exp_id}_lr{str(args.lr).split('.')[-1]}_e{epoch}.tar"
+
+    # if this is the first time building the model directory
+    # make the directories and save out to disk
+    currdir = os.path.dirname(model_path)
+    if not os.path.exists(currdir):
+        os.makedirs(currdir)
+    torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'step' : steps,
+                }, model_path)
+
 
 def write_traintime(total, args, name, device):
         towrite = {
@@ -218,7 +223,8 @@ def convert_config(cfg):
     else:
         cfg.model = mods[cfg.model].name
 
-    loss_mapping = {'BCEScaled' : 'SCALED_BCE'}
+    loss_mapping = {'BCEScaled' : 'SAMPLE_AWARE_BCE',
+                   'SCALED_BCE' : 'SAMPLE_AWARE_BCE'}
     if cfg.loss in loss_mapping.keys():
         cfg.loss = loss_mapping[cfg.loss]
     else:
@@ -229,7 +235,7 @@ def convert_config(cfg):
     if cfg.augment in aug_mapping.keys():
         cfg.augment = aug_mapping[cfg.augment]
     else:
-        cfg.augment = dataset.Augmentation[cfg.augment].name
+        cfg.augment = dataset.Augment[cfg.augment].name
 
     datset_mapping = {'multi_species' : 'MULTI_SPECIES',
                    'single_species' : 'SINGLE_SPECIES',
@@ -274,7 +280,6 @@ def load_model(device, cfg, epoch, eval_=True, logging=True, losstype=None, mode
     if eval_:
         model.eval()
     return model
-
 
 ## ---------- training helper fns ---------- ##
 
@@ -326,9 +331,9 @@ def train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, t
         if mods[args.model] is mods.INCEPTION:
             total_loss, loss_1, loss_2 = inception_one_step(out, spec_true, loss, args.loss)
             if tbwriter is not None:
-                tb_writer.add_scalar("train/final_loss", loss_1.item(), steps)
-                tb_writer.add_scalar("train/aux_loss", loss_2.item(), steps)
-                tb_writer.add_scalar("train/tot_loss", total_loss.item(), steps)
+                tbwriter.add_scalar("train/final_loss", loss_1.item(), steps)
+                tbwriter.add_scalar("train/aux_loss", loss_2.item(), steps)
+                tbwriter.add_scalar("train/tot_loss", total_loss.item(), steps)
         else:
             # hacky, but calculates loss for each taxon
             if 'spec' in args.taxon_type: # speconly needs to be out
@@ -484,8 +489,10 @@ def train_model(args, rng):
     loss = instantiate_loss(args, train_dset, device)
 
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    # set up summary writer
-    tb_writer = None if args.testing else SummaryWriter(comment=f"{args.exp_id}_allpoints")
+    
+    # set up summary writer using standard tensorboard logging directory format
+    log_dir = f"{paths.RUNS}/{datetime.now().strftime('%Y_%m_%d_%H-%M-%S')}_{socket.gethostname()}_"
+    tb_writer = None if args.testing else SummaryWriter(log_dir=log_dir, comment=f"{args.exp_id}_allpoints")
 
     # re-set seed again since sometimes if different
     # architectures are used, the random number generator
@@ -504,6 +511,7 @@ def train_model(args, rng):
         model.train()
         steps, optimizer, model = train_one_epoch(model, train_loader, optimizer, loss, args, device, steps, tbwriter=tb_writer)
         save_model(model, optimizer, epoch, args, steps)
+        
 
     end = time.time()
     total = (end-start)/3600
@@ -528,12 +536,15 @@ def train_and_test_model(args, rng):
     # set up device, model, losses
     device = f"cuda:{args.device}" if int(args.device) >= 0 else 'cpu'
     print(f"using device {device}")
-    model = instantiate_model(device, args)
-    loss = instantiate_loss(args, train_dset, device)
 
+    model = instantiate_model(device, args)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    start = 0
+
+    loss = instantiate_loss(args, train_dset, device)
     # set up summary writer
-    tb_writer = None if args.testing else SummaryWriter(comment=f"{args.exp_id}")
+    log_dir = f"{paths.RUNS}/{datetime.now().strftime('%Y_%m_%d_%H-%M-%S')}_{socket.gethostname()}_"
+    tb_writer = None if args.testing else SummaryWriter(comment=f"{args.exp_id}", log_dir=log_dir)
 
     # re-set seed again since sometimes if different
     # architectures are used, the random number generator
@@ -546,7 +557,7 @@ def train_and_test_model(args, rng):
     test_loader = DataLoader(test_dset, args.batchsize, shuffle=False, pin_memory=False, num_workers=args.processes, collate_fn=collate, drop_last=False)
 
     test_steps, steps = 0, 0
-    for epoch in range(args.epochs):
+    for epoch in range(start, start+args.epochs):
 
         print(f"Starting epoch {epoch}")
         # have to turn on batchnorm and dropout again

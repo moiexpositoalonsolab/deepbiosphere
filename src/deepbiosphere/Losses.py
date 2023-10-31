@@ -124,7 +124,7 @@ def BCEWeighted(counts, id_dict, len_dset, device):
     return nn.BCEWithLogitsLoss(pos_weight=torch.tensor(weights,device=device))
 
 
-class BCEScaled(nn.Module):
+class SampleAwareBCE(nn.Module):
     ''' Notice - optimized version, minimizes memory allocation and gpu uploading,
     favors inplace operations'''
     def __init__(self, eps=1e-8, reduce='mean'):
@@ -457,12 +457,12 @@ class Loss(utils.FuncEnum, metaclass=utils.MetaEnum):
 
     CE                 = partial(nn.CrossEntropyLoss)
     WEIGHTED_CE        = partial(CEWeighted)
-    CPO                = partial(CrossEntropyPresenceOnly)    # NOT tried
-    BCE                = partial(BCE) # NOT tried
+    CPO                = partial(CrossEntropyPresenceOnly) 
+    BCE                = partial(BCE) 
     WEIGHTED_BCE       = partial(BCEWeighted)
-    SCALED_BCE         = partial(BCEScaled)  # NOT tried
-    PROBSCALED_BCE     = partial(BCEProbScaled)  # NOT tried
-    SCALED_FOCAL       = partial(FocalLossScaled)  # NOT tried
-    PROBCLIPSCALED_BCE = partial(BCEProbClipScaled)  # NOT tried
-    ASL                =  partial(AsymmetricLoss)  # NOT tried
-    SCALED_ASL         = partial(AsymmetricLossScaled)  # NOT tried
+    SAMPLE_AWARE_BCE   = partial(SampleAwareBCE)
+    PROBSCALED_BCE     = partial(BCEProbScaled) 
+    SCALED_FOCAL       = partial(FocalLossScaled)
+    PROBCLIPSCALED_BCE = partial(BCEProbClipScaled)
+    ASL                =  partial(AsymmetricLoss)
+    SCALED_ASL         = partial(AsymmetricLossScaled)
