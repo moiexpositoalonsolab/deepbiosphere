@@ -101,7 +101,7 @@ def add_bioclim(dset, rasters):
         # since we've confirmed all the rasters have identical
         # transforms previously, can just calculate the x,y coord once
         x,y = rasterio.transform.rowcol(rasters[0][1], *point.xy)
-        for j, (ras, transf, ras_name) in enumerate(rasters):
+        for j, (ras, transf, ras_name, crs) in enumerate(rasters):
             bioclim[ras_name].append(ras[0,x,y])
     # now add the bioclim values to the dataset
     for name, vals in bioclim.items():
@@ -683,9 +683,9 @@ def add_overlapping_filter(daset, res, threshold=200, idCol='gbifID'):
     # and finally filter out observations with species below threshold again
     daset = daset[~daset.species.isin(to_remove)]
     # and get spec, gen, fam id counts
-    flat_spec = [val for sublist in daset.overlapping_specs for val in sublist]
-    flat_gen = [val for sublist in daset.overlapping_gens for val in sublist]
-    flat_fam = [val for sublist in daset.overlapping_fams for val in sublist]
+    flat_spec = [val for sublist in daset.overlapping_specs for val in set(sublist)]
+    flat_gen = [val for sublist in daset.overlapping_gens for val in set(sublist)]
+    flat_fam = [val for sublist in daset.overlapping_fams for val in set(sublist)]
     # get the final counts of species, genus, and family
     count_spec = Counter(flat_spec)
     count_gen = Counter(flat_gen)
@@ -747,25 +747,29 @@ def filter_raster_oob(daset):
     return daset
 
 # Basically copying code from below that returns back just the polygons for visualization
-def generate_split_polygons():
+def generate_split_polygons(lonmin=-125,
+                            lonmax=-114, 
+                            latmin=32, 
+                            latmax=42.1,
+                           bandwidth=1):
     # these are a box around california
     # leaves a bit of a buffer around
     # the whole state
-    lonmin, lonmax=-125,-114
-    lowlat, highlat=32,42.1
+    # lonmin, lonmax=-125,-114
+    # latmin, latmax=32,42.1
     # add buffer region around min, max latitude that's guaranteed to capture all
     # points in the state
-    # TODO: make this a parameter so it generalizes
-    strtlat, endlat = 32, 42
+    strtlat, endlat = math.floor(latmin), math.floor(latmax)
+    # Check math!
     exclude_size = KM_2_DEG+KM_2_DEG*0.5 # max largest size of bioclim pixel is sqrt(2) ~1.5 km
     polys = {}
-    for i, lat in enumerate(range(strtlat, endlat, 1)):
+    for i, lat in enumerate(range(strtlat, endlat, bandwidth)):
 
         # polygon for below exclusion band
-        train_top  = [Point(lonmax, lat+1), Point(lonmax, highlat), Point(lonmin, highlat),  Point(lonmin, lat+1)]
+        train_top  = [Point(lonmax, lat+1), Point(lonmax, latmax), Point(lonmin, latmax),  Point(lonmin, lat+1)]
         train_top = Polygon(train_top)
         # polygon for above the exclusion band
-        train_bot = [Point(lonmax, lowlat), Point(lonmax, lat), Point(lonmin, lat),  Point(lonmin, lowlat)]
+        train_bot = [Point(lonmax, latmin), Point(lonmax, lat), Point(lonmin, lat),  Point(lonmin, latmin)]
         train_bot = Polygon(train_bot)
         # polygon for test locations
         # exclude_size is the buffer
@@ -784,31 +788,36 @@ def generate_split_polygons():
     return polys
 
 # make bands and exclusion zones
-def make_spatial_split(daset, latCol):
+def make_spatial_split(daset, latCol, 
+                       lonmin=-125, 
+                       lonmax=-114, 
+                       latmin=32, 
+                       latmax=42.1, 
+                       bandwidth=1):
     # first, make sure we're in the right crs
     daset = daset.to_crs(naip.CRS.GBIF_CRS)
     # these are a box around california
     # leaves a bit of a buffer around
     # the whole state
-    lonmin, lonmax=-125,-114
-    lowlat, highlat=32,42.1
+    # lonmin, lonmax=-125,-114
+    # latmin, latmax=32,42.1
     # iterate through the lat/lons in the dataset
     # iterate through this so we don't add extra bands
     # from buffer radius above
     # want to start either at the 32 degree mark
     # or whatever latitude the most southern obs is
-    strtlat = max(lowlat, math.floor(daset[latCol].min()))
+    strtlat = max(latmin, math.floor(daset[latCol].min()))
     # want to end at either the 42 degree mark
     # or if all points are more than a degree lower, that
-    endlat = min(math.floor(highlat), math.ceil(daset[latCol].max()))
+    endlat = min(math.floor(latmax), math.ceil(daset[latCol].max()))
     for i, lat in enumerate(range(strtlat, endlat, 1)):
-
+        # Check
         exclude_size = KM_2_DEG+KM_2_DEG*0.5 # max largest size of bioclim pixel is sqrt(2) ~1.5 km
         # polygon for below exclusion band
-        train_top  = [Point(lonmax, lat+1), Point(lonmax, highlat), Point(lonmin, highlat),  Point(lonmin, lat+1)]
+        train_top  = [Point(lonmax, lat+1), Point(lonmax, latmax), Point(lonmin, latmax),  Point(lonmin, lat+1)]
         train_top = Polygon(train_top)
         # polygon for above the exclusion band
-        train_bot = [Point(lonmax, lowlat), Point(lonmax, lat), Point(lonmin, lat),  Point(lonmin, lowlat)]
+        train_bot = [Point(lonmax, latmin), Point(lonmax, lat), Point(lonmin, lat),  Point(lonmin, latmin)]
         train_bot = Polygon(train_bot)
         # polygon for test locations
         # exclude_size is the buffer
@@ -953,7 +962,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     # keep only points inside of GADM california
     if 'index_right' in daset.columns:
         del daset['index_right']
-    daset = gpd.sjoin(daset, shps, op='within')
+    daset = gpd.sjoin(daset, shps, predicate='within')
     # remove leftover index from ca shapefile
     del daset['index_right']
     # get resolution depending on what year it is
