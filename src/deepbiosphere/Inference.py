@@ -212,7 +212,6 @@ def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_si
     writer.writerow(write_spec_metric(dict_, 'recall_score', thres, recsp, id2sp))
     writer.writerow(write_spec_metric(dict_, 'f1_score', thres, f1sp, id2sp))
     writer.writerow(write_spec_metric(dict_, 'zero_one_accuracy', thres, zone, id2sp))
-    writer.writerow(write_spec_metric(dict_, 'presence_only_accuracy', thres, one, id2sp))
     writer.writerow(write_spec_metric(dict_, 'support', thres, supsp, id2sp))
     prog.update(10)
     csvfile.close()

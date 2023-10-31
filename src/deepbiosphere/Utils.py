@@ -157,8 +157,6 @@ def get_mean_epoch(tags, lossname='tot_loss'):
     # add back just in total loss and one topK accuracy
     mets.append(lossname)
     mets.append('top30_accuracy')
-    print(f" using these metrics: {mets}")
-    print(f"avail tags {tags.keys()}")
     for met in mets:
         curr = tags[met]
         # pair epochs and accuracy
@@ -274,6 +272,10 @@ def zero_one_accuracy(y_true, y_preds, threshold=0.5):
     n_correct = sum([y_obs[i,label] for (i,label) in enumerate(y_true)])
     return n_correct / len(y_true)
 
+def per_species_zero_one_accuracy(y_true, ypred, threshold=0.5):
+    
+    y_obs = ypred >= threshold
+    return (y_obs == y_true).sum() / len(y_true)
 
 def obs_topK(ytrue, yobs, K):
     # ytrue should be spec_id, not all_specs_id
