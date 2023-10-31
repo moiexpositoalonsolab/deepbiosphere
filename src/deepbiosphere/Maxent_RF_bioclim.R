@@ -151,7 +151,15 @@ run_rf <- function(bdir, data, clim, background, sname, sdm, dset_name, bname, t
   }
   fname <- paste0(dirr, sname, '_rf_stats.csv')
   write.csv(res, file=fname)
-  
+  # predict to all of california
+  projection <- dismo::predict(rfMod, clim) 
+  # ## save raster file of probabilities of presence
+  dirr <- paste0(bdir, sdm, '/', 'projections/', dset_name,'/', bname, '/')
+  if (!dir.exists(dirr)){
+    dir.create(dirr, recursive=T)
+  }
+  fname <- paste0(dirr, sname, '_rf_Proj.tif')
+  raster::writeRaster(projection, filename=fname, overwrite=TRUE)
   # now predict values on the test set
   test_data <- as.data.frame(raster::extract(clim, test_dset))
   # 1 = presence, 0 = absence 
