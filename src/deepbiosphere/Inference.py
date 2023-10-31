@@ -103,10 +103,10 @@ def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_si
 
     # save unique identifier for file if necessary
     filename = "" if filename is None else filename
-    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_overall_metrics_results_band{band}.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_overall_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     overallcsv = open(fname, 'a')
-    nmets = 46 if write_obs else 42
+    nmets = 48 if write_obs else 44
     prog = tqdm(total=nmets, unit="metric", desc=f'{model} accuracy metrics')
     basics = {
         'value' : np.nan,
@@ -156,7 +156,7 @@ def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_si
         overallwriter.writerow(write_topk_metric(basics, single_ytrue, preds_single, i, utils.species_topK, 'species'))
         prog.update(1)
         # now, write out per-species metrics
-    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_species_metrics_results_band{band}.csv"
+    fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_species_results_band{band}.csv"
     fexists = os.path.isfile(fname)
     csvfile = open (fname, 'a')
     dict_ = { k: np.nan for k,v in sp2id.items()}
@@ -169,8 +169,14 @@ def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_si
 
     # run + write out roc-auc, prc-auc
     assert len(pred.shape) == 2, 'too many dimensions in probabilty vector!'
-    aucs, prcs = [], []
+    aucs, prcs, zone, one = [], [], [], []
     for i in range(pred.shape[1]):
+        if ytrue[:,i].sum() > 0:
+            zone.append(utils.per_species_zero_one_accuracy(ytrue[:,i], pred[:,i], thres))
+            one.append(utils.per_species_one_accuracy(ytrue[:,i], pred[:,i], thres))
+        else:
+            zone.append(np.nan)
+            one.append(np.nan)
         try:
             aucs.append(mets.roc_auc_score(ytrue[:,i], pred[:,i]))
             prcs.append(mets.average_precision_score(ytrue[:,i], pred[:,i]))
@@ -205,11 +211,13 @@ def evaluate_model(ytrue, pred, multi_ytrue, preds_multi, single_ytrue, preds_si
     writer.writerow(write_spec_metric(dict_, 'precision_score', thres, precsp, id2sp))
     writer.writerow(write_spec_metric(dict_, 'recall_score', thres, recsp, id2sp))
     writer.writerow(write_spec_metric(dict_, 'f1_score', thres, f1sp, id2sp))
+    writer.writerow(write_spec_metric(dict_, 'zero_one_accuracy', thres, zone, id2sp))
+    writer.writerow(write_spec_metric(dict_, 'presence_only_accuracy', thres, one, id2sp))
     writer.writerow(write_spec_metric(dict_, 'support', thres, supsp, id2sp))
-    prog.update(8)
+    prog.update(10)
     csvfile.close()
     if write_obs:
-        fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_observations_metrics_results_band{band}.csv"
+        fname = f"{paths.RESULTS}accuracy_metrics/{filename}_per_observations_results_band{band}.csv"
         fexists = os.path.isfile(fname)
         csvfile = open (fname, 'a')
         del basics['weight']
@@ -251,24 +259,37 @@ def run_baseline_inference(model, band=-1, dset_name='big_cali_2012', state='ca'
 
     evaluate_model(test_dset.all_specs_multi.numpy(), preds, y_true_multi, y_pred_multi, y_true_single, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, dset_name, band, model,  np.nan,  np.nan,  np.nan, model, np.nan, np.nan, write_obs=writeobs, thres=threshold, filename=fname)
 
+def get_earlystopping(cfg, dset_len, earlystopping):
+    accs = utils.extract_test_accs(cfg, dset_len, epoch=0)
+    toconsider = accs[earlystopping]
+    return toconsider.index(max(toconsider))
 
-def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True):
+def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fname=None, writeobs=True, testband=None, earlystopping=None):
+
+    
+    if testband is None:
+        band = cfg.band
+    else:
+        band = testband
     # Necessary to convert old model jsons to new typing
     if cfg.model not in mods.valid():
         mname = cfg.model
         lname = cfg.loss
         cfg = run.convert_config(cfg)
-        test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
+        test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, band, 'test', cfg.augment)
         all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
-        train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
+        train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, band, 'train', cfg.augment, prep_onehots=False)
+        if earlystopping is not None:
+            epoch = get_earlystopping(cfg, len(test_dset), earlystopping)
         model = run.load_model(device, cfg, epoch, logging=False, losstype=lname, modeltype=mname)
 
     else:
-        test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'test', cfg.augment)
+        test_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, band, 'test', cfg.augment)
         all_specs_multi, all_specs_single = test_dset.all_specs_multi.numpy(), test_dset.specs.numpy()
-        train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, cfg.band, 'train', cfg.augment, prep_onehots=False)
+        train_dset = dataset.DeepbioDataset(cfg.dataset_name, cfg.datatype, cfg.dataset_type, cfg.state, cfg.year, band, 'train', cfg.augment, prep_onehots=False)
+        if earlystopping is not None:
+            epoch = get_earlystopping(cfg, len(test_dset), earlystopping)
         model = run.load_model(device, cfg, epoch, logging=False)
-
     shared_species = list(set(test_dset.pres_specs) & set(train_dset.pres_specs))
     model = model.eval()
     loss = run.instantiate_loss(cfg, train_dset, device)
@@ -280,23 +301,23 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
     y_pred = run.logit_to_proba(y_pred.cpu(), cfg.loss)
     # filter to only shared species
     y_pred_multi, y_pred_single, y_true_multi, y_true_single = run.filter_shared_species(y_pred, all_specs_multi, all_specs_single, shared_species)
-    return evaluate_model(test_dset.all_specs_multi.numpy(), y_pred, y_true_multi, y_pred_multi, y_true_single, y_pred_single, shared_species, test_dset.metadata.spec_2_id,
-                                    test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id,
-                                    cfg.pretrain, cfg.batchsize, filename=fname, write_obs=writeobs, thres=threshold)
+    return evaluate_model(test_dset.all_specs_multi.numpy(), y_pred, y_true_multi, y_pred_multi, y_true_single, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id, cfg.pretrain, cfg.batchsize, filename=fname, write_obs=writeobs, thres=threshold)
 
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     # required ars
-    args.add_argument('--band', type=int, help='Band which model to use for mapmaking was trained on', required=True)
+    args.add_argument('--band', type=int, help='Which band of data model was trained on', required=True)
     args.add_argument('--model', type=str, help='what model to run inference on', required=True, choices=mods.valid() + ['rf', 'maxent', 'joint_tresnet_m', 'mlp', 'inception']) # TODO: remove old options!
     # arguments for DL model
     args.add_argument('--exp_id', type=str, help='Experiment ID for model. Not necessary for baseline models')
-    args.add_argument('--loss', type=str, help='Loss function used to train deep learnig model',  choices=losses.valid()+ ['BCEScaled']) # TODO: remove!!
+    args.add_argument('--loss', type=str, help='Loss function used to train deep learnig model',  choices=losses.valid())
     args.add_argument('--epoch', type=int, help='what model epoch to evaluate deep learning model')
+    args.add_argument('--earlystopping', type=str, help='what metric to use to determine the early stopping epoch.  Standard is mean_ROC_AUC')
     args.add_argument('--batch_size', type=int, help='what size batch to use for making map inference', default=10)
     args.add_argument('--device', type=int, help="Which CUDA device to use. Set -1 for CPU", default=-1)
     args.add_argument('--processes', type=int, help="How many worker processes to use for mapmaking", default=1)
+    args.add_argument('--testband', type=int, help='Which band to test model on. Usually same as trained except in rare circumstances')
     # arguments for baselines
     args.add_argument('--state', type=str, help='What state predictions are being made int', default='ca')
     args.add_argument('--year', type=int, help='what year of NAIP data should be used', default=2012)
@@ -319,4 +340,9 @@ if __name__ == "__main__":
         }
         cfg = run.load_config(**cnn)
         device = f"cuda:{args.device}" if int(args.device) >= 0 else 'cpu'
-        run_inference(device, cfg, args.epoch, args.batch_size, args.processes, args.threshold, args.filename, args.writeobs)
+        # handles cases where you want to test a model on a test band for a split it wasn't trained on 
+        # (meaning there's likely train/test overlap)
+        if (args.testband is not None) and ( args.testband != args.band):
+            run_inference(device, cfg, args.epoch, args.batch_size, args.processes, args.threshold, args.filename, args.writeobs, testband=args.testband, earlystopping=args.earlystopping)
+        else:
+            run_inference(device, cfg, args.epoch, args.batch_size, args.processes, args.threshold, args.filename, args.writeobs, earlystopping=args.earlystopping)
