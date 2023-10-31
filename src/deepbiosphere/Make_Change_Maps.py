@@ -202,9 +202,6 @@ def predict_raster_intime(pred_outline : gpd.GeoDataFrame,
     else:
         for key in tqdm(overlapping_ras, total=len(overlapping_ras), desc=f"change tiffs", unit=' tiffs'):
             calculate_change(rasters_start[key], rasters_end[key], start_year, end_year, change_fn)
-
-# Check against these py files
-# rasetrio twoo slow
             
 if __name__ == "__main__":
 
