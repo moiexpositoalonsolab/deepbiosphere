@@ -502,7 +502,8 @@ def predict_raster(raster,
                 impute_climate: bool = True, 
                 clim_rasters : List = None,
                 disable_tqdm : bool = False,
-                sat_res : int = None): # resolution of satellite imagery for prediction, in meters
+                sat_res : int = None,
+                pred_specs : List[str] = None): # resolution of satellite imagery for prediction, in meters
 
     # typecheck prediction parameters
     pred_types = [Prediction[pred_type] for pred_type in pred_types]
@@ -526,7 +527,6 @@ def predict_raster(raster,
     bioclim_ras = np.vstack([r[0] for r in clim_rasters]) if use_climate else None
     bioclim_transf = clim_rasters[0][1] if use_climate else None
     bioclim_crs = clim_rasters[0][3] if use_climate else None
-    print(bioclim_ras) # TODO remove
     # check if it's a file, read in if so
     if isinstance(raster, rasterio.io.DatasetReader):
         assert raster.res[0] < resolution, "resolution of prediction must be larger than image res!"
@@ -600,7 +600,10 @@ def predict_raster(raster,
                                         null_val=np.nan,
                                         out_res=out_res,
                                         bounds=out_bounds,
-                                        spec_names=spec_names)
+                                        spec_names=spec_names,
+                                        pred_specs=pred_specs)
+
+            
         elif pred_type is Prediction.RAW:
             files.append(save_tiff(save_dir=save_dir,
                                 save_name=save_name,
@@ -684,6 +687,7 @@ def predict_raster(raster,
                 bounds=beta_bounds,
                 band_names=[Prediction.BETA.value]))
 
+
     return files
 
 # ---------- raster file saving utils ---------- #
@@ -715,7 +719,9 @@ def save_tiff_per_species(save_dir,
                           null_val,
                           out_res,
                           bounds,
-                          spec_names):
+                          spec_names,
+                         pred_specs=None,
+                         overwrite=False):
 
     # make directory for each tif
     new_dir = f"{save_dir}{save_name}/"
@@ -727,24 +733,58 @@ def save_tiff_per_species(save_dir,
     if not os.path.isdir(new_dir):
         os.mkdir(new_dir)
     files = []
-    for pred, spec in zip(preds, spec_names):
-        # massage into correct dimensions for rasterio
-        pred = np.expand_dims(pred, axis=0)
-        files.append(save_tiff(
-            save_dir=new_dir,
-            save_name='probability',
-            pred_type=spec.replace(' ', '_'),
-            preds=pred,
-            transf=transf,
-            crs=crs,
-            null_val=np.nan,
-            out_res=out_res,
-            bounds=bounds,
-            band_names=[spec.replace(' ', '_')]))
-    
+    if pred_specs is None:
+       # save out each species to file
+        for pred, spec in zip(preds, spec_names):
+            if not overwrite:
+                if check_file_exists(new_dir, 'probability', spec.replace(' ', '_')):
+                    continue
+            # massage into correct dimensions for rasterio
+            pred = np.expand_dims(pred, axis=0)
+            files.append(save_tiff(
+                save_dir=new_dir,
+                save_name='probability',
+                pred_type=spec.replace(' ', '_'),
+                preds=pred,
+                transf=transf,
+                crs=crs,
+                null_val=np.nan,
+                out_res=out_res,
+                bounds=bounds,
+                band_names=[spec.replace(' ', '_')]))
+        
+
+    else:
+        mapping = {s: i for s, i in zip(spec_names, range(len(spec_names)))}
+        assert len(mapping) == preds.shape[0]
+        for spec in pred_specs:
+            if not overwrite:
+                if check_file_exists(new_dir, 'probability', spec.replace(' ', '_')):
+                    continue
+            specidx = mapping[spec]
+            pred = preds[specidx,:,:]
+            # massage into correct dimensions for rasterio
+            pred = np.expand_dims(pred, axis=0)
+            files.append(save_tiff(
+                save_dir=new_dir,
+                save_name='probability',
+                pred_type=spec.replace(' ', '_'),
+                preds=pred,
+                transf=transf,
+                crs=crs,
+                null_val=np.nan,
+                out_res=out_res,
+                bounds=bounds,
+                band_names=[spec.replace(' ', '_')]))    
     return files
     
 
+def check_file_exists(save_dir, save_name, pred_type):
+    # same as save_tiff
+    fname = f"{save_dir}{save_name}_{pred_type}.tif"
+    return os.path.isfile(fname)
+
+    
 def save_tiff(save_dir,
               save_name,
               pred_type,
@@ -783,7 +823,7 @@ def save_tiff(save_dir,
         dst.descriptions = band_names
     return fname
 
-def merge_lots_of_tiffs(parent_dir, save_dir, pred_type, alpha_type='SUM', files=None, filelimit=1000, crs=CRS.NAIP_CRS_2,band_names=None,resolution=None, null_val=np.nan):
+def merge_lots_of_tiffs(parent_dir, save_dir, pred_type, alpha_type='SUM', files=None, filelimit=1000, crs=CRS.NAIP_CRS_2,band_names=None,resolution=None, null_val=np.nan, spec=None):
 
     
     if files is None:
@@ -831,10 +871,12 @@ def merge_lots_of_tiffs(parent_dir, save_dir, pred_type, alpha_type='SUM', files
     dest_pth = f"{paths.RASTERS}{parent_dir}/{save_dir}/fully_merged/"
     if not os.path.isdir(dest_pth):
         os.mkdir(dest_pth)
-    rasterio.merge.merge(meta_warp, dst_path=f"{dest_pth}{save_dir}_{pred_type.value}_merged.tif")
+    dst_file = f"{dest_pth}{save_dir}_{pred_type.value}_merged.tif" if spec is None else f"{dest_pth}{save_dir}_{spec}_merged.tif"
+    rasterio.merge.merge(meta_warp, dst_path=dst_file)
+    return dst_file
     
     
-def merge_lots_of_species_tiffs(files, species, filelimit=1000, crs=CRS.NAIP_CRS_2):
+def merge_species(files, species, filelimit=1000, crs=CRS.NAIP_CRS_2):
 
 
     chunked_files = [files[i:i+filelimit] for i in range(0, len(files), filelimit)]
@@ -875,3 +917,89 @@ def merge_lots_of_species_tiffs(files, species, filelimit=1000, crs=CRS.NAIP_CRS
     if not os.path.isdir(dest_pth):
         os.mkdir(dest_pth)
     rasterio.merge.merge(meta_warp, dst_path=f"{dest_pth}{save_dir}_{species.replace(' ', '_')}.tif")    
+    
+    
+def merge_species_parallel(files, species, parent_dir, save_dir, procid, lock, filelimit=10, crs=CRS.NAIP_CRS_2):
+
+
+    chunked_files = [files[i:i+filelimit] for i in range(0, len(files), filelimit)]
+    merged = [] 
+    with lock:
+        prog = tqdm(total=len(chunked_files), desc=f"File group #{procid}", unit=' files', position=procid)
+    for i, chunk in enumerate(chunked_files):
+        # read in files
+        warped_files = [rasterio.vrt.WarpedVRT(rasterio.open(f), crs=crs) for f in chunk]
+        specs = get_specs_from_files(warped_files)
+        mapping = {s: i for s, i in zip(specs, range(1,len(specs)+1))}
+        specidx = mapping[species]
+        # merge warped files
+        preds, aff = rasterio.merge.merge(warped_files, indexes=[specidx])
+        # write merged predictions out to file
+        height = preds.shape[1]
+        width = preds.shape[2]
+        bounds = rasterio.transform.array_bounds(height, width, aff)
+        
+        new_dir = f"{paths.RASTERS}{parent_dir}/{save_dir}/merging_temp/proc_{procid}/"
+        if not os.path.isdir(new_dir.rsplit('/', 2)[0]):
+            os.mkdir(new_dir.rsplit('/', 2)[0]) #
+        if not os.path.isdir(new_dir):
+            os.mkdir(new_dir)
+        merged.append(save_tiff(
+            save_dir=new_dir,
+            save_name=save_dir,
+            pred_type=f"{species.replace(' ', '_')}_{i}",
+            preds=preds,
+            transf=aff,
+            crs=crs,
+            null_val= np.nan,
+            out_res=aff[0],
+            bounds=bounds,
+            band_names=['probability']))
+        _ = [f.close() for f in warped_files]
+        with lock:
+            prog.update(1)
+            
+    meta_warp = [rasterio.open(f) for f in merged]
+    dest_pth = f"{paths.RASTERS}{parent_dir}/{save_dir}/merging_temp/"
+    if not os.path.isdir(dest_pth):
+        os.mkdir(dest_pth)
+    fname = f"{dest_pth}{save_dir}_{spec.replace(' ', '_')}_proc_{procid}.tif"
+    rasterio.merge.merge(meta_warp, dst_path=fname) 
+
+    with lock:
+        prog.close()   
+
+    return fname
+
+
+def merge_all_species(files : List[str], 
+                 spec : str, 
+                 parent_dir : str, 
+                 save_dir : str,
+                 crs : CRS = CRS.NAIP_CRS_2):  
+    
+    
+    to_merge = [f for f in files if spec in f]
+    warped = [rasterio.vrt.WarpedVRT(rasterio.open(f), crs=crs) for f in to_merge]
+    specs = naip.get_specs_from_files(files)
+    mapping = {s: i for s, i in zip(specs, range(1,len(specs)+1))}
+    specidx = mapping[spec]
+    preds, aff = rasterio.merge.merge(warped, indexes=[specidx])
+    # write merged predictions out to file
+    height = preds.shape[1]
+    width = preds.shape[2]
+    bounds = rasterio.transform.array_bounds(height, width, aff)
+    new_dir = f"{paths.RASTERS}{parent_dir}/{save_dir}/per_species/"
+    if not os.path.isdir(new_dir):
+        os.mkdir(new_dir)
+    naip.save_tiff(
+        save_dir=new_dir,
+        save_name=spec,
+        pred_type='probability',
+        preds=preds,
+        transf=aff,
+        crs=crs,
+        null_val=np.nan,
+        out_res=aff[0],
+        bounds=bounds,
+        band_names=[spec])

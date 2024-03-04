@@ -14,6 +14,7 @@ from deepbiosphere.Utils import paths
 import deepbiosphere.Dataset as dataset
 import deepbiosphere.NAIP_Utils as naip
 import deepbiosphere.Build_Data as build
+import deepbiosphere.Losses as losses
 
 # GIS packages
 import shapely as shp
@@ -48,73 +49,6 @@ from types import SimpleNamespace
 # ---------- Merging and saving predictions made per-species ---------- #
 
 
-def merge_species_parallel(procid, lock, files, specs, parent_dir, save_dir):
-    with lock:
-        prog = tqdm(total=len(specs), desc=f"Species group #{procid}", unit=' species', position=procid)
-    for spec in specs:
-        naip.merge_lots_of_species_tiffs(files, spec)
-        with lock:
-            prog.update(1)
-    with lock:
-        prog.close()
-            
-def merge_species(files : List[str], 
-                 spec : str, 
-                 parent_dir : str, 
-                 save_dir : str,
-                 crs : naip.CRS = naip.CRS.NAIP_CRS_2):  
-    
-    
-    to_merge = [f for f in files if spec in f]
-    warped = [rasterio.vrt.WarpedVRT(rasterio.open(f), crs=crs) for f in to_merge]
-    specs = naip.get_specs_from_files(files)
-    mapping = {s: i for s, i in zip(specs, range(1,len(specs)+1))}
-    specidx = mapping[spec]
-    preds, aff = rasterio.merge.merge(warped, indexes=[specidx])
-    # write merged predictions out to file
-    height = preds.shape[1]
-    width = preds.shape[2]
-    bounds = rasterio.transform.array_bounds(height, width, aff)
-    new_dir = f"{paths.RASTERS}{parent_dir}/{save_dir}/per_species/"
-    if not os.path.isdir(new_dir):
-        os.mkdir(new_dir)
-    naip.save_tiff(
-        save_dir=new_dir,
-        save_name=spec,
-        pred_type='probability',
-        preds=preds,
-        transf=aff,
-        crs=crs,
-        null_val=np.nan,
-        out_res=aff[0],
-        bounds=bounds,
-        band_names=[spec])
-
-
-def merge_species_predictions(parent_dir : str, 
-                             pred_res : int,
-                             pred_year : int,
-                             band : int,
-                             exp_id : str,
-                             epoch : int,
-                             processes : int = 1):
-    
-    save_dir = f"{pred_res}m_{pred_year}_{band}_{exp_id}_{epoch}"
-    files = glob.glob(f"{paths.RASTERS}{parent_dir}/{save_dir}/*/*raw_spec.tif")
-    species = naip.get_specs_from_files(files)
-    if processes > 1:
-        specs = utils.partition(species, processes)
-        lock = multiprocessing.Manager().Lock()
-        pool =  multiprocessing.Pool(processes)
-        res_async = [pool.apply_async(merge_species_parallel, args=(i, lock, files, spec, parent_dir, save_dir)) for i, spec in enumerate(specs)]
-        res_files = [r.get() for r in res_async]
-        pool.close()
-        pool.join()
-
-    else:
-        for spec in tqdm(species, unit='species', desc='merge per-species'):
-            # merge_species(files, spec, parent_dir, save_dir)
-            naip.merge_lots_of_species_tiffs(files, spec)
 
 # ---------- Calculating alpha, beta diversity etc. post-hoc ---------- #
 
@@ -123,12 +57,14 @@ def calculate_extra_attributes_parallel(procid,
                                         files, 
                                         save_dir,
                                         pred_types,
-                                        alpha_type):
+                                        alpha_type,
+                                       pred_specs : List[str],
+                                       overwrite : bool =False):
     
     with lock:
         prog = tqdm(total=len(files), desc=f"Extra attributes tiff group #{procid}", unit=' tiffs', position=procid)
     for file in files:
-        calculate_extra_attributes(file, save_dir,pred_types,alpha_type)
+        calculate_extra_attributes(file, save_dir,pred_types,alpha_type, pred_specs, overwrite)
         with lock:
             prog.update(1)
     with lock:
@@ -138,7 +74,9 @@ def calculate_extra_attributes_parallel(procid,
 def calculate_extra_attributes(file, 
                                save_dir,
                                pred_types,
-                               alpha_type):
+                               alpha_type,
+                              pred_specs : List[str],
+                              overwrite=False):
 
     rfile = rasterio.open(file)
     spec_names = rfile.descriptions
@@ -155,17 +93,26 @@ def calculate_extra_attributes(file,
     alpha_type = naip.Alpha[alpha_type]
     # and save out predictions
     for pred_type in pred_types:
-        # save species predictions
+        # first check that file hasn't been generated
+        if not overwrite:
+            if naip.check_file_exists(save_dir, save_name, pred_type.value):
+                continue
+                
         if pred_type is naip.Prediction.PER_SPEC:
             naip.save_tiff_per_species(save_dir=save_dir,
-                                  save_name=save_name,
-                                  preds=pred,
-                                  transf=pred_aff,
-                                  crs=rfile.crs,
-                                  null_val=np.nan,
-                                  out_res=out_res,
-                                  bounds=out_bounds,
-                                  spec_names=spec_names)
+                                      save_name=save_name,
+                                      preds=pred,
+                                      transf=pred_aff,
+                                      crs=rfile.crs,
+                                      null_val=np.nan,
+                                      out_res=out_res,
+                                      bounds=out_bounds,
+                                      spec_names=spec_names,
+                                      pred_specs=pred_specs,
+                                      overwrite=overwrite)
+            
+                    
+            
         # Generate alpha diversity from species predictions
         elif pred_type is naip.Prediction.ALPHA:
             # prevent modification of
@@ -207,15 +154,17 @@ def calculate_extra_attributes(file,
     rfile.close()
 
 def additional_attributes_pertiff(parent_dir : str,
-                pred_res : int,
-                pred_year : int,
-                band : int,
-                exp_id : str,
-                epoch : int,
-                processes : int,
-                pred_types : List[str] = ['RAW'], 
-                alpha_type : str = 'SUM',
-                resolution : int = utils.IMG_SIZE):
+                                pred_res : int,
+                                pred_year : int,
+                                band : int,
+                                exp_id : str,
+                                epoch : int,
+                                processes : int,
+                                pred_types : List[str] = ['RAW'], 
+                                alpha_type : str = 'SUM',
+                                resolution : int = utils.IMG_SIZE,
+                                pred_specs : List[str]=None,
+                                overwrite : bool =False):
 
     # get raw predictions from file
     save_dir = f"{paths.RASTERS}{parent_dir}/{pred_res}m_{pred_year}_{band}_{exp_id}_{epoch}/"
@@ -227,16 +176,18 @@ def additional_attributes_pertiff(parent_dir : str,
         lock = multiprocessing.Manager().Lock()
         pool =  multiprocessing.Pool(processes)
 
-        res_async = [pool.apply_async(calculate_extra_attributes_parallel, args=(i, lock, file, save_dir, pred_types, alpha_type)) for i, file in enumerate(files)]
+        res_async = [pool.apply_async(calculate_extra_attributes_parallel, args=(i, lock, file, save_dir, pred_types, alpha_type, pred_specs, overwrite)) for i, file in enumerate(files)]
         res_files = [r.get() for r in res_async]
         pool.close()
         pool.join()
     else:
         for file in tqdm(files, total=len(files), desc=f"Extra attributes ", unit=' tiffs'):
             calculate_extra_attributes(file=file, 
-                               save_dir=save_dir,
-                               pred_types=pred_types,
-                               alpha_type=alpha_type)
+                                       save_dir=save_dir,
+                                       pred_types=pred_types,
+                                       alpha_type=alpha_type,
+                                       pred_specs=pred_specs,
+                                      overwrite=overwrite)
     
         
     
@@ -255,7 +206,8 @@ def predict_rasters_serial(rasters : List[str],
                            img_size : int = utils.IMG_SIZE,
                            impute_climate : bool = True,
                            sat_res : int = None,
-                           clim_rasters : List = None):
+                           clim_rasters : List = None,
+                           pred_specs : List[str] = None):
     if device_no < 0 :
         device = torch.device("cpu")
     else:
@@ -297,7 +249,8 @@ def predict_rasters_serial(rasters : List[str],
                        impute_climate, 
                        clim_rasters=clim_rasters,
                        sat_res = sat_res,
-                       disable_tqdm = True))
+                       disable_tqdm = True,
+                       pred_specs =pred_specs))
     return results
     
     
@@ -318,7 +271,9 @@ def predict_rasters_parallel(procid : int,
                              sat_res : int = None,
                              impute_climate : bool = True,
                              clim_rasters : List = None,
-                             img_size : int = utils.IMG_SIZE):
+                             specs : List[str] = None,
+                             img_size : int = utils.IMG_SIZE,
+                             pred_specs : List[str] = None):
 
 
     if device_no < 0 :
@@ -365,7 +320,8 @@ def predict_rasters_parallel(procid : int,
                        impute_climate, 
                        clim_rasters=clim_rasters,
                        disable_tqdm = True, 
-                      sat_res = sat_res))
+                       sat_res = sat_res,
+                       pred_specs = pred_specs))
         with lock:
             prog.update(1)
     with lock:
@@ -387,7 +343,8 @@ def predict_rasters_list(pred_outline : gpd.GeoDataFrame,
                          pred_res: int, # meter resolution of predictions to make with DBS
                          sat_res : int = None, # resolution to upsample sat imagery to
                          impute_climate = True,
-                         clim_rasters = None):
+                         clim_rasters = None,
+                         pred_specs : List[str] = None):
 
     # type check
     pred_types = [naip.Prediction[pred_type] for pred_type in pred_types]
@@ -416,7 +373,7 @@ def predict_rasters_list(pred_outline : gpd.GeoDataFrame,
         ras_pars = utils.partition(rasters, n_processes)
         lock = multiprocessing.Manager().Lock()
         pool =  multiprocessing.Pool(n_processes)
-        res_async = [pool.apply_async(predict_rasters_parallel, args=(i, lock, ras, save_dir, cfg, device, batch_size, epoch, pred_year, pred_types, alpha_type, pred_res, sat_res, impute_climate, clim_rasters)) for i, ras in enumerate(ras_pars)]
+        res_async = [pool.apply_async(predict_rasters_parallel, args=(i, lock, ras, save_dir, cfg, device, batch_size, epoch, pred_year, pred_types, alpha_type, pred_res, sat_res, impute_climate, clim_rasters, pred_specs)) for i, ras in enumerate(ras_pars)]
         res_files = [r.get() for r in res_async]
         pool.close()
         pool.join()
@@ -434,17 +391,9 @@ def predict_rasters_list(pred_outline : gpd.GeoDataFrame,
                                       resolution=pred_res, 
                                       impute_climate=impute_climate, 
                                       sat_res=sat_res,
-                                      clim_rasters=clim_rasters)
-    
+                                      clim_rasters=clim_rasters,
+                                      pred_specs=pred_specs)
 
-    if naip.Prediction.PER_SPEC in pred_types:
-        merge_species_predictions(parent_dir = parent_dir, 
-                             pred_res = pred_res,
-                             pred_year = pred_year,
-                             band = band,
-                             exp_id = cfg.exp_id,
-                             epoch  = epoch,
-                             processes = n_processes)
     return res_files
 
 if __name__ == "__main__":
@@ -458,8 +407,9 @@ if __name__ == "__main__":
     args.add_argument('--exp_id', type=str, help='Experiment ID for model to use for mapmaking', required=True)
     args.add_argument('--band', type=str, help='Band which model to use for mapmaking was trained on', required=True)
     # TODO: change loss and models to enums
-    args.add_argument('--loss', type=str, help='Loss function used to train mapmaking model', required=True, choices=run.LOSSES.valid())
-    args.add_argument('--architecture', type=str, help='Architecture of mapmaking model', required=True, choices=run.MODELS.valid())
+    args.add_argument('--loss', type=str, help='Loss function used to train mapmaking model', required=True, choices=losses.Loss.valid())
+    args.add_argument('--architecture', type=str, help='Architecture of mapmaking model', required=True, choices=mods.Model.valid())
+    args.add_argument('-sp','--species_to_predict', nargs='+', help='Which species to save prediction maps for, in style "Genus species"', default=None)
     args.add_argument('--state', type=str, help='What state predictions are being made int', default='ca')
     args.add_argument('--epoch', type=int, help='what model epoch to use for making maps', required=True)
     args.add_argument('--batch_size', type=int, help='what size batch to use for making map inference', default=10)
@@ -468,8 +418,8 @@ if __name__ == "__main__":
     args.add_argument('--device', type=int, help="Which CUDA device to use. Set -1 for CPU", default=-1)
     args.add_argument('--processes', type=int, help="How many worker processes to use for mapmaking", default=1)
     args.add_argument('--impute_climate', action='store_true', help="whether to impute the climate for locations with no bioclim coverage")
-    args.add_argument('--add_preds', action='store_true', help="whether to add additional species prediction types")
-    args.add_argument('--merge_species', action='store_true', help="whether to only merge already existing per-species predictions")
+    args.add_argument('--add_preds', action='store_true', help="whether to add additional prediction types")
+    args.add_argument('--overwrite', action='store_true', help="whether to overwrite existing files when calculating additional attributes")
     args, _ = args.parse_known_args()
   
     if args.processes > 1:
@@ -481,7 +431,7 @@ if __name__ == "__main__":
         'loss': args.loss,
         'model': args.architecture
     }
-    cfg = run.load_config(**cnn)
+
     # add new kind of prediction
     if args.add_preds:
         additional_attributes_pertiff(parent_dir  = args.parent_dir,
@@ -492,18 +442,13 @@ if __name__ == "__main__":
                              epoch  = args.epoch,
                              pred_types = args.pred_types,
                              alpha_type = args.alpha_type,
-                             processes = args.processes)
-    # merge species maps
-    elif args.merge_species:
-        merge_species_predictions(parent_dir  = args.parent_dir,
-                             pred_res = args.pred_resolution,
-                             pred_year = args.pred_year,
-                             band = args.band,
-                             exp_id = args.exp_id,
-                             epoch  = args.epoch,
-                             processes = args.processes)
+                             processes = args.processes,
+                             pred_specs=args.species_to_predict,
+                             overwrite=args.overwrite)
+
     # else, just make full predictions
     else:
+        cfg = run.load_config(**cnn)
         # read in polygon
         bound_shp = gpd.read_file(f"{paths.SHPFILES}{args.shape_pth}")
         predict_rasters_list(pred_outline = bound_shp,
@@ -520,4 +465,5 @@ if __name__ == "__main__":
                              batch_size = args.batch_size,
                              pred_res = args.pred_resolution,
                              sat_res = args.sat_resolution,
-                             impute_climate = args.impute_climate)
+                             impute_climate = args.impute_climate,
+                             pred_specs = args.species_to_predict)
