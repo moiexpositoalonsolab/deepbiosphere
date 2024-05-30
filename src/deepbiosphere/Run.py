@@ -31,6 +31,7 @@ import time
 import json
 import random
 import socket
+import copy
 import argparse
 import datetime
 from tqdm import tqdm
@@ -212,7 +213,8 @@ def instantiate_loss(cfg, dset, device):
 
 ## ---------- re-loading previous experiments ---------- ##
 
-def convert_config(cfg):
+def convert_config(oldcfg):
+    cfg = copy.deepcopy(oldcfg)
     model_mapping = {'tresnet_m' : 'RS_TRESNET',
                     'tresnet_m_speconly' : 'RS_TRESNET',
                     'joint_tresnet_m' : 'DEEPBIOSPHERE',
@@ -243,7 +245,7 @@ def convert_config(cfg):
     if cfg.dataset_type in datset_mapping.keys():
         cfg.dataset_type = datset_mapping[cfg.dataset_type]
     else:
-        cfg.dataset_type = datset_mapping.DatasetType[cfg.dataset_type].name
+        cfg.dataset_type = dataset.DatasetType[cfg.dataset_type].name
 
     dat_mapping = {'bioclim' : 'BIOCLIM',
                     'naip' : 'NAIP',
