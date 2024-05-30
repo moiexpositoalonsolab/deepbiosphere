@@ -392,7 +392,9 @@ def predict_model(dat,
             bioclim_rasters=None,
             bioclim_transf=None,
             bioclim_crs=None,
-            disable_tqdm=False):
+            disable_tqdm=False,
+            pred_specs=None,
+            spec_names=None):
 
     
 
@@ -415,6 +417,11 @@ def predict_model(dat,
     # float64 works. Some versions of GDAL only can work 
     # with float32 but we'll see
     result = np.full([n_specs, hig, wid],np.nan)
+    if pred_specs is not None:
+        mapping = {s: i for s, i in zip(spec_names, range(len(spec_names)))}
+        idxs = [mapping[i] for i in pred_specs] 
+    else:
+        idxs = range(n_specs)
     # actually predict
     with torch.no_grad():
         if not disable_tqdm:
@@ -459,6 +466,7 @@ def predict_model(dat,
                     out = np.squeeze(out[0].detach().cpu().numpy())
                 else:
                     out = np.squeeze(out.detach().cpu().numpy())
+                
                 # if using climate and masking missing climate, mask out missing
                 if use_climate:
                     nans = nans.sum(axis=1)
@@ -468,7 +476,10 @@ def predict_model(dat,
                         out[mask, :] = np.nan
                 # flip outputs to move species axis to 1st axis,
                 # batch axis to row
-                result[:,j:j+batch_size,i] = out.T
+                out = out.T
+                # filter to only species we want to keep
+                out = out[idxs,:]
+                result[:,j:j+batch_size,i] = out    
                 if not disable_tqdm:
                     prog.update(1)
         
@@ -514,8 +525,8 @@ def predict_raster(raster,
     # f"naip_{model_config.year}" 
     means = dset_metadata.dataset_means[model_config.image_stats]['means']
     stds = dset_metadata.dataset_means[model_config.image_stats]['stds']
-    if resolution < 20:
-        raise ValueError("resolution needs to be at least 20 for model to work!")
+    # if resolution < 20:
+    #     raise ValueError("resolution needs to be at least 20 for model to work!")
 
     spec_names = dataset.get_specnames(dset_metadata)
     n_specs = model_config.nspecs
@@ -529,7 +540,7 @@ def predict_raster(raster,
     bioclim_crs = clim_rasters[0][3] if use_climate else None
     # check if it's a file, read in if so
     if isinstance(raster, rasterio.io.DatasetReader):
-        assert raster.res[0] < resolution, "resolution of prediction must be larger than image res!"
+        assert raster.res[0] <= resolution, "resolution of prediction must be larger than image res!"
         affine = raster.transform
         crs = raster.crs
         if sat_res is not None:
@@ -563,7 +574,7 @@ def predict_raster(raster,
                                                 batch_size=batch_size, 
                                                 device=device, 
                                                 img_size=img_size, 
-                                                n_specs=n_specs, 
+                                                n_specs=n_specs if pred_specs is None else len(pred_specs), 
                                                 res=resolution, 
                                                 means=means, 
                                                 std=stds, 
@@ -573,7 +584,9 @@ def predict_raster(raster,
                                                 bioclim_rasters=bioclim_ras,
                                                 bioclim_transf=bioclim_transf,
                                                 bioclim_crs=bioclim_crs,
-                                                disable_tqdm=disable_tqdm)
+                                                disable_tqdm=disable_tqdm,
+                                                pred_specs=pred_specs,
+                                                spec_names=spec_names if pred_specs is None else pred_specs)
   
     files = []
     # convert to probabilities
@@ -581,7 +594,7 @@ def predict_raster(raster,
         pred = torch.tensor(pred)
     # softmax or sigmoid depending on model loss
     loss_type = Loss[model_config.loss]
-    if loss_type in [losses.WEIGHTED_CE, losses.CE]:
+    if loss_type in [Loss.WEIGHTED_CE, Loss.CE]:
         print("softmaxing predictions")
         pred = torch.softmax(pred, axis=0).numpy()
     else:
@@ -614,7 +627,7 @@ def predict_raster(raster,
                                 null_val=np.nan,
                                 out_res=out_res,
                                 bounds=out_bounds,
-                                band_names=spec_names))
+                                band_names=spec_names if pred_specs is None else pred_specs))
         elif pred_type is Prediction.FEATS:
             model.encode = True
             num_feats = [f"{s}" for s in list(range(model_config.feature_extraction_dim))]
@@ -823,6 +836,8 @@ def save_tiff(save_dir,
         dst.descriptions = band_names
     return fname
 
+
+
 def merge_lots_of_tiffs(parent_dir, save_dir, pred_type, alpha_type='SUM', files=None, filelimit=1000, crs=CRS.NAIP_CRS_2,band_names=None,resolution=None, null_val=np.nan, spec=None):
 
     
@@ -876,130 +891,3 @@ def merge_lots_of_tiffs(parent_dir, save_dir, pred_type, alpha_type='SUM', files
     return dst_file
     
     
-def merge_species(files, species, filelimit=1000, crs=CRS.NAIP_CRS_2):
-
-
-    chunked_files = [files[i:i+filelimit] for i in range(0, len(files), filelimit)]
-    merged = [] 
-    for i, chunk in tqdm(enumerate(chunked_files), desc='merging chunks', unit=' tiff', total=len(chunked_files)):
-        # read in files
-        warped_files = [rasterio.vrt.WarpedVRT(rasterio.open(f), crs=crs) for f in chunk]
-        specs = get_specs_from_files(warped_files)
-        mapping = {s: i for s, i in zip(specs, range(1,len(specs)+1))}
-        specidx = mapping[species]
-        # merge warped files
-        preds, aff = rasterio.merge.merge(warped_files, indexes=[specidx])
-        # write merged predictions out to file
-        height = preds.shape[1]
-        width = preds.shape[2]
-        bounds = rasterio.transform.array_bounds(height, width, aff)
-        
-        new_dir = f"{files[0].rsplit('/', 2)[0]}/merging_temp/"
-        if not os.path.isdir(new_dir):
-            os.mkdir(new_dir)
-        new_dir = f"{new_dir}{i}/"
-        if not os.path.isdir(new_dir):
-            os.mkdir(new_dir)
-        merged.append(save_tiff(
-            save_dir=new_dir,
-            save_name=save_dir,
-            pred_type=f"{species.replace(' ', '_')}",
-            preds=preds,
-            transf=aff,
-            crs=crs,
-            null_val= np.nan,
-            out_res=aff[0],
-            bounds=bounds,
-            band_names=['probability']))
-        _ = [f.close() for f in warped_files]
-    meta_warp = [rasterio.open(f) for f in merged]
-    dest_pth = f"{paths.RASTERS}{parent_dir}/{save_dir}/fully_merged/"
-    if not os.path.isdir(dest_pth):
-        os.mkdir(dest_pth)
-    rasterio.merge.merge(meta_warp, dst_path=f"{dest_pth}{save_dir}_{species.replace(' ', '_')}.tif")    
-    
-    
-def merge_species_parallel(files, species, parent_dir, save_dir, procid, lock, filelimit=10, crs=CRS.NAIP_CRS_2):
-
-
-    chunked_files = [files[i:i+filelimit] for i in range(0, len(files), filelimit)]
-    merged = [] 
-    with lock:
-        prog = tqdm(total=len(chunked_files), desc=f"File group #{procid}", unit=' files', position=procid)
-    for i, chunk in enumerate(chunked_files):
-        # read in files
-        warped_files = [rasterio.vrt.WarpedVRT(rasterio.open(f), crs=crs) for f in chunk]
-        specs = get_specs_from_files(warped_files)
-        mapping = {s: i for s, i in zip(specs, range(1,len(specs)+1))}
-        specidx = mapping[species]
-        # merge warped files
-        preds, aff = rasterio.merge.merge(warped_files, indexes=[specidx])
-        # write merged predictions out to file
-        height = preds.shape[1]
-        width = preds.shape[2]
-        bounds = rasterio.transform.array_bounds(height, width, aff)
-        
-        new_dir = f"{paths.RASTERS}{parent_dir}/{save_dir}/merging_temp/proc_{procid}/"
-        if not os.path.isdir(new_dir.rsplit('/', 2)[0]):
-            os.mkdir(new_dir.rsplit('/', 2)[0]) #
-        if not os.path.isdir(new_dir):
-            os.mkdir(new_dir)
-        merged.append(save_tiff(
-            save_dir=new_dir,
-            save_name=save_dir,
-            pred_type=f"{species.replace(' ', '_')}_{i}",
-            preds=preds,
-            transf=aff,
-            crs=crs,
-            null_val= np.nan,
-            out_res=aff[0],
-            bounds=bounds,
-            band_names=['probability']))
-        _ = [f.close() for f in warped_files]
-        with lock:
-            prog.update(1)
-            
-    meta_warp = [rasterio.open(f) for f in merged]
-    dest_pth = f"{paths.RASTERS}{parent_dir}/{save_dir}/merging_temp/"
-    if not os.path.isdir(dest_pth):
-        os.mkdir(dest_pth)
-    fname = f"{dest_pth}{save_dir}_{spec.replace(' ', '_')}_proc_{procid}.tif"
-    rasterio.merge.merge(meta_warp, dst_path=fname) 
-
-    with lock:
-        prog.close()   
-
-    return fname
-
-
-def merge_all_species(files : List[str], 
-                 spec : str, 
-                 parent_dir : str, 
-                 save_dir : str,
-                 crs : CRS = CRS.NAIP_CRS_2):  
-    
-    
-    to_merge = [f for f in files if spec in f]
-    warped = [rasterio.vrt.WarpedVRT(rasterio.open(f), crs=crs) for f in to_merge]
-    specs = naip.get_specs_from_files(files)
-    mapping = {s: i for s, i in zip(specs, range(1,len(specs)+1))}
-    specidx = mapping[spec]
-    preds, aff = rasterio.merge.merge(warped, indexes=[specidx])
-    # write merged predictions out to file
-    height = preds.shape[1]
-    width = preds.shape[2]
-    bounds = rasterio.transform.array_bounds(height, width, aff)
-    new_dir = f"{paths.RASTERS}{parent_dir}/{save_dir}/per_species/"
-    if not os.path.isdir(new_dir):
-        os.mkdir(new_dir)
-    naip.save_tiff(
-        save_dir=new_dir,
-        save_name=spec,
-        pred_type='probability',
-        preds=preds,
-        transf=aff,
-        crs=crs,
-        null_val=np.nan,
-        out_res=aff[0],
-        bounds=bounds,
-        band_names=[spec])
