@@ -345,7 +345,7 @@ opt = parse_args(opt_parser)
 startime = Sys.time()
 
 # 1. use Reticulate to grab the rasters from deepbiosphere the same way they're used for training other models (specifically using the normalize switch)
-clim <- build$get_bioclim_rasters(normalized='normalize')
+clim <- build$get_bioclim_rasters()
 # generate list of R rasters, hackily from python
 tostack <- list()
 # can't use lapply because clim is a python object, so this is the

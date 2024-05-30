@@ -363,7 +363,7 @@ def predict_rasters_list(pred_outline : gpd.GeoDataFrame,
     # load in climate rasters if necessary
     # TODO: make enum
     if clim_rasters == None:
-        clim_rasters = build.get_bioclim_rasters(state=cfg.state)
+        clim_rasters = build.get_bioclim_rasters(ras_name=cfg.clim_ras, timeframe=cfg.clim_time, state=cfg.state)
 
     # set up save directory
     if not os.path.isdir(save_dir):
@@ -418,7 +418,9 @@ if __name__ == "__main__":
     args.add_argument('--device', type=int, help="Which CUDA device to use. Set -1 for CPU", default=-1)
     args.add_argument('--processes', type=int, help="How many worker processes to use for mapmaking", default=1)
     args.add_argument('--impute_climate', action='store_true', help="whether to impute the climate for locations with no bioclim coverage")
-    args.add_argument('--add_preds', action='store_true', help="whether to add additional prediction types")
+    args.add_argument('--clim_ras', type=str, help='Which bioclim raster to use', default='current')
+    args.add_argument('--clim_time', type=str, help='Whether to do future or current climate', default='current', choices =['current', 'future'])
+    args.add_argument('--add_preds', action='store_true', help="add additional prediction types instead of making new predictions")
     args.add_argument('--overwrite', action='store_true', help="whether to overwrite existing files when calculating additional attributes")
     args, _ = args.parse_known_args()
   

@@ -43,21 +43,63 @@ reproducibility.
 KM_2_DEG = 0.008 # kilometers to degrees, 1 km aprox for latitude only
 
 
+def load_rasters(base_dir, timeframe='current', ras_name='wc_30s_current'):
+    # first, get raster files
+    # always grabs standard WSG84 version which starts with b for bioclim
+    rasters = f"{base_dir}bioclim_{timeframe}/{ras_name}/wc*bio*.tif"
+    ras_paths = glob.glob(rasters)
+    if len(ras_paths) != 19:
+        raise FileNotFoundError(f"only {len(ras_paths)} files found for {ras_name}!")
+    return ras_paths
+    
+def sort_rasters(curr_clim, to_sort):
+    sortedras = []
+    for cras in curr_clim:
+        curr = cras.split('_')[-1]
+        for sras in to_sort:
+            if sras.split('_')[-1] == curr:
+                sortedras.append(sras)
+    return sortedras
+    
+    
+def get_bioclim_means(base_dir=paths.RASTERS, ras_name='wc_30s_current', timeframe='current', crs=naip.CRS.BIOCLIM_CRS, out_range=(-1,1), state='ca'):
+    # TODO: only works for us, gadm at the moment..
+    shpfile = naip.get_state_outline(state)
+    ras_paths = load_rasters(base_dir, timeframe, ras_name)
+    means = []
+    stds = []
+    # then load in rasters
+    for raster in tqdm(ras_paths, total=len(ras_paths), desc=f"calculating means of {ras_name} bioclim rasters"):
+        # load in raster
+        src = rasterio.open(raster)
+        # got to make sure it's all in the same crs
+        # or indexing won't work
+        if crs != str(src.crs):
+            raise ValueError(f"CRS {crs} doesn't match {src.crs} for raster {raster}?")
+        shpfile = shpfile.to_crs(src.crs)
+        # rasterio mask function
+        cropped, transf = Mask(src, shpfile.geometry, crop=True, pad=True,all_touched=True)
+        masked = np.ma.masked_array(cropped, mask=(cropped==cropped.min()))
+        means.append(masked.mean())
+        stds.append(np.std(masked))
+    return means, stds
 
-def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths=None, crs=naip.CRS.BIOCLIM_CRS, out_range=(-1,1), state='ca'):
+
+def get_bioclim_rasters(base_dir=paths.RASTERS, ras_name='current', timeframe='current', crs=naip.CRS.BIOCLIM_CRS, out_range=(-1,1), state='ca'):
     # TODO: only works for us, gadm at the moment..
     shpfile = naip.get_state_outline(state)
     # first, get raster files
     # always grabs standard WSG84 version which starts with b for bioclim
-    if ras_paths is None:
-        rasters = f"{base_dir}wc_30s_current/wc*bio_*.tif"
-        ras_paths = glob.glob(rasters)
-    if len(ras_paths) < 1:
-        raise FileNotFoundError(f"no files found for {ras_paths}!")
+    ras_paths = load_rasters(base_dir, timeframe, ras_name)
+    # sort rasters to same order as current bioclim
+    ras_paths = sort_rasters(load_rasters(base_dir), ras_paths)
+    # get means from current bioclim (the default for this fn)
+    means, stds = get_bioclim_means()
     ras_agg = []
     transfs = []
     # then load in rasters
-    for raster in tqdm(ras_paths, total=len(ras_paths), desc=" loading in bioclim rasters"):
+    i = 0
+    for raster in tqdm(ras_paths, total=len(ras_paths), desc=f" loading in {ras_name} bioclim rasters"):
         # load in raster
         src = rasterio.open(raster)
         # got to make sure it's all in the same crs
@@ -68,19 +110,13 @@ def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths
         cropped, transf = Mask(src, shpfile.geometry, crop=True, pad=True,all_touched=True)
         masked = np.ma.masked_array(cropped, mask=(cropped==cropped.min()))
         transfs.append(transf)
-        # depending on the chosen normalization strategy, normalize data
-        if normalize == 'normalize':
-            # z = (x- mean)/std
-            masked = (masked - masked.mean()) / np.std(masked)
-        elif normalize == 'min_max':
-            masked = utils.scale(masked, out_range=out_range)
-        elif normalize == 'none':
-            pass
-        else:
-            raise NotImplementedError(f"No normalization for {normalize} implemented!")
+        # normalize data
+        # z = (x- mean)/std
+        masked = (masked - means[i]) / stds[i]
         # finally, save raster name
         ras_name = raster.split('/')[-1].split('.tif')[0]
         ras_agg.append((masked, transf, ras_name, src.crs))
+        i += 1
     # finally, make sure that all the rasters are the same transform!
     for i, t1 in enumerate(transfs):
         for j, t2 in enumerate(transfs):
@@ -91,6 +127,7 @@ def get_bioclim_rasters(normalize='normalize', base_dir=paths.RASTERS, ras_paths
         for j, r2 in enumerate(ras_agg):
             assert r1[0].shape == r2[0].shape, f"raster sizes ({r1[0].shape}, {r2[0].shape}) don't match for {i}, {j} bioclim variables!"
     return ras_agg
+
 
 
 def add_bioclim(dset, rasters):
