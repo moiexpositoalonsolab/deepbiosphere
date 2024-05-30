@@ -28,20 +28,20 @@ class Pretrained(Enum, metaclass=utils.MetaEnum):
     NONE = None
     FEAT_EXT = 'feat_ext'
     FINETUNE = 'finetune'
-    
+
 class Architecture(Enum, metaclass=utils.MetaEnum):
     TRESNETM = 'TResnetM'
     TRESNETL = 'TResnetL'
     TRESNETXL = 'TResnetXL'
-    
+
 # ---------- helper methods ---------- #
-    
+
 def set_parameter_requires_grad(model):
     for param in model.parameters():
         param.requires_grad = False
 
 # ---------- ResNet components ---------- #
-        
+
 class bottleneck_head(nn.Module):
     def __init__(self, num_features, num_classes, bottleneck_features=200):
         super(bottleneck_head, self).__init__()
@@ -165,7 +165,7 @@ class RS_TResNet(Module):
         super(RS_TResNet, self).__init__()
 
         # JIT layers
-        space_to_depth = SpaceToDepthModule() 
+        space_to_depth = SpaceToDepthModule()
         anti_alias_layer = AntiAliasDownsampleLayer
         global_pool_layer = FastAvgPool2d(flatten=True)
 
@@ -289,7 +289,7 @@ class RS_TResNet(Module):
 def _tresnet(arch, layers, num_spec : int, num_gen : int, num_fam : int, pretrained: str, base_dir : str, width_factor : int
 ) -> RS_TResNet:
     model = RS_TResNet(layers, utils.NAIP_CHANS, num_spec, num_gen, num_fam, pretrained, width_factor=width_factor)
-    
+
     # type check
     pretrained = Pretrained[pretrained]
     arch = Architecture[arch]
@@ -324,7 +324,7 @@ def TResnetXL(num_spec, num_gen, num_fam, pretrained,  base_dir):
     """Constructs a xlarge TResnet model.
     """
     return _tresnet('TRESNETXL', [4, 5, 24, 3], num_spec, num_gen, num_fam, pretrained, base_dir, width_factor=1.3)
-        
+
 # ---------- Remote Sensing + climate CNN ---------- #
 
 class Joint_TResNet(Module):
@@ -349,7 +349,7 @@ class Joint_TResNet(Module):
         self.mlp_choke2 = 2000
         self.unification = 2048
         self.elu = nn.ELU()
-        
+
         # setting up pretrained models
         if self.pretrained is Pretrained.FINETUNE:
             # convolves 4 band RGB-I down to 3 channels of 224x224 dimension
@@ -478,12 +478,12 @@ class Joint_TResNet(Module):
         # concatenate RS, clim embeddings
         x = torch.cat((x, rasters), dim=1)
         x = self.intermediate2(x)
-        
+
         # if we're encoding, we want
         # everything in forward() except output layers
         if self.encode:
             return x
-        
+
         # use all 3 taxonomic levels for training
         spec = self.spec(x)
         if not self.training: # TODO: make sure inference et al handles this!
@@ -510,7 +510,7 @@ def _joint_tresnet(arch, layers, num_spec : int, num_gen : int, num_fam : int, e
 
     pretrained = Pretrained[pretrained]
     arch = Architecture[arch]
-    if pretrained is not Pretrained.NONE: 
+    if pretrained is not Pretrained.NONE:
         if arch is Architecture.TRESNETL:
             # going to be lazy and use load_state_dict_from_url, might change in the future
             dirr = utils.setup_pretrained_dirs(base_dir) + 'TResNet/'
