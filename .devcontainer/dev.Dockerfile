@@ -1,3 +1,7 @@
+#########################
+### BASE REQUIREMENTS ###
+#########################
+
 # Use a base image with Python 3.7+ and CUDA
 FROM nvidia/cuda:12.6.2-cudnn-devel-ubuntu24.04 AS base
 
@@ -18,6 +22,10 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
 # Put conda in path so we can use conda activate
 ENV PATH=$CONDA_DIR/bin:$PATH
 
+###############################
+### DEVELOPMENT ENVIRONMENT ###
+###############################
+
 FROM base AS dev_environment
 
 # Set up environment variables for CUDA and PyTorch
@@ -37,10 +45,20 @@ WORKDIR /workspace/deepbiosphere
 RUN conda env create -f .devcontainer/environment.yml
 
 # Install deepbiosphere package dependencies using pip
-RUN /opt/conda/bin/pip install -e .
+## DEBUG: doing this interactively in the container to ensure torch isn't an issue
+# RUN /opt/conda/bin/pip install -e .
 
 # Set up R environment for reticulate
 RUN Rscript -e "install.packages('reticulate')"
+
+###########################
+### RUNTIME ENVIRONMENT ###
+###########################
+
+FROM base as runtime_environment
+
+# Copy the conda environment from the environment stage
+COPY --from=dev_environment /opt/conda /opt/conda
 
 # Default command to open bash for devcontainer interaction
 CMD ["/bin/bash"]
