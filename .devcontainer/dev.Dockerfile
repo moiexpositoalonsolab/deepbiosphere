@@ -31,10 +31,10 @@ RUN apt-get update && apt-get install -y \
 
 # Copy deepbiosphere src
 COPY . /workspace/deepbiosphere
-WORKDIR /workspace
+WORKDIR /workspace/deepbiosphere
 
 # Install conda environment
-RUN conda env create -f deepbiosphere/.devcontainer/environment.yml
+RUN conda env create -f .devcontainer/environment.yml
 
 # Install deepbiosphere package dependencies using pip
 RUN /opt/conda/bin/pip install -e .
