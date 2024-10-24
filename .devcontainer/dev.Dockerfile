@@ -29,13 +29,12 @@ RUN apt-get update && apt-get install -y \
     gcc g++ r-base \
     && apt-get clean
 
-# Install Python dependencies with conda
-COPY .devcontainer/environment.yml /workspace/environment.yml
-
-# Clone the deepbiosphere repository
+# Copy deepbiosphere src
+COPY . /workspace/deepbiosphere
 WORKDIR /workspace
-RUN conda env create -f environment.yml
-RUN git clone https://github.com/moiexpositoalonsolab/deepbiosphere.git
+
+# Install conda environment
+RUN conda env create -f deepbiosphere/.devcontainer/environment.yml
 
 # Set up R environment for reticulate
 RUN Rscript -e "install.packages('reticulate')"

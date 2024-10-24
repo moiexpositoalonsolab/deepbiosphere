@@ -4,9 +4,7 @@
     "dockerfile": "dev.Dockerfile",
     "context": "../"
   },
-  "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind" 
-  ],
+  "mounts": ["source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind"],
   "customizations": {
     "vscode": {
       "settings": {
@@ -20,6 +18,5 @@
     "ms-vscode.cpptools",
     "ms-vscode-remote.remote-containers"
   ],
-  "forwardPorts": [],
-  "remoteUser": "vscode"
+  "forwardPorts": []
 }
