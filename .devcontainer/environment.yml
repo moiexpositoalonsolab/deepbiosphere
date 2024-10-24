@@ -1,0 +1,12 @@
+name: deepbiosphere
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pytorch
+  - torchvision
+  - inplace-abn
+  - rpy2
+  - shapely
+  - pygeos
