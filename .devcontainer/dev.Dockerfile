@@ -36,6 +36,9 @@ WORKDIR /workspace
 # Install conda environment
 RUN conda env create -f deepbiosphere/.devcontainer/environment.yml
 
+# Install deepbiosphere package dependencies using pip
+RUN /opt/conda/bin/pip install -e .
+
 # Set up R environment for reticulate
 RUN Rscript -e "install.packages('reticulate')"
 

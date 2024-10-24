@@ -4,7 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - pytorch
+  - torch
   - torchvision
   - inplace-abn
   - rpy2
