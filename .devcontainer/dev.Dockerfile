@@ -44,9 +44,8 @@ WORKDIR /workspace/deepbiosphere
 # Install conda environment
 RUN conda env create -f .devcontainer/environment.yml
 
-# Install deepbiosphere package dependencies using pip
-## DEBUG: doing this interactively in the container to ensure torch isn't an issue
-# RUN /opt/conda/bin/pip install -e .
+# Install deepbiosphere package dependencies using pip, within the conda environment
+RUN conda activate deepbiosphere && pip install -e .
 
 # Set up R environment for reticulate
 RUN Rscript -e "install.packages('reticulate')"
