@@ -25,7 +25,7 @@ IMAGENET_CHANS = 3
 
 ## ---------- Paths to important directories ---------- ##
 
- paths = SimpleNamespace(
+paths = SimpleNamespace(
     OCCS = '/your/path/here/',
     SHPFILES = '/your/path/here/',
     MODELS = '/your/path/here/',
@@ -37,7 +37,8 @@ IMAGENET_CHANS = 3
     DOCS = '/your/path/here/',
     SCRATCH = '/your/path/here/',
     RUNS = '/your/path/here/',
-    BLOB_ROOT = 'https://naipblobs.blob.core.windows.net/')
+    BLOB_ROOT = 'https://naipblobs.blob.core.windows.net/'
+)
 
 ## ---------- Base class for function type checking enum ---------- ##
 
