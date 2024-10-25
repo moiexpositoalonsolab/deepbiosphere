@@ -61,18 +61,18 @@ RUN touch ~/.netrc
 RUN echo "machine api.gbif.org login gbif password gbif" > ~/.netrc
 
 # Make directories for local data storage
-RUN mkdir -p /workspace/devcontainer/data/occs
-RUN mkdir /workspaces/devcontainer/data/occs/
-RUN mkdir /workspaces/devcontainer/data/shpfiles/
-RUN mkdir /workspaces/devcontainer/data/models/
-RUN mkdir /workspaces/devcontainer/data/images/
-RUN mkdir /workspaces/devcontainer/data/rasters/
-RUN mkdir /workspaces/devcontainer/data/baselines/
-RUN mkdir /workspaces/devcontainer/data/results/
-RUN mkdir /workspaces/devcontainer/data/misc/
-RUN mkdir /workspaces/devcontainer/data/docs/
-RUN mkdir /workspaces/devcontainer/data/scratch/
-RUN mkdir /workspaces/devcontainer/data/runs/
+RUN mkdir -p /workspace/devcontainer/data/occs \
+    && mkdir /workspaces/devcontainer/data/occs/ \
+    && mkdir /workspaces/devcontainer/data/shpfiles/ \
+    && mkdir /workspaces/devcontainer/data/models/ \
+    && mkdir /workspaces/devcontainer/data/images/ \
+    && mkdir /workspaces/devcontainer/data/rasters/ \
+    && mkdir /workspaces/devcontainer/data/baselines/ \
+    && mkdir /workspaces/devcontainer/data/results/ \
+    && mkdir /workspaces/devcontainer/data/misc/ \
+    && mkdir /workspaces/devcontainer/data/docs/ \
+    && mkdir /workspaces/devcontainer/data/scratch/ \
+    && mkdir /workspaces/devcontainer/data/runs/
 
 # Copy the conda environment from the environment stage
 COPY --from=dev_environment /opt/conda /opt/conda
