@@ -156,7 +156,6 @@ def request_gbif_records(gbif_user, gbif_email, organism, start_date="2015", end
     else:
         area_json = {
             "type": "within",
-            "key": "GEOMETRY",
             "geometry": wkt_geometry
         }
 
