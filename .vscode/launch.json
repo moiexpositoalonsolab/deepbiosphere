@@ -31,6 +31,34 @@
       "justMyCode": true,
       "console": "integratedTerminal",
       "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "Python: Build Data",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/deepbiosphere/Build_Data.py",
+      "args": [
+        "--dset_path",
+        "/workspace/devcontainer/data/occs/data/occs/plant_2018_2019_USA_5_1_acq2024_10_25.csv",
+        "--daset_id",
+        "test_westernJOTR_small",
+        "--sep",
+        "\\t",
+        "--year",
+        "2012",
+        "--state",
+        "ca",
+        "--threshold",
+        "500",
+        "--idCol",
+        "gbifID",
+        "--parallel",
+        "0"
+      ],
+      "python": "/opt/conda/envs/deepbiosphere/bin/python",
+      "justMyCode": true,
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env"
     }
   ]
 }
