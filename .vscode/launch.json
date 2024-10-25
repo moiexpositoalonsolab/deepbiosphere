@@ -39,7 +39,7 @@
       "program": "${workspaceFolder}/src/deepbiosphere/Build_Data.py",
       "args": [
         "--dset_path",
-        "/workspace/devcontainer/data/occs/data/occs/plant_2018_2019_USA_5_1_acq2024_10_25.csv",
+        "/workspaces/devcontainer/data/occs/data/occs/plant_2018_2019_USA_5_1_acq2024_10_25.csv",
         "--daset_id",
         "test_westernJOTR_small",
         "--sep",
