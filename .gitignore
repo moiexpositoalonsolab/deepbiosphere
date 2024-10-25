@@ -60,3 +60,6 @@ test.py
 
 # Whitelist the .devcontainer folder to follow devcontainer conventions
 !.devcontainer/
+
+# Whitelist vscode debugger configurations
+!.vscode/
