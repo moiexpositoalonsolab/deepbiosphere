@@ -16,18 +16,18 @@ import datetime
 # country code from https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3  [code].[state number]_1
 # where state number is the alphabetical sorting of states
 # TODO: use GADM to resolve state / country names to their administrative area ids
-def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="2022", area=['USA.5_1'], wkt_geometry=None):
+def request_gbif_records(gbif_user, gbif_email, organism, start_date="2015", end_date="2022", area=['USA.5_1'], wkt_geometry=None):
 
     # confirm email roughly matches email shape
     if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-        raise ValueError("It looks like {} is not a valid email address!".format(email))
+        raise ValueError("It looks like {} is not a valid email address!".format(gbif_email))
 
 
     # create download predicate json file
     down_pred = {
-        'creator' : gbif_usr,
+        'creator' : gbif_user,
         "notificationAddresses": [
-            email
+            gbif_email
         ],
         "sendNotification": True,
         "format": "SIMPLE_CSV",
@@ -86,7 +86,7 @@ def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="20
 
     taxon_json = None
     # get the taxon and add it to json
-    if taxon == 'animal':
+    if organism == 'animal':
 
         taxon_json = {
                     "type": "equals",
@@ -94,21 +94,21 @@ def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="20
                     "value": "1",
                     "matchCase": False
                 }
-    elif taxon == 'plant':
+    elif organism == 'plant':
         taxon_json = {
                     "type": "equals",
                     "key": "TAXON_KEY",
                     "value": "6", 
                     "matchCase": False
                 }
-    elif taxon == 'bacteria':
+    elif organism == 'bacteria':
         taxon_json = {
                     "type": "equals",
                     "key": "TAXON_KEY",
                     "value": "3",
                     "matchCase": False
                 }
-    elif taxon == 'plantanimal':
+    elif organism == 'plantanimal':
         # do a group join
         taxon_json = {
             "type": "or",
