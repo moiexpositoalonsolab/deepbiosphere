@@ -16,8 +16,8 @@ RUN apt-get update \
 
 # Install miniconda
 ENV CONDA_DIR=/opt/conda
-RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
-    /bin/bash ~/miniconda.sh -b -p /opt/conda
+RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
+    && /bin/bash ~/miniconda.sh -b -p /opt/conda
 
 # Put conda in path so we can use conda activate
 ENV PATH=$CONDA_DIR/bin:$PATH
@@ -57,8 +57,8 @@ RUN Rscript -e "install.packages('reticulate')"
 FROM base as runtime_environment
 
 # Make .netrc file for auth with GBIF
-RUN touch ~/.netrc
-RUN echo "machine api.gbif.org login gbif password gbif" > ~/.netrc
+RUN touch ~/.netrc \
+    && echo "machine api.gbif.org login gbif password gbif" > ~/.netrc
 
 # Make directories for local data storage
 RUN mkdir -p /workspace/devcontainer/data/occs \
