@@ -19,7 +19,7 @@ import datetime
 def request_gbif_records(gbif_user, gbif_email, organism, start_date="2015", end_date="2022", area=['USA.5_1'], wkt_geometry=None):
 
     # confirm email roughly matches email shape
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", gbif_email):
         raise ValueError("It looks like {} is not a valid email address!".format(gbif_email))
 
 
