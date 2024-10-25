@@ -57,6 +57,9 @@ RUN Rscript -e "install.packages('reticulate')"
 
 FROM base as runtime_environment
 
+# Make .netrc file for auth with GBIF
+RUN echo "machine api.gbif.org login gbif password gbif" > ~/.netrc
+
 # Make directories for local data storage
 RUN mkdir -p /workspace/devcontainer/data/occs
 RUN mkdir /workspaces/devcontainer/data/occs/
