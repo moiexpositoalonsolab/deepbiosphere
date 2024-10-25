@@ -212,7 +212,7 @@ def request_gbif_records(gbif_user, gbif_email, organism, start_date="2015", end
     if resp.json()['status'] == "SUCCEEDED":
         req = requests.get("https://api.gbif.org/v1/occurrence/download/{}".format(id.text))
         curr_time = datetime.datetime.now()
-        savepath = f"{paths.OCCS}{taxon}_{start_date}_{end_date}_{area[0].replace('.','_')}_acq{curr_time.year}_{curr_time.month}_{curr_time.day}"
+        savepath = f"{paths.OCCS}{organism}_{start_date}_{end_date}_{area[0].replace('.','_')}_acq{curr_time.year}_{curr_time.month}_{curr_time.day}"
         savelink = f"{savepath}.zip"
         download_url(req.json()['downloadLink'], savelink)
         print("data successfully saved to {}".format(savelink))
