@@ -57,6 +57,20 @@ RUN Rscript -e "install.packages('reticulate')"
 
 FROM base as runtime_environment
 
+# Make directories for local data storage
+RUN mkdir -p /workspace/devcontainer/data/occs
+RUN mkdir /workspaces/devcontainer/data/occs/
+RUN mkdir /workspaces/devcontainer/data/shpfiles/
+RUN mkdir /workspaces/devcontainer/data/models/
+RUN mkdir /workspaces/devcontainer/data/images/
+RUN mkdir /workspaces/devcontainer/data/rasters/
+RUN mkdir /workspaces/devcontainer/data/baselines/
+RUN mkdir /workspaces/devcontainer/data/results/
+RUN mkdir /workspaces/devcontainer/data/misc/
+RUN mkdir /workspaces/devcontainer/data/docs/
+RUN mkdir /workspaces/devcontainer/data/scratch/
+RUN mkdir /workspaces/devcontainer/data/runs/
+
 # Copy the conda environment from the environment stage
 COPY --from=dev_environment /opt/conda /opt/conda
 
