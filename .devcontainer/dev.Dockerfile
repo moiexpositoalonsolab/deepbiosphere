@@ -58,7 +58,7 @@ FROM base as runtime_environment
 
 # Make .netrc file for auth with GBIF
 RUN touch ~/.netrc \
-    && echo "machine api.gbif.org login gbif password gbif" > ~/.netrc
+    && echo "machine api.gbif.org login YOUR_GBIF_LOGIN password YOUR_GBIF_PASSWORD" > ~/.netrc
 
 # Make directories for local data storage
 RUN mkdir -p /workspace/devcontainer/data/occs \
