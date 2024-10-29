@@ -61,8 +61,7 @@ RUN touch ~/.netrc \
     && echo "machine api.gbif.org login YOUR_GBIF_LOGIN password YOUR_GBIF_PASSWORD" > ~/.netrc
 
 # Make directories for local data storage
-RUN mkdir -p /workspace/devcontainer/data/occs \
-    && mkdir /workspaces/devcontainer/data/occs/ \
+RUN mkdir -p /workspaces/devcontainer/data/occs \
     && mkdir /workspaces/devcontainer/data/shpfiles/ \
     && mkdir /workspaces/devcontainer/data/models/ \
     && mkdir /workspaces/devcontainer/data/images/ \
