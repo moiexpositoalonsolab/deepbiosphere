@@ -54,7 +54,7 @@ RUN Rscript -e "install.packages('reticulate')"
 ### RUNTIME ENVIRONMENT ###
 ###########################
 
-FROM base as runtime_environment
+FROM base AS runtime_environment
 
 # Make .netrc file for auth with GBIF
 RUN touch ~/.netrc \
