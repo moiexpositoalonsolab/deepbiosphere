@@ -13,3 +13,5 @@ dependencies:
   - rpy2
   - shapely
   - pygeos
+  - pip
+    - -e .
