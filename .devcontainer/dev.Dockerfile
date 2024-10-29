@@ -42,10 +42,11 @@ COPY . /workspace/deepbiosphere
 WORKDIR /workspace/deepbiosphere
 
 # Install conda environment
-RUN conda env create -f .devcontainer/environment.yml
+RUN conda env create -f .devcontainer/environment.yml \
+    && conda init
 
 # Install deepbiosphere package dependencies using pip, within the conda environment
-RUN conda init \ 
+RUN source ~/.bashrc \ 
     && conda activate deepbiosphere \
     && pip install -e .
 
