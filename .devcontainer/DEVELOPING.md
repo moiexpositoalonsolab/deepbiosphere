@@ -32,7 +32,7 @@ Other flags / considerations:
 
 It is recommended to `--recreate` and make sure everything still works before merging any PRs.
 
-_DevPod also provides `providers` to deploy the very same dev environment to cloud infrastructure (`AWS`, `GCP`, `Azure`, etc) to more seamlessly scale up and deploy. Information will be provided here when this is vetted._
+_DevPod also provides `providers` to deploy the very same dev environment to cloud infrastructure (`AWS`, `GCP`, `Azure`, etc) to more seamlessly scale up and deploy. Information will be provided here when this is implemented._
 
 #### Important Notes
 
