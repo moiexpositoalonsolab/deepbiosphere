@@ -22,9 +22,17 @@ DevPod takes the same `devcontainer.json` and does some extra work to prepare yo
 devpod up git@github.com:SchmidtDSE/deepbiosphere@main --devcontainer-path .devcontainer/devcontainer.json --debug  --ide vscode
 ```
 
-Note the @`branch` format - this allows you to clone a particular branch for development.
+Other flags / considerations:
 
-Howevever, DevPod also provides `providers` to deploy the very same dev environment to cloud infrastructure (`AWS`, `GCP`, `Azure`, etc) to more seamlessly scale up and deploy. Information will be provided here when this is vetted.
+- The @`branch` format within the git path - this allows you to clone a particular branch for development.
+
+- The flag --recreate will re-run any relevant bits in `devcontainer.json` and `dev.Dockerfile`.
+
+- The **more extreme** flag `--reset` will re-clone the repo and re-run any relevant bits in `devcontainer.json` and `dev.Dockerfile`. **This will wipe any local changes!**
+
+It is recommended to `--recreate` and make sure everything still works before merging any PRs.
+
+_DevPod also provides `providers` to deploy the very same dev environment to cloud infrastructure (`AWS`, `GCP`, `Azure`, etc) to more seamlessly scale up and deploy. Information will be provided here when this is vetted._
 
 #### Important Notes
 
