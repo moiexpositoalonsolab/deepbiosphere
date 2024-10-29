@@ -46,9 +46,9 @@ RUN conda env create -f .devcontainer/environment.yml \
     && conda init
 
 # Install deepbiosphere package dependencies using pip, within the conda environment
-RUN source ~/.bashrc \ 
+RUN bash -c "source ~/.bashrc \
     && conda activate deepbiosphere \
-    && pip install -e .
+    && pip install -e ."
 
 # Set up R environment for reticulate
 RUN Rscript -e "install.packages('reticulate')"
