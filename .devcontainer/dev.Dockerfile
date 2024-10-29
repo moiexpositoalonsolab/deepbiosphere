@@ -45,7 +45,7 @@ WORKDIR /workspace/deepbiosphere
 RUN bash -c " \
     conda env create -f .devcontainer/environment.yml \
     && conda init \
-    source ~/.bashrc \
+    && source ~/.bashrc \
     && conda activate deepbiosphere \
     && pip install -e .\
 "
