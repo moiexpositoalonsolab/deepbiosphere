@@ -26,7 +26,7 @@ Other flags / considerations:
 
 - The @`branch` format within the git path - this allows you to clone a particular branch for development.
 
-- The flag --recreate will re-run any relevant bits in `devcontainer.json` and `dev.Dockerfile`.
+- The flag `--recreate` will re-run any relevant bits in `devcontainer.json` and `dev.Dockerfile`.
 
 - The **more extreme** flag `--reset` will re-clone the repo and re-run any relevant bits in `devcontainer.json` and `dev.Dockerfile`. **This will wipe any local changes!**
 
