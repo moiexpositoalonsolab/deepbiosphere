@@ -36,6 +36,12 @@ _DevPod also provides `providers` to deploy the very same dev environment to clo
 
 #### Important Notes
 
+- pip and conda don't play nice - for now, you will need to excute the following after build:
+
+  - conda init
+  - restart bash or start a new terminal instance
+  - `pip install -e .` to use `setup.py` to install dependencies
+
 - In order to connect to GBIF, you will need to configure `~/.netrc` with your GBIF credentials. The Docker build script will create this file with dummy credentials, but you will need to fill in your _real_ credentials.
 
 - You will also need a .env in the _root of the repo_ that contains the same contents as `example.env`. Some of this you shouldn't have to change (mostly, the paths to relevant files inside the running container), but some is specific to you. Note that this needs to be done in addition to the above `~/.netrc` stuff.
