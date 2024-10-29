@@ -41,14 +41,14 @@ RUN apt-get update && apt-get install -y \
 COPY . /workspace/deepbiosphere
 WORKDIR /workspace/deepbiosphere
 
-# Install conda environment
-RUN conda env create -f .devcontainer/environment.yml \
-    && conda init
-
 # Install deepbiosphere package dependencies using pip, within the conda environment
-RUN bash -c "source ~/.bashrc \
+RUN bash -c " \
+    conda env create -f .devcontainer/environment.yml \
+    && conda init \
+    source ~/.bashrc \
     && conda activate deepbiosphere \
-    && pip install -e ."
+    && pip install -e .\
+"
 
 # Set up R environment for reticulate
 RUN Rscript -e "install.packages('reticulate')"
