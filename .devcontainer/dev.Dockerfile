@@ -58,17 +58,17 @@ RUN touch ~/.netrc \
     && echo "machine api.gbif.org login YOUR_GBIF_LOGIN password YOUR_GBIF_PASSWORD" > ~/.netrc
 
 # Make directories for local data storage
-RUN mkdir -p /workspaces/devcontainer/data/occs \
-    && mkdir /workspaces/devcontainer/data/shpfiles/ \
-    && mkdir /workspaces/devcontainer/data/models/ \
-    && mkdir /workspaces/devcontainer/data/images/ \
-    && mkdir /workspaces/devcontainer/data/rasters/ \
-    && mkdir /workspaces/devcontainer/data/baselines/ \
-    && mkdir /workspaces/devcontainer/data/results/ \
-    && mkdir /workspaces/devcontainer/data/misc/ \
-    && mkdir /workspaces/devcontainer/data/docs/ \
-    && mkdir /workspaces/devcontainer/data/scratch/ \
-    && mkdir /workspaces/devcontainer/data/runs/
+RUN mkdir -p /workspaces/deepbiosphere/data/occs \
+    && mkdir /workspaces/deepbiosphere/data/shpfiles/ \
+    && mkdir /workspaces/deepbiosphere/data/models/ \
+    && mkdir /workspaces/deepbiosphere/data/images/ \
+    && mkdir /workspaces/deepbiosphere/data/rasters/ \
+    && mkdir /workspaces/deepbiosphere/data/baselines/ \
+    && mkdir /workspaces/deepbiosphere/data/results/ \
+    && mkdir /workspaces/deepbiosphere/data/misc/ \
+    && mkdir /workspaces/deepbiosphere/data/docs/ \
+    && mkdir /workspaces/deepbiosphere/data/scratch/ \
+    && mkdir /workspaces/deepbiosphere/data/runs/
 
 # Copy the conda environment from the environment stage
 COPY --from=dev_environment /opt/conda /opt/conda
