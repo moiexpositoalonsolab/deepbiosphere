@@ -1,0 +1,22 @@
+{
+  "name": "deepbiosphere-devcontainer",
+  "build": {
+    "dockerfile": "dev.Dockerfile",
+    "context": "../"
+  },
+  "mounts": ["source=${localEnv:HOME}/.ssh,target=/root/.ssh,type=bind"],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.shell.linux": "/bin/bash"
+      }
+    }
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-toolsai.jupyter",
+    "ms-vscode.cpptools",
+    "ms-vscode-remote.remote-containers"
+  ],
+  "forwardPorts": []
+}

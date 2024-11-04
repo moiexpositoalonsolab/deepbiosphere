@@ -56,3 +56,10 @@ dbs_memex
 scripts/
 test.py
 .Rproj.user
+
+
+# Whitelist the .devcontainer folder to follow devcontainer conventions
+!.devcontainer/
+
+# Whitelist vscode debugger configurations
+!.vscode/

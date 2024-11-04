@@ -25,19 +25,20 @@ IMAGENET_CHANS = 3
 
 ## ---------- Paths to important directories ---------- ##
 
- paths = SimpleNamespace(
-    OCCS = '/your/path/here/',
-    SHPFILES = '/your/path/here/',
-    MODELS = '/your/path/here/',
-    IMAGES = '/your/path/here/',
-    RASTERS = '/your/path/here/',
-    BASELINES = '/your/path/here/',
-    RESULTS = '/your/path/here/',
-    MISC = '/your/path/here/',
-    DOCS = '/your/path/here/',
-    SCRATCH = '/your/path/here/',
-    RUNS = '/your/path/here/',
-    BLOB_ROOT = 'https://naipblobs.blob.core.windows.net/')
+paths = SimpleNamespace(
+    OCCS=os.getenv('PATH_OCCS'),
+    SHPFILES=os.getenv('PATH_SHPFILES'),
+    MODELS=os.getenv('PATH_MODELS'),
+    IMAGES=os.getenv('PATH_IMAGES'),
+    RASTERS=os.getenv('PATH_RASTERS'),
+    BASELINES=os.getenv('PATH_BASELINES'),
+    RESULTS=os.getenv('PATH_RESULTS'),
+    MISC=os.getenv('PATH_MISC'),
+    DOCS=os.getenv('PATH_DOCS'),
+    SCRATCH=os.getenv('PATH_SCRATCH'),
+    RUNS=os.getenv('PATH_RUNS'),
+    BLOB_ROOT=os.getenv('PATH_BLOB_ROOT', 'https://naipblobs.blob.core.windows.net/')
+)
 
 ## ---------- Base class for function type checking enum ---------- ##
 

@@ -12,23 +12,22 @@ import requests
 import argparse
 import datetime
 
-
 # countries is a list of countries, states is a list of GADM GIDs which are constructed as
 # country code from https://en.wikipedia.org/wiki/ISO_3166-1_alpha-3  [code].[state number]_1
 # where state number is the alphabetical sorting of states
 # TODO: use GADM to resolve state / country names to their administrative area ids
-def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="2022", area=['USA.5_1']):
+def request_gbif_records(gbif_user, gbif_email, organism, start_date="2015", end_date="2022", area=['USA.5_1'], wkt_geometry=None):
 
     # confirm email roughly matches email shape
-    if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
-        raise ValueError("It looks like {} is not a valid email address!".format(email))
+    if not re.match(r"[^@]+@[^@]+\.[^@]+", gbif_email):
+        raise ValueError("It looks like {} is not a valid email address!".format(gbif_email))
 
 
     # create download predicate json file
     down_pred = {
-        'creator' : gbif_usr,
+        'creator' : gbif_user,
         "notificationAddresses": [
-            email
+            gbif_email
         ],
         "sendNotification": True,
         "format": "SIMPLE_CSV",
@@ -87,7 +86,7 @@ def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="20
 
     taxon_json = None
     # get the taxon and add it to json
-    if taxon == 'animal':
+    if organism == 'animal':
 
         taxon_json = {
                     "type": "equals",
@@ -95,21 +94,21 @@ def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="20
                     "value": "1",
                     "matchCase": False
                 }
-    elif taxon == 'plant':
+    elif organism == 'plant':
         taxon_json = {
                     "type": "equals",
                     "key": "TAXON_KEY",
                     "value": "6", 
                     "matchCase": False
                 }
-    elif taxon == 'bacteria':
+    elif organism == 'bacteria':
         taxon_json = {
                     "type": "equals",
                     "key": "TAXON_KEY",
                     "value": "3",
                     "matchCase": False
                 }
-    elif taxon == 'plantanimal':
+    elif organism == 'plantanimal':
         # do a group join
         taxon_json = {
             "type": "or",
@@ -135,26 +134,33 @@ def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="20
     # get the correct state / country
     # going to use gadm gids
     # will maybe also include the option for country
-    area_json = {}
-    if len(area) == 1:
-        area_json = {
-            "type": "equals",
-            "key": "GADM_GID",
-            "value": area[0],
-            "matchCase": False
-        }
+    if not wkt_geometry: # For now, only use GADM GIDs if we don't directly pass a WKT geometry
+        area_json = {}
+        if len(area) == 1:
+            area_json = {
+                "type": "equals",
+                "key": "GADM_GID",
+                "value": area[0],
+                "matchCase": False
+            }
+        else:
+            area_json = {
+                "type" : "or",
+                "predicates":[{
+                    "type": "equals",
+                "key": "GADM_GID",
+                "value": a,
+                "matchCase": False
+                } for a in area]
+            }
     else:
         area_json = {
-            "type" : "or",
-            "predicates":[{
-                "type": "equals",
-            "key": "GADM_GID",
-            "value": a,
-            "matchCase": False
-            } for a in area]
+            "type": "within",
+            "geometry": wkt_geometry
         }
+
     down_pred['predicate']['predicates'].append(area_json)
-    
+
 
 
     # get the correct time range
@@ -206,7 +212,7 @@ def request_gbif_records(gbif_usr, email, taxon, start_date="2015", end_date="20
     if resp.json()['status'] == "SUCCEEDED":
         req = requests.get("https://api.gbif.org/v1/occurrence/download/{}".format(id.text))
         curr_time = datetime.datetime.now()
-        savepath = f"{paths.OCCS}{taxon}_{start_date}_{end_date}_{area[0].replace('.','_')}_acq{curr_time.year}_{curr_time.month}_{curr_time.day}"
+        savepath = f"{paths.OCCS}{organism}_{start_date}_{end_date}_{area[0].replace('.','_')}_acq{curr_time.year}_{curr_time.month}_{curr_time.day}"
         savelink = f"{savepath}.zip"
         download_url(req.json()['downloadLink'], savelink)
         print("data successfully saved to {}".format(savelink))
@@ -245,12 +251,13 @@ def download_url(url, save_path, chunk_size=128):
 if __name__ == "__main__":
 
     args = argparse.ArgumentParser()
-    args.add_argument('--gbif_user', type=str, required=True, help='Gbif user id')
-    args.add_argument('--gbif_email', type=str, required=True, help='Email address associated with gbif account', default=None)
+    args.add_argument('--gbif_user', type=str, required=False, default=os.getenv("GBIF_USER"), help='Gbif user id')
+    args.add_argument('--gbif_email', type=str, required=False, default=os.getenv("GBIF_EMAIL"), help='Email address associated with gbif account')
     args.add_argument('--organism', type=str, required=True, help='What organism/s to download', choices=['bacteria', 'plant','animal','plantanimal'])
     args.add_argument('--start_date', type=str, help='Collect observations on and after this year', default='2015')
     args.add_argument('--end_date', type=str, help='Collect observations on and before this year', default='2022')
     args.add_argument('--area', type=str, help='GADM area code for where observations should be taken from', default=['USA.5_1'])
+    args.add_argument('--wkt_geometry', type=str, required=False, help='WKT geometry for where observations should be taken from', default=None)
     args, _ = args.parse_known_args()
-    
-    request_gbif_records(args.gbif_user, args.gbif_email, args.organism, start_date=args.start_date, end_date=args.end_date, area=args.area)
+
+    request_gbif_records(**vars(args))

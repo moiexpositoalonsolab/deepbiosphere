@@ -1,0 +1,64 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Inference",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/deepbiosphere/Inference.py",
+      "args": ["--band", "-1", "--model", "rf", "--filename", "debug_test"],
+      "python": "/opt/conda/envs/deepbiosphere/bin/python",
+      "justMyCode": true,
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "Python: Download GBIF Data",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/deepbiosphere/Download_GBIF_Data.py",
+      "args": [
+        "--organism",
+        "plant",
+        "--start_date",
+        "2018",
+        "--end_date",
+        "2019",
+        "--wkt_geometry",
+        "POLYGON ((-116.264191 34.1209, -116.265564 34.077687, -116.453705 34.074275, -116.457825 33.976392, -116.151581 33.840764, -115.787659 33.836201, -115.801392 34.039005, -116.004639 34.036729, -116.003265 34.073137, -116.036224 34.077687, -116.05957 34.119763, -116.264191 34.1209))"
+      ],
+      "python": "/opt/conda/envs/deepbiosphere/bin/python",
+      "justMyCode": true,
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "name": "Python: Build Data",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/deepbiosphere/Build_Data.py",
+      "args": [
+        "--dset_path",
+        "/workspaces/devcontainer/data/occs/plant_2018_2019_USA_5_1_acq2024_10_25.csv",
+        "--daset_id",
+        "test_westernJOTR_small",
+        "--sep",
+        "\\t",
+        "--year",
+        "2012",
+        "--state",
+        "ca",
+        "--threshold",
+        "500",
+        "--idCol",
+        "gbifID",
+        "--parallel",
+        "0"
+      ],
+      "python": "/opt/conda/envs/deepbiosphere/bin/python",
+      "justMyCode": true,
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env"
+    }
+  ]
+}
