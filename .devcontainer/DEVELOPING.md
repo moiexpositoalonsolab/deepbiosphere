@@ -40,6 +40,7 @@ _DevPod also provides `providers` to deploy the very same dev environment to clo
 
   - conda init
   - restart bash or start a new terminal instance
+  - `conda activate deepbiosphere`
   - `pip install -e .` to use `setup.py` to install dependencies
 
 - In order to connect to GBIF, you will need to configure `~/.netrc` with your GBIF credentials. The Docker build script will create this file with dummy credentials, but you will need to fill in your _real_ credentials.
