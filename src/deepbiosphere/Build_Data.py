@@ -85,7 +85,8 @@ def get_bioclim_means(base_dir=paths.RASTERS, ras_name='wc_30s_current', timefra
     return means, stds
 
 
-def get_bioclim_rasters(base_dir=paths.RASTERS, ras_name='current', timeframe='current', crs=naip.CRS.BIOCLIM_CRS, out_range=(-1,1), state='ca'):
+
+def get_bioclim_rasters(base_dir=paths.RASTERS, ras_name='wc_30s_current', timeframe='current', crs=naip.CRS.BIOCLIM_CRS, out_range=(-1,1), state='ca'):
     # TODO: only works for us, gadm at the moment..
     shpfile = naip.get_state_outline(state)
     # first, get raster files
@@ -127,6 +128,7 @@ def get_bioclim_rasters(base_dir=paths.RASTERS, ras_name='current', timeframe='c
         for j, r2 in enumerate(ras_agg):
             assert r1[0].shape == r2[0].shape, f"raster sizes ({r1[0].shape}, {r2[0].shape}) don't match for {i}, {j} bioclim variables!"
     return ras_agg
+
 
 
 
@@ -589,7 +591,8 @@ def make_images(daset:gpd.GeoDataFrame, year, tiff_dset_name, idCol='gbifID'):
                 # x, y = daset.loc[i].geometry.xy
             # else:
             # TODO: should be obs, not daset.loc?? 
-            x, y = daset.loc[i].geometry.xy
+            # x, y = daset.loc[i].geometry.xy
+            x, y = obs.geometry.xy
             # get the row/col starting location of the point in the raster
             xx,yy = rasterio.transform.rowcol(src.transform, x,  y)
             # rasterio returns arrays, collapse down to ints
@@ -1008,7 +1011,7 @@ def make_dataset(dset_path, daset_id, latname, loname, sep, year, state, thresho
     res = 1.0 # TODO: going to see if more adjacent species increases accuracy for later years
     # this boolean allows us to just add the images if we so desire
     # keep only the points inside of rasters
-    rasters = get_bioclim_rasters(state=state, normalize=normalize)
+    rasters = get_bioclim_rasters(state=state)
     daset = add_bioclim(daset, rasters)
     daset = filter_raster_oob(daset)
     # add ecoregion
