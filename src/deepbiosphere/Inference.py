@@ -303,6 +303,11 @@ def run_inference(device, cfg, epoch, batchsize, nworkers=0, threshold=0.5, fnam
     return evaluate_model(test_dset.all_specs_multi.numpy(), y_pred, y_true_multi, y_pred_multi, y_true_single, y_pred_single, shared_species, test_dset.metadata.spec_2_id, test_dset.ids, cfg.dataset_name, cfg.band, cfg.model, cfg.loss, cfg.lr, epoch, cfg.exp_id, cfg.pretrain, cfg.batchsize, filename=fname, write_obs=writeobs, thres=threshold)
 
 
+    # deepbioDataset
+    # # test_model -> just need torch dataset
+    # logit_to_proba -> only runs on probs
+    # filter_shared_species -> not necessary bc we're using a pre-existing subset??
+
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     # required ars
