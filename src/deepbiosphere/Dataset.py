@@ -3,6 +3,7 @@ import rasterio
 import geopandas as gpd
 from pyproj import Proj
 from scipy.spatial import cKDTree
+from rasterio.windows import Window
 from shapely.geometry import Point, Polygon, MultiPolygon, LineString, box
 
 # deepbiosphere packages
@@ -310,6 +311,135 @@ class DeepbioDataset(TorchDataset):
         elif self.datatype is DataType.JOINT_NAIP_BIOCLIM:
             fileHandle = np.load(f"{paths.IMAGES}{self.filenames[idx]}")
             img = fileHandle[f"{self.imagekeys[idx]}"]
+            # scale+normalize image
+            # NAIP imagery is 0-255 ints
+            img = utils.scale(img, out_range=(0,1), min_=0, max_=255)
+            img = TF.normalize(torch.tensor(img), self.mean, self.std)
+            img = self.augment(img)
+            return self.batch_datatype(idx, (img, self.bioclim[idx]))
+
+
+
+
+class OccurrenceDataset(TorchDataset):
+
+    
+    def __init__(self, occ_daset, specCol, train_dset_name, datatype, dataset_type, state, year, band, split, augment, prep_onehots=True):
+
+        # load in observations & metadata
+        
+        metadata = load_metadata(train_dset_name)
+        
+        self.band = f"band_{band}" if band >= 0 else 'unif_train_test'
+        self.name = 'calflora'
+        self.year = year
+        self.nspec = len(metadata.spec_2_id)
+        self.ngen = len(metadata.gen_2_id)
+        self.nfam =  len(metadata.fam_2_id)
+        self.train_metadata = metadata
+        self.datatype = DataType[datatype]
+        self.dataset_type = DatasetType[dataset_type]
+        self.total_len = len(daset)
+        # for when using remote sensing data, read in NAIP statistics
+        self.mean = metadata.dataset_means[f"naip_{year}"]['means']
+        self.std = metadata.dataset_means[f"naip_{year}"]['stds']
+        # only relevant for cases where remote sensing data used
+        self.augment = Augment[augment]
+        self.len_dset = len(daset)
+        print(f"{split} dataset has {self.len_dset} points")
+        
+        
+        #convert species to ID
+        missing = set(occ_daset[specCol].tolist()) - set(meta.spec_2_id.keys())
+        if len(missing) > 0:
+            raise ValueError(f'Species {missing} are not present in deepbiosphere!')
+        occ_daset['idCol'] = [meta.spec_2_id[spec] for spec in occ_daset[specCol]]
+        self.ids = occ_daset.idCol
+
+        self.idx_map = map_index(daset.index)
+        self.index = daset.index
+    
+        all_specs = []
+        for spid in daset.ids:
+            specs_tens = np.full((nspec), 0)
+            specs_tens[spid] += 1
+            all_specs.append(specs_tens)
+        
+        self.all_specs_single = torch.tensor(np.stack(all_specs))
+        self.specs = torch.tensor(daset.ids.tolist())
+        
+        # pre-compute bioclim at each lat/lon
+        rasters = build.get_bioclim_rasters(state=state)
+        occ_daset = build.add_bioclim(occ_daset, rasters)
+        occ_daset = build.filter_raster_oob(occ_daset)
+        self.bioclim = check_bioclim(daset, metadata, state)
+        self.nrasters = self.bioclim.shape[1]
+        
+        # grab the scratch files 
+        # for each image so they can be opened on the fly
+        self.tiff_dset_name = f"{state}_100cm_{year}" if str(year) in ['2012', '2014'] else f"{state}_060cm_{year}"
+        self.daset = build.add_filenames(occ_daset, state, year, self.tiff_dset_name, 'idCol')
+        
+
+    def __len__(self):
+        return self.len_dset
+
+    def check_idx(self, df_idx):
+        return df_idx in self.index
+
+    
+    # idx should be a value from 0-N
+    # where N is the length of the dataset
+    # idx should not* be from the original
+    # dataframe index
+
+    # TODO: change this bc only single species...
+    def batch_datatype(self, idx, input_):
+        if self.dataset_type is DatasetType.SINGLE_LABEL:
+            return self.specs[idx], input_
+        elif self.dataset_type is DatasetType.SINGLE_SPECIES:
+            return self.all_specs_single[idx], input_
+        elif self.dataset_type is DatasetType.MULTI_SPECIES:
+            raise ValueError('Multi-label training not implemented for this dataset')
+    
+    def load_naip(self, idx):
+
+        row = daset.iloc[idx]
+        apfo = row.APFONAME
+        fpath = f"naip/{self.year}/{tiff_dset_name}/{apfo[:5]}/{row[f'corr_filename_{self.year}']}"
+        fullpath = f"{paths.SCRATCH}{fpath}"
+        src = rasterio.open(fullpath)
+        
+        # per-tif
+        if int(str(src.crs).split(':')[-1]) != daset.crs.to_epsg():
+            daset = daset.to_crs(src.crs)
+        x, y = daset.iloc[i].geometry.xy
+        # get the row/col starting location of the point in the raster
+        xx,yy = rasterio.transform.rowcol(src.transform, x,  y)
+        # rasterio returns arrays, collapse down to ints
+        xx,yy = xx[0],yy[0]
+        # read data from a 256x256 window centered on observation
+        image_crop = src.read(window=Window(yy-128, xx-128, 256, 256))
+        return image_crop
+    
+    def __getitem__(self, idx):
+
+        # bioclim only
+        if self.datatype is DataType.BIOCLIM:
+            # return labels + input data type
+            return self.batch_datatype(idx, self.bioclim[idx])
+        # naip only
+        elif self.datatype is DataType.NAIP:
+            img = load_naip(idx)
+            # scale+normalize image
+            # NAIP imagery is 0-255 ints
+            img = utils.scale(img, out_range=(0,1), min_=0, max_=255)
+            img = TF.normalize(torch.tensor(img), self.mean, self.std)
+            img = self.augment(img)
+            return self.batch_datatype(idx, img)
+        # both naip and bioclim
+        elif self.datatype is DataType.JOINT_NAIP_BIOCLIM:
+            img = load_naip(idx)
             # scale+normalize image
             # NAIP imagery is 0-255 ints
             img = utils.scale(img, out_range=(0,1), min_=0, max_=255)
