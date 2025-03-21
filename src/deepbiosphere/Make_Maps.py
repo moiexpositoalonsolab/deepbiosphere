@@ -354,7 +354,7 @@ def predict_rasters_list(pred_outline : gpd.GeoDataFrame,
     pred_outline = pred_outline.to_crs(naip_shp.crs)# TODO: Return this!! .dissolve()
     # messy, but how to grab the right directory for the imagery
     sat_res = 60 if pred_year >= 2016 else 100
-    imagery_dir = paths.SCRATCH+f"{cfg.state}_{sat_res}cm_{pred_year}"
+    imagery_dir = paths.SCRATCH+f"naip/{pred_year}/{cfg.state}_{sat_res}cm_{pred_year}"
     rasters = naip.find_rasters_polygon(naip_shp, pred_outline.geometry.iloc[0], imagery_dir)
     # if predictions already exist, ignore the pre-predicted files
     already_done = [r.split('/')[-1].split(f'_{pred_year}')[0] for r in glob.glob(f"{save_dir}*/*_raw*.tif")]
