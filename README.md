@@ -1,5 +1,5 @@
-# *Deepbiosphere*: Mapping plant species with citizen science, remote sensing, and deep learning
-Open-source implementation for plant species distribution mapping using citizen science, remote sensing, and deep convolutional neural networks. Code for downloading the citizen science data, generating the training and testing datasets, training the deep neural networks, fitting baselines, and making maps of species distributions can be found here. Further details and analyses can be found in the [preprint](https://www.biorxiv.org/content/10.1101/2022.08.16.504150v3).
+# *Deepbiosphere*: Code for Deep learning models map rapid plant species changes from citizen science and remote sensing data
+Open-source implementation for plant species distribution mapping using citizen science, remote sensing, and deep convolutional neural networks. Code for downloading the citizen science data, generating the training and testing datasets, training the deep neural networks, fitting baselines, and making maps of species distributions can be found here. Further details and analyses can be found in the [PNAS article](https://www.pnas.org/doi/10.1073/pnas.2318296121).
 
 
 ![graphical description of dataset](readme_imgs/Figure_1_dataset.png)
